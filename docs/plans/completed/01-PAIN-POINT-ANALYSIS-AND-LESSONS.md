@@ -1,4 +1,4 @@
-# 01: Pain Point Analysis & Architectural Lessons from REA
+# 01: Pain-Point Analysis & Generalized Architectural Lessons
 
 ---
 
@@ -61,24 +61,25 @@ Stripped of its historical middleware baggage, an Oracle Form is simply:
 
 ---
 
-## 3. Architectural Lessons from REA (`temp/repos/rea`)
+## 3. Generalized Architectural Lessons
 
-The `temp/repos/rea` repository provides powerful architectural patterns that directly inform our pure-Rust Forms runtime redesign:
+These are technology-neutral patterns applicable to modular applications; they do not depend on
+another project's source code or file layout.
 
-### 3.1 Domain-Driven Design & Invariant Isolation (`src/domain/`)
-- **Lesson**: REA strictly separates pure domain entities (which have zero dependencies on network, disk, or UI) from application orchestrators and external adapters.
+### 3.1 Domain boundaries and invariant isolation
+- **Lesson**: Keep pure domain entities independent of network, disk, and UI concerns; place orchestration and external adapters at explicit boundaries.
 - **Application to OF-Next**:
   - `oracle-forms-core` remains a pure, immutable domain AST model (definitions of blocks, items, geometries, triggers).
   - `oracle-forms-runtime` houses the mutable runtime session entities (Record Buffer, Cursor, Navigation Focus, Validation State) completely decoupled from HTTP, WebSockets, or database drivers.
 
-### 3.2 Strongly-Typed Schema Contracts (`src/contracts/`)
-- **Lesson**: REA uses explicit DTO contracts between the analysis core and external consumers (CLI, MCP, web visualizers).
+### 3.2 Strongly typed contracts
+- **Lesson**: Use explicit data-transfer contracts between application cores and external consumers such as CLIs, services, and visualizers.
 - **Application to OF-Next**:
   - Define serializable Session DTOs (`RecordSetDto`, `FormEventDto`, `LovResultsDto`, `ValidationResultDto`).
   - The Axum web server and browser communicate over a typed JSON protocol (via REST or WebSocket), enabling either a web UI, a headless test runner, or an MCP agent tool to drive the exact same runtime engine.
 
-### 3.3 Pluggable Adapter Pattern (`src/providers/` & `src/native/`)
-- **Lesson**: REA isolates tool-specific bridges (Ghidra, Hopper, Cutter, Frida) behind unified abstract traits.
+### 3.3 Pluggable adapter pattern
+- **Lesson**: Isolate vendor- or tool-specific integrations behind stable, narrow interfaces.
 - **Application to OF-Next**:
   - Define a generic `DatabaseProvider` trait:
     ```rust
@@ -97,8 +98,8 @@ The `temp/repos/rea` repository provides powerful architectural patterns that di
     2. `PostgresProvider`: Connecting to PostgreSQL for migrated architectures.
     3. `SqliteMockProvider`: Offline local development and instant automated test execution.
 
-### 3.4 Session & Context Isolation
-- **Lesson**: REA encapsulates all state inside isolated session containers with clear lifecycles, timeouts, and resource budgets.
+### 3.4 Session and context isolation
+- **Lesson**: Encapsulate mutable state in isolated sessions with clear lifecycles, timeouts, and resource budgets.
 - **Application to OF-Next**:
   - Multi-user web viewer: Each browser tab instantiates an isolated `FormSession`.
   - Transaction isolation: Each session maintains its own database transaction, undo buffer, and dirty record set, mirroring Oracle Forms' authentic transactional model without cross-session pollution.

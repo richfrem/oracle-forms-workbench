@@ -1,7 +1,7 @@
 # 06: Unified Implementation Roadmap & Phased Milestones
 
 > **Document Status**: Revised Roadmap Specification  
-> **Unified Numbering Scheme**: Phases A through G, Track T, Track K
+> **Unified Numbering Scheme**: Phases A through H (H proposed), Track T, Track K
 
 ---
 
@@ -38,8 +38,51 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ Track K (Ongoing): Conformance Testing Kit                                  │
 │ Autonomous trace logger ofw_trace and golden trace parity testing.          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Phase H (Proposed): Dual-Runtime Session & Parity Harness                   │
+│ Legacy login/role initialization, multi-form state, and paired verification.│
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+## 1.1 Current implementation status and open work
+
+Phases A-G and Track T are delivered. The runtime session REST API (`/api/sessions`, including
+session state, event dispatch, alerts, and session deletion) is implemented. Its existence does
+not establish complete Oracle Forms behavioral parity.
+
+The current continuation items are:
+
+1. **Track K golden traces**: implement deterministic live Forms trace capture and comparison
+   against native Rust sessions; exact end-to-end trace parity is not yet verified.
+2. **Multi-module dependency staging**: parent-form staging support exists in the reference
+   pipeline, but a complete dependency graph and ordered batch conversion/compilation flow are
+   still open.
+3. **External database validation**: verify network reachability, naming configuration, and
+   compiler-account object visibility from the Forms container. No external database was tested
+   for this status update.
+4. **UI parity**: continue font persistence, native theme/zoom/DPI comparison, tab/overlay
+   behavior, and runtime behavior checks. Compilation or session establishment alone is not
+   visual or behavioral parity.
+
+Use the [current session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) and
+[start-next.md](../../start-next.md) for the active checklist. The completed
+[implementation plan](completed/IMPLEMENTATION-PLAN.md) is historical design material.
+
+## 1.2 Proposed Phase H: dual-runtime session and parity harness
+
+Phase H is a proposed post-G design, not an implemented commitment. It addresses legacy
+applications whose login flow establishes database roles, application context, and global
+state before protected forms can run. Both execution tracks must reproduce those preconditions
+against the same development database before their behavior can be compared.
+
+- [11: Dual-Runtime Legacy Application Parity & Dynamic Session Harness](11-DUAL-RUNTIME-DEV-PARITY-AND-SESSION-HARNESS.md)
+  defines initialization contracts and H.1-H.4 milestones.
+- [12: Test User Sign-In/Sign-Out, Role Impersonation & Dynamic Form Launcher](12-ROLE-IMPERSONATION-AND-FORM-LAUNCHER-SPEC.md)
+  specifies a synthetic cross-engine launcher and its development-only guardrails.
+
+Neither document certifies current support for persistent session pinning, multi-form transitions,
+role impersonation, or behavioral parity. Track K and the current continuation items remain the
+active verified-status sources.
 
 ---
 

@@ -65,6 +65,13 @@ Symptom, cause, fix. Windows-only problems (WSL, `/mnt/c`, the Podman runtime di
 | Preview in Oracle reports a check as missing | A container, the servlet, Java, or Python is not available to the server | `GET http://127.0.0.1:7070/api/forms/oracle-preview/readiness`; the list of what must be true first is in [windows-podman-status-log.md](windows-podman-status-log.md) |
 | Samples keep appearing as `samples/*_edited_N_fmb.xml` | An old running app, or Save & launch used for testing | Restart the app on the current build; do not use Save & launch to test |
 
+## Dependency lookup and external databases
+
+- **A dependent module fails to convert or compile although its source exists:** inspect the declared parent, attached-library, and menu references; check exact filename case and ensure providers are discoverable from the staged folder or `FORMS_PATH`. A flat staging folder is a troubleshooting strategy, not a proven universal same-directory requirement. Do not assume that XML2Forms uses the same lookup rules as `frmcmp_batch`.
+- **A host-side database check succeeds but compilation or FSAL fails:** repeat reachability and Oracle Net alias checks from the Forms container/runtime that makes the connection. A host result does not prove container DNS, routing, or `TNS_ADMIN` configuration.
+- **The compiler logs in but reports unresolved database identifiers:** verify object visibility using the same account used by `frmcmp_batch`. A successful login does not prove the required tables, views, or packages are visible to the compiler.
+- **A form works when opened directly but not through the application flow:** test the intended entry form and navigation sequence, including required module parameters. A direct launch does not reproduce state initialized by an entry form.
+
 ## Compile: `must be declared` for database objects, or `FRM-10043`
 
 - **`PL/SQL ERROR 201 ... identifier '<NAME>' must be declared`, `FRM-30312`, no output file:** the compile account cannot see those database objects. Try an account that can; compare `all_objects` and `session_roles` between accounts. See [module-dependencies-and-compile-order.md](module-dependencies-and-compile-order.md).

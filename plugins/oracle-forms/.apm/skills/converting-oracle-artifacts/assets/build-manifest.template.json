@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2000-01-01T00:00:00+00:00",
+  "sourceDir": "<read-only source folder>",
+  "buildDir": "<external build folder>",
+  "modules": [
+    {
+      "order": 1,
+      "name": "UTIL_LIB",
+      "artifactType": "PLL",
+      "sourceFile": "<source>/UTIL_LIB.pll",
+      "stagedInputFile": "stage/UTIL_LIB.pll",
+      "binaryFile": "stage/UTIL_LIB.pll",
+      "executableFile": "stage/UTIL_LIB.plx",
+      "requiresConversion": false,
+      "dependencies": {"objectLibraries": [], "attachedLibraries": [], "menus": [], "parentModules": []},
+      "status": "pending"
+    },
+    {
+      "order": 2,
+      "name": "DEPT",
+      "artifactType": "FMB",
+      "sourceFile": "<source>/DEPT_fmb.xml",
+      "stagedInputFile": "stage/DEPT_fmb.xml",
+      "binaryFile": "stage/DEPT.fmb",
+      "executableFile": "stage/DEPT.fmx",
+      "requiresConversion": true,
+      "dependencies": {"objectLibraries": [], "attachedLibraries": ["UTIL_LIB"], "menus": [], "parentModules": []},
+      "status": "pending"
+    }
+  ],
+  "unresolvedDependencies": [],
+  "cycles": []
+}

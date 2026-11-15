@@ -1,7 +1,7 @@
 # Feasibility Assessment & Executive Recommendations: Oracle Forms Workbench
 
 > **Target Audience**: Technical Leadership & Engineering Review  
-> **Location**: `temp/plan/FEASIBILITY-ASSESSMENT-AND-EXEC-SUMMARY.md`  
+> **Status**: Archived completed design specification
 > **Scope**: Pragmatic, high-ROI capabilities to **Analyze, Modify, Preview, Query, and Modernize** legacy Oracle Forms and Reports in pure Rust.
 
 ---
@@ -92,15 +92,15 @@ A high-performance, standalone, pure-native Rust toolchain that addresses the co
 
 ## 5. Architectural Alignment & Next Steps
 
-All detailed engineering specifications are documented in the [`temp/plan/`](./README.md) directory:
+The detailed engineering specifications are archived in the [`completed/`](./README.md) directory:
 - [00. Plan Review & Revision Instructions](00-PLAN-REVIEW-AND-REVISION-INSTRUCTIONS.md)
 - [02. Core Architecture & Multi-Crate Workspace](02-CORE-ARCHITECTURE-AND-CRATES.md)
 - [03. Runtime State Machine & Triggers](03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md)
 - [04. Database Integration & Dynamic CRUD](04-DATABASE-INTEGRATION-AND-CRUD.md)
 - [05. Reports Engine Research Spike](05-REPORTS-ENGINE-SPECIFICATION.md)
-- [06. Implementation Roadmap & Milestones](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
+- [06. Implementation Roadmap & Milestones](../06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
 - [07. Oracle Database Connectivity ADR](07-ORACLE-CONNECTIVITY-ADR.md)
 - [08. PL/SQL Front-End & Event Execution Specification](08-PLSQL-AND-EVENT-EXECUTION.md)
-- [09. Conformance Testing Kit](09-CONFORMANCE-TESTING.md)
+- [09. Conformance Testing Kit](../09-CONFORMANCE-TESTING.md)
 - [Target Architecture](TARGET-ARCHITECTURE.md)
 - [Implementation Plan](IMPLEMENTATION-PLAN.md)

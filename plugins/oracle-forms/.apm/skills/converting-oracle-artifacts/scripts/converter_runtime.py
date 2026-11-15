@@ -22,6 +22,20 @@ Platforms:
     --user root, because rootless Podman maps the container's "oracle" user to a UID that cannot write files
     on the Windows drive (/mnt/c).
     Windows PowerShell: the call goes through `wsl -d <distro>` and host paths are converted with `wslpath`.
+
+Input Dependencies:
+    - Podman (inside WSL on Windows) and the forms-converter-14c image; the Oracle Home folder (OFW_ORACLE_HOME)
+    - Optional git-ignored .env at the repo root (OFW_ORACLE_HOME, OFW_WORK_DIR, OFW_FORMS_PATH_EXTRA)
+
+Key Functions:
+    - repo_root() -> Path; default_oracle_home() -> Optional[Path]; work_dir() -> Path; ensure_dir(folder: Path) -> None
+    - podman_cmd(args: List[str]) -> List[str]; host_path(path: Path) -> str; check_readiness() -> int
+    - find_dependencies(module: Path, search_dirs: List[Path]) -> List[Path]  (name-match heuristic for binaries)
+    - stage_for_conversion(input_path: Path) -> Path  (single-module staging into <work dir>/convert-stage)
+
+Consumed by:
+    - convert_fmb.py, convert_pll.py, convert_rpt.py, test_conversions.py, build_dependency_manifest.py
+      (the batch, dependency-ordered path; see references/batch-dependency-conversion.md)
 """
 
 import os
@@ -76,6 +90,7 @@ def default_oracle_home() -> Optional[Path]:
 
 
 def _wsl_distro() -> str:
+    """WSL distribution that runs Podman when started from Windows PowerShell."""
     return os.environ.get("OFW_WSL_DISTRO") or "Ubuntu"
 
 
@@ -135,19 +150,10 @@ def check_readiness() -> int:
 DEPENDENCY_EXTENSIONS = (".pll", ".olb", ".mmb", ".fmb")
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[6]
-
-
 def dependency_search_dirs(input_dir: Path) -> List[Path]:
     """Folders searched for attached modules: the input folder, then OFW_FORMS_PATH_EXTRA (.env or environment)."""
     dirs = [input_dir]
-    extra = os.environ.get("OFW_FORMS_PATH_EXTRA", "")
-    env_file = _repo_root() / ".env"
-    if not extra and env_file.is_file():
-        for line in env_file.read_text(errors="ignore").splitlines():
-            if line.startswith("OFW_FORMS_PATH_EXTRA="):
-                extra = line.split("=", 1)[1].strip().strip("\"'")
+    extra = os.environ.get("OFW_FORMS_PATH_EXTRA") or _dotenv_value("OFW_FORMS_PATH_EXTRA")
     for item in extra.split(os.pathsep if os.pathsep in extra else ":"):
         if item.strip() and Path(item.strip()).is_dir():
             dirs.append(Path(item.strip()))

@@ -1,7 +1,7 @@
 # Target Architecture: Oracle Forms Workbench
 
 > **Document Status**: Revised Architecture Specification  
-> **Location**: `temp/plan/TARGET-ARCHITECTURE.md`  
+> **Status**: Archived design specification; see `architecture.md` for current implementation boundaries
 > **System Purpose**: Deliver an independent, high-performance developer and analyst workbench for legacy Oracle Forms and Reports, providing visual layout inspection, PL/SQL code intelligence, runtime simulation, direct database querying, and safe XML round-trip editing without requiring Oracle Fusion Middleware.
 
 ---

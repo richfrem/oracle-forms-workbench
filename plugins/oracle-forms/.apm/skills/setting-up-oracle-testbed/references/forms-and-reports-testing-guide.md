@@ -206,6 +206,12 @@ podman exec forms-server-14c /bin/sh -c "\
 
 ---
 
+### Test form parameters and entry flows
+
+Use repeatable `--param NAME=VALUE` options with `launch_fsal.py` or `run_form.py` to pass URL-encoded module parameters. Include values containing spaces, ampersands, equals signs, plus signs, slashes, and non-ASCII text when checking encoding. Confirm that the target form receives the expected value; successful URL construction alone does not prove that the Forms runtime delivered it.
+
+Test both an isolated target-form launch and the application's normal entry form/navigation path. The entry path may initialize global variables, session context, or other state that a direct launch does not reproduce. Compilation uses a separate database session; compiler-account visibility checks do not replace runtime logon and flow verification.
+
 ## 3. Testing the Oracle Reports Server (`WLS_REPORTS` on Port 9001)
 
 The Reports engine runs under `/reports/rwservlet` and handles batch report compilation, PDF generation, and XML exports.

@@ -46,8 +46,10 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 |---|---|
 | `scripts/validate_forms_xml.py`, `scripts/ValidateXml.java` | Schema validation with xmllint, lxml, or Java in a container; `--version`, `--schema`, `--list-versions` |
 | `scripts/compile_form.py` | `frmcmp_batch` in the Forms container with TNS binding and error parsing (form, menu, library) |
-| `scripts/run_form.py` | Prepare, convert, compile, and launch FSAL in one step; used by the Rust app's Preview in Oracle |
-| `scripts/launch_fsal.py` | Open a compiled form through the Forms servlet with FSAL; `--param NAME=VALUE` adds form parameters to the URL |
+| `scripts/run_form.py` | Prepare, convert, compile, and launch FSAL in one step; repeat `--param NAME=VALUE` to pass URL-encoded Forms module parameters |
+| `scripts/launch_fsal.py` | Open a compiled form through the Forms servlet with FSAL; repeat `--param NAME=VALUE` to add URL-encoded parameters |
+| `scripts/compile_from_manifest.py` | Batch: compiles a `build-manifest.json` (from the converting skill) in dependency order; prompts for DB login (`input`/`getpass`), sqlplus preflight, publishes to `<Oracle Home>/forms`. `--offline`, `--no-publish`, `--skip-preflight` |
+| `references/batch-manifest-compilation.md` | Stage 3: interactive login, preflight, ordered compile, publish |
 | `references/xml-validation.md` | Forms 14c XML Schema rules and common fixups |
 | `references/forms-path-and-dependencies.md` | Where to place `.pll`/`.plx`/`.mmx`/`.olb`/`.fmx` dependencies on `FORMS_PATH` (WSL & macOS) and how to target another dev DB |
 | `references/inheriting-forms-and-xml-roundtrip.md` | Extract to XML, compare versions, compile with parent forms and libraries in one folder, run with form parameters, diagnose inside a form, known setup-only messages |
@@ -58,11 +60,11 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 
 - **The database account decides whether a compile works.** A library that uses database objects by bare name compiles with an account that can see them and fails with `PL/SQL ERROR 201 ... must be declared` for an account that cannot, with the same file in the same folder. A successful logon is not proof of visibility. Check with `all_objects` and `session_roles` as that account.
 - **Pass the right type:** `compile_form.py --type library|menu|form`. A library compiled as a form gives `FRM-10043`.
-- **Order:** modules with no attachments first, then those that attach them, then menus and forms, all in one staged folder inside the repo.
+- **Order:** modules with no attachments first, then those that attach them, then menus and forms, all in one staged folder in `OFW_WORK_DIR` (outside the repository).
 - **Compile folder is not run folder:** copy the compiled `.plx`, `.mmx` and `.fmx` to the server's `FORMS_PATH` (default `<Oracle Home>/forms`).
 - **Cross-check in desktop Forms Builder** with the same account when a compile fails.
 - **Forms that inherit from other forms:** compile the original `.fmb` with its parent `.fmb` files, libraries, menus and object libraries in the same folder; do not round-trip through XML ([references/inheriting-forms-and-xml-roundtrip.md](references/inheriting-forms-and-xml-roundtrip.md)).
-- **Passwords with special characters** are quoted automatically (`format_userid` in `compile_form.py`).
+- URL parameter construction is tested locally, but delivery into a running Forms module still requires live verification. Test both a direct launch and the application's intended entry/navigation flow when it initializes runtime state.
 
 Full evidence and what is not verified: `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`.
 

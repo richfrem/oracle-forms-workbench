@@ -4,7 +4,7 @@ Use this when a form from an older Oracle Forms release must be extracted, compa
 
 ## 1. Rule of thumb
 
-Compile the original `.fmb` with all of its dependencies in one folder. Use XML only to read, compare or deliberately edit a form. Do not convert an inheriting form through XML and expect an equal form back.
+Keep the original `.fmb` and required dependencies available to the compiler, with a flat staging folder on `FORMS_PATH` as the simplest reproducible arrangement. This is a practical lookup strategy, not a universal same-folder requirement; the exact lookup precedence among embedded paths, the current working directory, and `FORMS_PATH` is tool-dependent and not fully verified. Use XML to read, compare, or deliberately edit a form, but do not assume an XML round-trip preserves inherited content.
 
 ## 2. Extract a binary module to XML (read-only inspection)
 
@@ -26,9 +26,9 @@ diff <(tr -d '\r' < exported_from_binary.xml) <(tr -d '\r' < older_export.xml)
 
 Expected harmless differences between an older release export and a 14c export of the same binary: the `<Module version="...">` header and `AttachedLibrary` lines that only the 14c export writes. Anything else is a real difference. Identical modules need no re-conversion.
 
-## 4. Build with dependencies in the same folder
+## 4. Build with dependencies discoverable to the compiler
 
-The compiler resolves inherited objects, attached libraries, menus and object libraries by searching the current folder, then `FORMS_PATH`.
+The observed workflow succeeds when inherited objects, attached libraries, menus, and object libraries are discoverable from the staged module folder or `FORMS_PATH`. A single flat staging folder is the least ambiguous setup, especially when embedded authoring paths refer to a different operating system or directory layout. Exact resolution order has not been exhaustively tested.
 
 | Dependency | Needed at compile time | Needed at run time |
 |---|---|---|
@@ -38,9 +38,11 @@ The compiler resolves inherited objects, attached libraries, menus and object li
 | Object libraries (`.olb`) | Yes | No |
 | Forms it opens or calls (`call_form`, `open_form`) | No | Compiled `.fmx`, named exactly as called |
 
-Symptoms of a missing parent form: `FRM-18108: Failed to load the following objects` (it lists the source module and object), then many follow-on `bad bind variable '...'` errors. `compile_form.py` stages only `.pll`, `.olb` and `.mmb` files (`_FORMS_DEP_EXTS`), so parent `.fmb` files must be copied into `<Oracle Home>/ofw-work/stage/` by hand until staging is extended. Proposed, not implemented: stage a module's parent `.fmb` files on demand from its declared parents, recursively, lower-cased, failing clearly if one is missing.
+Symptoms of a missing parent form: `FRM-18108: Failed to load the following objects` (it lists the source module and object), then many follow-on `bad bind variable '...'` errors. `compile_form.py` and `run_form.py` now stage referenced parent `.fmb` sources recursively from the input directory and `OFW_FORMS_PATH_EXTRA` into `<OFW_WORK_DIR>/stage/`, preserving the source filename case. XML parent references are read from `ParentFilename`/`ParentModule`; binary FMB references are matched against candidate filenames heuristically and may over-include a candidate whose stem appears elsewhere in the binary. Parent sources remain read-only.
 
-Compile order: libraries, then menus, then forms. Use the database account that can see the objects the PL/SQL references.
+Build a dependency graph from the module references and compile each provider before its consumers. Libraries often precede menus and forms, but do not force a fixed artifact-type order when actual references establish a different order. Use the database account that can see the objects the PL/SQL references. Object libraries are staged, not compiled as executables.
+
+When converting XML, stage referenced parent form and object-library sources before converting a dependent module as a precaution. Whether XML2Forms always resolves these references at conversion time is not verified; inspect conversion results and retain the original binaries.
 
 ## 4a. Why XML round trips fail for inheriting forms
 
@@ -49,7 +51,7 @@ Compile order: libraries, then menus, then forms. Use the database account that 
 - A 12c-style export has no `AttachedLibrary` lines; add them before compiling.
 - XML2Forms writes `<xml-name>.fmb` into `OUTPUTDIR`.
 
-Hand edits via XML are acceptable only for forms with no inheritance, or for throwaway diagnostic copies kept in a scratch folder.
+Hand edits via XML are acceptable only for forms with no inheritance, or for throwaway diagnostic copies kept in a work folder outside the repository and external source tree.
 
 ## 5. Run, and pass form parameters
 
@@ -58,8 +60,8 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 ```
 
 - A form must be compiled and its `.fmx` copied to `<Oracle Home>/forms/` (a compile publishes it unless `--no-publish`; with `--no-publish` copy with `XDG_RUNTIME_DIR=/run/user/$(id -u) podman unshare cp <fmx> <Oracle Home>/forms/`).
-- A form that calls another form by name (`call_form('x')`) needs `x.fmx` in the run folder under exactly that name; `FRM-40010 Cannot read form x` otherwise.
-- `--param` appends `&NAME=VALUE` to the launch URL (before `userid`). Whether an extra URL parameter reaches the running form was **not verified**; the form's module parameter default is the reliable path.
+- A form that calls another form by name (`call_form('x')`) needs `x.fmx` in a runtime-visible directory under exactly that name; `FRM-40010 Cannot read form x` otherwise.
+- `--param NAME=VALUE` adds a URL-encoded launch parameter. Verify that each supplied value reaches the target form; URL construction alone does not establish runtime delivery. Also test the normal entry form and navigation path when the application initializes globals, session state, or database context there.
 - Logon strings use an Oracle Net alias that must exist in `tnsnames.ora`; the login form's database dropdown can hard-code production aliases that the container lacks (use `-u USER@alias`).
 
 ## 6. Diagnosing behaviour inside a form (scratch copy only)

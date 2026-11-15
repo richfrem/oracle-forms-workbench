@@ -1,126 +1,72 @@
 # `FORMS_PATH`, External Dependencies, and Target Databases
 
-> **Update:** `compile_form.py` and `run_form.py` no longer compile inside the repository or in `temp/`. They stage the module and its attachments in `<work folder>/stage/` (`OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`, seen in the container as `/oracle_home_14c/ofw-work`), compile there, and publish `.fmx`/`.mmx`/`.plx` to `<Oracle Home>/forms/`. The `/work/temp/...` paths below describe the earlier layout.
+Use this guide when compiling or running Forms modules that depend on other forms, menus, PL/SQL libraries, or object libraries, including when connecting the Forms container to a non-local database.
 
-Use this guide when compiling or running a form against a development database where the form depends on other `.fmb`/`.fmx` forms, `.mmb`/`.mmx` menus, `.pll`/`.plx` PL/SQL libraries, or `.olb` object libraries.
+## External sources and staging
 
-> **Platform note:** On **Windows**, run all `podman` and `python3` commands inside the **Ubuntu WSL2 shell** (not PowerShell). On **macOS**, run them from your normal terminal inside the Podman machine setup.
+Treat every directory in `OFW_FORMS_PATH_EXTRA` and every other external project directory as read-only. Never copy external artifacts into the repository, including `samples/`, `temp/`, `context/`, `tests/`, or `oracle-reference-stack/`; never write compilation outputs or diagnostics there. See [cross-project-isolation.md](../../../../../../.agent/rules/cross-project-isolation.md). For a whole project, use the manifest-driven batch pipeline ([batch-manifest-compilation.md](batch-manifest-compilation.md)) instead of hand-staging.
 
-## 1. How container paths map to your machine
+Set `OFW_WORK_DIR` outside the repository and somewhere the Forms container can access. The supported arrangement is under the configured Oracle Home, which is mounted as `/oracle_home_14c`; the scripts use `<OFW_WORK_DIR>/stage/` for working files. The scripts reject a work directory that resolves inside the repository.
 
-In `oracle-reference-stack/compose.yaml`, `forms-server-14c` mounts two host folders:
+Set `OFW_FORMS_PATH_EXTRA` to one or more read-only source directories (colon-separated in WSL/Linux and macOS). `compile_form.py` and `run_form.py` stage the input and required companion sources into the work folder:
 
-| Container path | Host / WSL path | Purpose |
-|---|---|---|
-| `/work` | Repository root | Your checked-out repo (`samples/`, `temp/`, etc.) |
-| `/oracle_home_14c` | `$OFW_ORACLE_HOME` from `.env` (default `oracle-reference-stack/oracle_home_14c`; on Windows WSL typically `~/oracle_home_14c`) | Persistent Oracle Home, WebLogic domain, `forms/`, and `tnsnames.ora` |
+- Attached `.pll`, `.mmb`, and `.olb` source files are staged with the module.
+- Parent `.fmb` candidates are found recursively in the input directory and extra source directories and copied with their original filename case. XML references use `ParentFilename` and `ParentModule`; binary FMB references are matched heuristically against candidate filenames, so a candidate may be staged if its name also appears elsewhere in the binary.
+- Source files are read, not modified. The scripts do not copy all unrelated FMB files.
 
-## 2. Where `FORMS_PATH` is set (compile time vs. runtime)
+Compile-time `FORMS_PATH` includes `/oracle_home_14c/forms`, the staged folder, and the folder containing the compiled module. This makes staged parents available when `run_form.py` compiles an XML conversion produced in a subfolder. XML2Forms parent resolution itself has not been verified; keep the original binaries and check conversion results.
 
-`FORMS_PATH` is configured in **two** places:
+Compiled `.fmx`, `.mmx`, and `.plx` outputs are published to `<OFW_ORACLE_HOME>/forms/` unless publication is explicitly disabled. The Forms server's runtime `FORMS_PATH` is read from:
 
-1. **Compile time (`frmcmp_batch` via `compile_form.py` and `run_form.py`)**
-   Both scripts export:
-   ```sh
-   FORMS_PATH=/oracle_home_14c/forms:/work/samples:<directory-of-form-being-compiled>
-   ```
-   So during compilation, `frmcmp_batch` searches:
-   - `/oracle_home_14c/forms` (`$OFW_ORACLE_HOME/forms/`)
-   - `/work/samples` (`samples/`)
-   - The staging/source folder of the form itself (for example `/work/temp/oracle-preview/<job-id>`).
+`<OFW_ORACLE_HOME>/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env`
 
-2. **Runtime (WebLogic `frmweb` / FSAL)**
-   Read from the Forms domain `default.env`:
-   - Container path: `/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env`
-   - Host/WSL path: `$OFW_ORACLE_HOME/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env`
-   - Verified values:
-     ```ini
-     TNS_ADMIN=/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig
-     FORMS_PATH=/oracle_home_14c/forms
-     FORMS_MODULE_PATH=$FORMS_PATH
-     ```
+The usual container value is `FORMS_PATH=/oracle_home_14c/forms`. Do not add repository or external source directories to this runtime setting; publish runtime executables into the Oracle Home forms directory instead.
 
-Because `samples/` and `temp/` are **not** in `default.env` by default, any `.fmx`, `.mmx`, or `.plx` needed at **runtime** must either be placed in `/oracle_home_14c/forms` or its directory must be added to `FORMS_PATH` in `default.env`.
+## Check database reachability from the Forms container
 
-## 3. Where to place dependencies
+A successful host-side connection does not prove that `forms-server-14c` can resolve or reach the database. Check from the container that runs Forms, using the same target connect identifier and `TNS_ADMIN` used by the Forms configuration:
 
-### Option A: Set `OFW_FORMS_PATH_EXTRA` in `.env` (recommended for an external folder like `/mnt/c/forms`)
-
-Add `OFW_FORMS_PATH_EXTRA` in `.env` (see `example.env`; colon-separated if multiple folders):
-
-```ini
-OFW_FORMS_PATH_EXTRA=/mnt/c/forms
+```sh
+podman exec forms-server-14c grep '^TNS_ADMIN=' \
+  /oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env
+podman exec forms-server-14c /bin/sh -c 'test -r /oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/tnsnames.ora'
+podman exec -it forms-server-14c /oracle_home_14c/bin/sqlplus -L -S /nolog
 ```
 
-How `compile_form.py` and `run_form.py` handle it:
-- If the folder is inside the repo (for example `temp/deps`), its `/work/...` path is appended directly to `FORMS_PATH`.
-- If the folder is outside the repo (for example `/mnt/c/forms` on Windows WSL or `/Users/<you>/forms` on macOS), `.fmb`, `.fmx`, `.mmb`, `.mmx`, `.pll`, `.plx`, and `.olb` files are synced into `temp/forms_extra/` (git-ignored, mounted as `/work/temp/forms_extra`) and `/work/temp/forms_extra` is appended to `FORMS_PATH` — no container recreation required.
-- Both `oracle-reference-stack/apply_forms14c_config.sh` (during setup) and `compile_form.py` / `run_form.py` (when `OFW_FORMS_PATH_EXTRA` is set and `forms-server-14c` is running) idempotently append `/work/temp/forms_extra` (or the `/work/...` path) to `FORMS_PATH=` in `default.env` for **runtime (`frmweb` / FSAL)** as well. (If you change `default.env` while `forms-server-14c` is already running, restart `forms-server-14c` if `frmweb` needs to pick up the new `default.env`.)
+At the SQL*Plus prompt, connect using the target alias or Easy Connect identifier, then run `SELECT 1 FROM DUAL;`. Supply the password only at a protected prompt; do not put credentials in command lines, shell history, documentation, or logs. If available, `getent hosts <database-host>` can help distinguish DNS failure from listener or service failure. A successful SQL*Plus login checks connectivity, not whether the compiler account can resolve every application object.
 
-### Option B: Copy dependencies into `$OFW_ORACLE_HOME/forms/` (works immediately for both compile and runtime)
+For TNS aliases, verify that the alias exists in the `tnsnames.ora` file under the `TNS_ADMIN` directory visible inside the container. For Easy Connect, verify container DNS/routing to the host and listener port. VPN or host network access does not automatically imply container network access.
 
-Because `/oracle_home_14c/forms` is already on both compile-time `FORMS_PATH` and runtime `default.env`, anything placed there is visible to `frmcmp_batch`, `compile_form.py`, `run_form.py`, and FSAL (`frmweb`) without editing config files.
+## Check compiler-account object visibility
 
-- **Important on Windows WSL (rootless Podman permissions):** `~/oracle_home_14c` is owned by container UID `1000` (`oracle`) via Podman user-namespace mapping. Copying files directly with `cp` in WSL can leave them unreadable by `oracle` inside `forms-server-14c`. Use `podman cp` instead (from the Ubuntu WSL shell on Windows, or your terminal on macOS):
+Run object checks using the same account and target database that `frmcmp_batch` will use. A successful login alone does not establish that referenced tables, views, packages, synonyms, or required grants are available to the compiler.
 
-  ```bash
-  podman cp /path/to/my_lib.pll forms-server-14c:/oracle_home_14c/forms/
-  podman cp /path/to/my_lib.plx forms-server-14c:/oracle_home_14c/forms/
-  podman cp /path/to/my_menu.mmx forms-server-14c:/oracle_home_14c/forms/
-  ```
+```sql
+SELECT owner, object_name, object_type
+FROM all_objects
+WHERE object_name = UPPER('<OBJECT_NAME>');
 
-- If you also need to compile a `.pll` -> `.plx` or `.mmb` -> `.mmx` inside the container, copy the source `.pll` / `.mmb` into `temp/` (git-ignored) and compile it with `compile_form.py`:
-
-  ```bash
-  python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py temp/deps/my_lib.pll --type library
-  python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py temp/deps/my_menu.mmb --type menu
-  ```
-
-### Option C: Keep dependencies in `temp/deps/` (git-ignored) and extend `FORMS_PATH` in `default.env`
-
-If you have many external `.fmx`, `.mmx`, `.plx`, `.pll`, or `.olb` files and want to keep them in a separate git-ignored folder in the repo (never commit proprietary binaries to `samples/`):
-
-1. Put them in `temp/deps/` (mapped to `/work/temp/deps` inside the container).
-2. Add `/work/temp/deps` to `FORMS_PATH` in `default.env` inside the container (restart `forms-server-14c` or WebLogic if `frmweb` needs to pick up the updated `default.env`):
-
-   ```bash
-   # Inspect current FORMS_PATH in default.env
-   podman exec forms-server-14c grep -n '^FORMS_PATH=' \
-     /oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env
-   ```
-
-   Update the `FORMS_PATH=` line to:
-
-   ```ini
-   FORMS_PATH=/oracle_home_14c/forms:/work/temp/deps
-   ```
-
-3. For **compile time** (`run_form.py` / `compile_form.py`), `frmcmp_batch` currently hardcodes `FORMS_PATH=/oracle_home_14c/forms:/work/samples:<form_dir>` — so either copy/symlink the compile-time `.pll`/`.olb`/`.mmb` files into `/oracle_home_14c/forms/` (Option A), or run `compile_form.py` from `temp/deps/`.
-
-## 4. Case sensitivity on Linux containers
-
-`forms-server-14c` runs Oracle Linux (case-sensitive filesystem, and on Windows WSL `~/oracle_home_14c` is on ext4, also case-sensitive).
-
-If a form attaches `MY_MENU.mmx` or `MY_LIB.plx` in uppercase while the file on disk is lowercase `my_menu.mmx`, Forms fails with `FRM-10221: Cannot read file ...` or `PDE-PLI018`. Match the exact filename case or add a symlink inside `/oracle_home_14c/forms/`:
-
-```bash
-podman exec -u oracle forms-server-14c ln -sf my_menu.mmx /oracle_home_14c/forms/MY_MENU.mmx
+SELECT role
+FROM session_roles
+ORDER BY role;
 ```
 
-## 5. Connecting to another dev database (`tnsnames.ora` vs. Easy Connect)
+Where applicable, inspect the account's object privileges as well (for example, `ALL_TAB_PRIVS`). Confirm that dependencies resolve under the compiler account and that required privileges are granted in a way usable by compilation; enabled roles are useful evidence but are not a substitute for required direct grants. `compile_form.py` quotes special characters in the `userid` password field; never paste real credentials into docs or test fixtures.
 
-- **Easy Connect (`host:port/service`)**: In **Preview in Oracle -> Target database** (and in the FSAL runtime logon dialog's Database field), enter `db.example.com:1521/ORCLPDB1`. No `tnsnames.ora` edit is required if the database listener accepts `SERVICE_NAME`.
-- **TNS alias (required when the target DB uses `SID=...` or a custom descriptor)**:
-  Add the alias to `$OFW_ORACLE_HOME/user_projects/domains/base_domain/config/fmwconfig/tnsnames.ora` (inside the container: `/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/tnsnames.ora`), keeping ownership as `oracle` (UID `1000`):
+## Runtime parameters and entry-form flows
 
-  ```bash
-  podman exec -u oracle forms-server-14c cat \
-    /oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/tnsnames.ora
-  ```
+Both `launch_fsal.py` and `run_form.py` accept repeatable `--param NAME=VALUE` options. Each name and value is URL-encoded for the servlet request. For example, use synthetic names and values while testing:
 
-  Then enter that alias name (for example `DEV_DB`) in **Target database** and in the FSAL runtime logon prompt. The container must also be able to reach the database host and port over the network (for example, corporate VPN active).
+```sh
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py <form>.fmb \
+  --param P_MODE=review --param P_LABEL="North & South"
+```
+
+Do not treat individual `--param` query parameters as interchangeable with the Forms servlet's `otherparams` argument string. When reproducing an application URL that uses `otherparams`, encode that argument according to the URL contract and verify what the target form receives; URL construction alone does not prove runtime delivery.
+
+Test both direct launch and the intended entry-form/navigation flow. Entry forms may initialize globals, parameters, user/session state, or database context that a dependent form does not establish when launched alone.
 
 ## Verification status
 
-- Verified in WSL: `TNS_ADMIN`, `FORMS_PATH=/oracle_home_14c/forms`, and `FORMS_MODULE_PATH=$FORMS_PATH` in `default.env`, plus compile-time `FORMS_PATH` in `compile_form.py` and `run_form.py`.
-- Not verified: `temp/deps/` runtime loading via an extended `default.env` `FORMS_PATH`, or compiling external `.pll`/`.olb` dependencies against a remote dev database.
+- Parent FMB staging and repository-local `OFW_WORK_DIR` rejection have synthetic unit tests.
+- Live XML2Forms parent resolution, container-to-development-database reachability, compiler-account object visibility, and runtime delivery of supplied parameters require a running Forms/database environment and have not been verified in this guide.

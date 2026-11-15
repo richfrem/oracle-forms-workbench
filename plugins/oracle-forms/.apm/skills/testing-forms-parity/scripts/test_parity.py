@@ -4,13 +4,12 @@ test_parity.py (CLI)
 =====================================
 
 Purpose:
-    End-to-end parity tester comparing Oracle Forms modules running on:
+    Live runtime verification harness for Oracle Forms modules running on:
       1. Oracle Fusion Middleware 14c Forms Server (WebLogic 14.1.2 + FSAL)
       2. Native Rust Oracle Forms Workbench (oracle-forms-server + oracle-thin)
 
-    Validates schema seeding in Oracle 23ai, headless compilation (.xml -> .fmb -> .fmx)
-    via the 14c container toolchain, staging to WebLogic Forms Server, execution
-    via the native Rust engine, and provides live links/commands to test both engines.
+    Stages and compiles outside the repository, launches FSAL, probes the Forms servlet,
+    runs a native database-query smoke check, and guides interactive session comparison.
 
 Usage Examples:
     python3 plugins/oracle-forms/.apm/skills/testing-forms-parity/scripts/test_parity.py samples/ofw_demo_employees_fmb.xml
@@ -18,6 +17,17 @@ Usage Examples:
     python3 plugins/oracle-forms/.apm/skills/testing-forms-parity/scripts/test_parity.py samples/test_db_fmb.xml --block BLOCK5
 
 Layer: Tooling / Skill Script (testing-forms-parity)
+
+Key Inputs:
+    - OFW_ORACLE_HOME, OFW_WORK_DIR, OFW_FORMS_PATH_EXTRA, and database credentials from env/.env
+    - Read-only source module (.xml or .fmb); optional sample SQL is used only from samples/
+
+Key Functions:
+    - resolve_oracle_home(repo_root: Path) -> Path
+    - work_dir(repo_root: Path) -> Path
+    - compile_for_oracle(input_file: Path, repo_root: Path) -> Path
+    - test_rust_cli_query(xml_path: Path, block: Optional[str], repo_root: Path) -> Tuple[bool, str]
+    - main() -> int
 """
 
 import sys
@@ -26,11 +36,12 @@ import argparse
 import subprocess
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
 
 
-def _read_dotenv() -> dict:
+def _read_dotenv() -> Dict[str, str]:
     """Read KEY=VALUE lines from the nearest .env at or above this script's folder (git-ignored)."""
     here = Path(__file__).resolve()
     for folder in [here.parent, *here.parents]:
@@ -62,7 +73,33 @@ def resolve_workspace_root() -> Path:
     return Path(__file__).resolve().parents[6]
 
 
+def resolve_oracle_home(repo_root: Path) -> Path:
+    """Resolve the configured Oracle Home, then use the repository default."""
+    value = _env("OFW_ORACLE_HOME").strip()
+    return Path(os.path.expanduser(value)).resolve() if value else (repo_root / "oracle-reference-stack" / "oracle_home_14c").resolve()
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    """Return whether a resolved path is equal to or below its resolved parent."""
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def work_dir(repo_root: Path) -> Path:
+    """Resolve an external work directory and reject repository-local output paths."""
+    value = _env("OFW_WORK_DIR").strip()
+    folder = Path(os.path.expanduser(value)) if value else resolve_oracle_home(repo_root) / "ofw-work"
+    resolved = folder.resolve()
+    if _is_within(resolved, repo_root):
+        raise RuntimeError(f"OFW_WORK_DIR must resolve outside the repository: {resolved}")
+    return resolved
+
+
 def check_container(name: str) -> bool:
+    """Return whether a named Podman container is running."""
     try:
         res = subprocess.run(
             ["podman", "ps", "--filter", f"name={name}", "--format", "{{.Names}}"],
@@ -71,11 +108,12 @@ def check_container(name: str) -> bool:
             check=True,
         )
         return name in res.stdout
-    except Exception:
+    except (OSError, subprocess.CalledProcessError):
         return False
 
 
-def seed_database_if_present(sql_path: Path, repo_root: Path) -> bool:
+def seed_database_if_present(sql_path: Path) -> bool:
+    """Seed only a repository-owned sample schema; never execute external sidecar SQL."""
     if not sql_path.exists():
         return True
     print(f"[*] Seeding database using {sql_path.name}...")
@@ -90,66 +128,36 @@ def seed_database_if_present(sql_path: Path, repo_root: Path) -> bool:
         return True
     except subprocess.CalledProcessError as e:
         print(f"[!] Warning: database seeding had output:\n{e.stderr or e.stdout}")
-        return True
+        return False
 
 
-def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Optional[Path]:
-    fmb_stem = xml_path.stem.replace("_fmb", "")
-    fmb_path = xml_path.parent / f"{fmb_stem}.fmb"
-    rel_xml = xml_path.relative_to(repo_root)
-    
-    print(f"[*] Converting XML -> FMB via container XML2Forms: {rel_xml}")
-    cmd = [
-        "podman", "exec", "forms-server-14c", "/bin/bash", "-c",
-        f"""
-        export ORACLE_HOME=/oracle_home_14c
-        export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
-        export FORMS_PATH=/work:$FORMS_PATH
-        export FORMS_API_TK_BYPASS=TRUE
-        CLASSPATH="$ORACLE_HOME/jlib/frmjdapi.jar:$ORACLE_HOME/jlib/frmxmltools.jar:$ORACLE_HOME/oracle_common/modules/oracle.xdk/xmlparserv2.jar"
-        java -Djava.library.path="$ORACLE_HOME/lib" -classpath "$CLASSPATH" oracle.forms.util.xmltools.XML2Forms OVERWRITE=YES /work/{rel_xml}
-        """
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0 or not fmb_path.exists():
-        print(f"[!] XML2Forms failed: {res.stderr or res.stdout}")
-        return None
-    print(f"    Generated {fmb_path.name}")
-    return fmb_path
+def _load_form_tools(repo_root: Path) -> Tuple[Any, Any]:
+    """Load the shared compile and run helpers that own staging and publication."""
+    scripts = repo_root / "plugins" / "oracle-forms" / ".apm" / "skills" / "compiling-and-running-oracle-forms" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    import compile_form
+    import run_form
+    return compile_form, run_form
 
 
-def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path) -> Optional[Path]:
-    fmx_path = fmb_path.parent / f"{fmb_path.stem}.fmx"
-    rel_fmb = fmb_path.relative_to(repo_root)
-
-    print(f"[*] Compiling FMB -> FMX via container frmcmp_batch: {rel_fmb}")
-    cmd = [
-        "podman", "exec", "forms-server-14c", "/bin/bash", "-c",
-        f"""
-        export ORACLE_HOME=/oracle_home_14c
-        export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
-        export FORMS_PATH=/work:/work/samples:$ORACLE_HOME/forms:$FORMS_PATH
-        export TNS_ADMIN=$ORACLE_HOME/user_projects/domains/base_domain/config/fmwconfig
-        /oracle_home_14c/bin/frmcmp_batch module=/work/{rel_fmb} module_type=form compile_all=yes userid='{_default_userid()}'
-        """
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if not fmx_path.exists():
-        print(f"[!] Compilation failed:\n{res.stdout}\n{res.stderr}")
-        return None
-    print(f"    Compilation SUCCESSFUL: {fmx_path.name}")
-
-    # Stage into oracle_home_14c/forms
-    dest = repo_root / "oracle-reference-stack" / "oracle_home_14c" / "forms" / fmx_path.name
-    import shutil
-    shutil.copy2(fmx_path, dest)
-    shutil.copy2(fmb_path, dest.with_suffix(".fmb"))
-    print(f"    Staged to Fusion Middleware Forms directory: {dest.name}")
-    return fmx_path
+def compile_for_oracle(input_file: Path, repo_root: Path) -> Path:
+    """Stage an input outside the repository, then use shared conversion and compile helpers."""
+    compile_form, run_form = _load_form_tools(repo_root)
+    work_dir(repo_root)
+    staged = compile_form.stage_module(input_file, repo_root)
+    if staged.suffix.lower() == ".xml":
+        fmb_file = run_form.convert_xml_to_fmb(staged, repo_root)
+    elif staged.suffix.lower() == ".fmb":
+        fmb_file = staged
+    else:
+        raise RuntimeError("Parity verification accepts an XML or FMB source module")
+    return run_form.compile_fmb_to_fmx(fmb_file, repo_root, _default_userid(), offline=False)
 
 
 def probe_weblogic_servlet(fmx_name: str, port: int = 7001) -> bool:
-    url = f"http://localhost:{port}/forms/frmservlet?config=standaloneapp&form={fmx_name}"
+    query = urllib.parse.urlencode({"config": "standaloneapp", "form": fmx_name})
+    url = f"http://localhost:{port}/forms/frmservlet?{query}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "OFW-Parity-Probe"})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -162,7 +170,7 @@ def test_rust_cli_query(xml_path: Path, block: Optional[str], repo_root: Path) -
     print(f"[*] Querying form via native Rust CLI (pure-Rust oracle-thin)...")
     cmd = [
         "cargo", "run", "-q", "-p", "oracle-forms-cli", "--",
-        "query", str(xml_path.relative_to(repo_root)),
+        "query", str(xml_path.resolve()),
         "--backend", "oracle-thin",
     ]
     if block:

@@ -5,3 +5,6 @@
 *.loc text eol=lf
 *.entry text eol=lf
 Containerfile* text eol=lf
+
+# Everything else is stored as LF and checked out as LF, so a Windows checkout does not show every file as modified.
+* text=auto eol=lf

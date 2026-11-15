@@ -138,11 +138,10 @@ impl BinaryFmbParser {
 
         // 4. Extract Standalone Form-Level Triggers
         let common_form_triggers = [
-            ("WHEN-NEW-FORM-INSTANCE", vec!["MMMWhenNewFormInstance", "WhenNewFormInstance"]),
-            ("ON-MESSAGE", vec!["MMMOnMessage", "FormOnMessage"]),
-            ("ON-ERROR", vec!["MMMOnError", "FormOnError"]),
-            ("WHEN-WINDOW-ACTIVATED", vec!["MMMWhenWindowActivated"]),
-            ("KEY-EXIT", vec!["MMMKeyExit", "exit_form"]),
+            ("WHEN-NEW-FORM-INSTANCE", vec!["WhenNewFormInstance"]),
+            ("ON-MESSAGE", vec!["FormOnMessage"]),
+            ("ON-ERROR", vec!["FormOnError"]),
+            ("KEY-EXIT", vec!["exit_form"]),
         ];
 
         for (trig_name, keywords) in common_form_triggers {

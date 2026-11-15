@@ -120,8 +120,8 @@ def build_container_script(file_name: str, stem: str) -> str:
     """Generates the headless bash script string to be executed inside the container.
 
     Args:
-        file_name: Base file name including extension (e.g., 'myform.fmb', 'mylib.pll').
-        stem: File name without extension (e.g., 'myform', 'mylib').
+        file_name: Base file name including extension.
+        stem: File name without extension.
 
     Returns:
         str: Multi-line bash command for testing tools and running conversion.

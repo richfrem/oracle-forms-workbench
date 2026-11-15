@@ -117,8 +117,8 @@ def build_container_script(file_name: str, stem: str, is_compile: bool, userid: 
     """Generates the headless bash script string to be executed inside the container.
 
     Args:
-        file_name: Base file name including extension (e.g., 'mylib.pll', 'mylib.pld').
-        stem: File name without extension (e.g., 'mylib').
+        file_name: Base file name including extension.
+        stem: File name without extension.
         is_compile: True if compiling script into library, False if exporting to text.
 
     Returns:

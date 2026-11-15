@@ -11,11 +11,11 @@ Purpose:
 Layer: Tooling / Container Bridge
 
 Usage Examples:
-    python3 oracle-reference-stack/convert_pll.py --check
-    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll
-    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll -o ./custom/mylib.pld
-    python3 oracle-reference-stack/convert_pll.py samples/mylib.pld --compile
-    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll --oracle-home /custom/oracle_home
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_pll.py --check
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_pll.py samples/mylib.pll
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_pll.py samples/mylib.pll -o ./custom/mylib.pld
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_pll.py samples/mylib.pld --compile
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_pll.py samples/mylib.pll --oracle-home /custom/oracle_home
 
 Supported Object Types:
     - .pll (Oracle PL/SQL Binary Library) -> *.pld plain text script export
@@ -28,9 +28,9 @@ CLI Arguments:
     --check               : Probes host container engine readiness and exits.
     --oracle-home <path>  : Path to local Oracle Home directory (optional).
 
-Input Files:
-    - oracle-reference-stack/Containerfile (Container image definition)
-    - oracle-reference-stack/oracle_home/bin/frmcmp_batch (Oracle Forms batch compiler)
+Input Dependencies:
+    - oracle-reference-stack/Containerfile.14c (container image definition)
+    - <OFW_ORACLE_HOME>/bin/frmcmp_batch (Oracle Forms batch compiler)
     - Target library files (.pll or .pld)
 
 Output:
@@ -51,7 +51,7 @@ Script Dependencies:
         * Python 3.8+ (sys, shutil, platform, subprocess, pathlib, argparse, typing)
         * Podman CLI (or Docker) installed and active on host system
         * Rosetta 2 binary translation active on macOS Apple Silicon
-    - Container Image ('forms-converter:latest'):
+    - Container Image (forms-converter-14c:latest; OFW_CONVERTER_IMAGE overrides):
         * Base OS: Oracle Linux 8 Slim (linux/amd64)
         * Required environment variables: ORACLE_HOME, ORACLE_TERM=vt220, LD_LIBRARY_PATH
 

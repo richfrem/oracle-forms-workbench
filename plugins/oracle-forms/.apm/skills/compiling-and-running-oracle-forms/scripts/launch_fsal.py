@@ -36,7 +36,7 @@ Output:
 
 Key Functions:
     - resolve_workspace_root() -> Path
-    - build_fsal_url(form_name: str, port: int, userid: str, interactive: bool) -> str
+    - build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, params: Optional[List[str]]) -> str
     - launch_fsal_process(jar_path: Path, url: str) -> int
     - parse_cli_args(argv: List[str]) -> argparse.Namespace
     - main() -> int
@@ -105,10 +105,13 @@ def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, pa
     Returns:
         Formatted and URL-encoded query string.
     """
-    base_url = f"http://localhost:{port}/forms/frmservlet?config=standaloneapp&form={form_name}"
+    query = [("config", "standaloneapp"), ("form", form_name)]
     for item in params or []:
-        name, _, value = item.partition("=")
-        base_url += f"&{urllib.parse.quote(name)}={urllib.parse.quote(value)}"
+        name, separator, value = item.partition("=")
+        if not separator or not name:
+            raise ValueError(f"Invalid form parameter {item!r}; expected NAME=VALUE")
+        query.append((name, value))
+    base_url = f"http://localhost:{port}/forms/frmservlet?{urllib.parse.urlencode(query, quote_via=urllib.parse.quote, safe='')}"
     if not interactive and userid and userid.lower() != "none":
         # Password '#' must be URL encoded as '%23'
         encoded_userid = urllib.parse.quote(userid, safe="@/:")
@@ -185,7 +188,11 @@ def main() -> int:
         print(f"Error: frmsal.jar not found at {frmsal_path}", file=sys.stderr)
         return 1
 
-    url = build_fsal_url(form_name, args.port, args.userid, args.interactive, args.param)
+    try:
+        url = build_fsal_url(form_name, args.port, args.userid, args.interactive, args.param)
+    except ValueError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        return 1
     return launch_fsal_process(frmsal_path, url)
 
 

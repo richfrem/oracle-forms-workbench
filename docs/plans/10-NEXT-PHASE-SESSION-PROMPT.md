@@ -4,10 +4,42 @@
 
 ---
 
-## Active work status — 2026-11-12
+## Current status
 
-This section supersedes the historical completion claims below. Continue from the repository
-state reported by `git status` and `git log`. No exploration interview is needed.
+The repository is `oracle-forms-workbench`; the standard local workbench URL is
+`http://127.0.0.1:7070`. The `/api/sessions` runtime API is implemented, including session
+creation, state retrieval, event dispatch, alert handling, and deletion. This does not certify
+complete Forms behavior or parity.
+
+**Completed:** Phases A-G and Track T are delivered. The Oracle reference pipeline supports
+XML-based form editing, conversion, compilation, and FSAL launch; keep native runtime support,
+official Oracle tooling, and visual parity claims distinct.
+
+**Open work** (also tracked in [start-next.md](../../start-next.md)):
+
+1. **Track K golden traces**: build deterministic Oracle trace capture and compare traces with
+   native runtime sessions. Full golden-trace parity remains unverified.
+2. **Multi-module dependency staging**: parent `.fmb` staging has been added to the single-form
+   pipeline, but full graph discovery and dependency-ordered batch conversion/compilation remain
+   open. The recent changes still need complete verification.
+3. **External database validation**: check connectivity and `TNS_ADMIN` from inside the Forms
+   container and validate referenced objects/roles with the exact compiler account. No external
+   database or container network was tested for this status update.
+4. **UI parity**: continue font persistence, theme/zoom/DPI comparison, tab/overlay cases, and
+   runtime behavior verification. Do not equate successful compilation with visual or behavioral
+   parity.
+
+The `/api/sessions` implementation is in `crates/oracle-forms-server/src/routes.rs`; the
+standard server port is 7070. The optional Oracle testbed is not started or changed by this
+document update.
+
+## Historical implementation notes — 2026-11-12
+
+The following notes preserve earlier implementation evidence. They are historical and do not
+override the current open-work list above.
+
+The notes below preserve earlier implementation evidence; use the current status and open-work
+list above as the continuation source. Inspect `git status` before making changes.
 
 ### Publication milestone: XML design to both runtimes
 
@@ -110,7 +142,7 @@ use ColumnDataType=Character; the reader accepts both Oracle names and legacy al
 checks verify parameter values survive. Six Python runner tests cover naming, original-source
 preservation, explicit geometry, unknown-node preservation and conflicting aliases; 17 frontend
 and 119 Rust tests pass. Live Oracle conversion and DB-connected compilation of Orders succeeded.
-The app endpoint preview (job 85948-6 on 7075) saved orders_edited_3_fmb.xml, compiled
+The app endpoint preview saved an edited XML version, compiled
 orders_edited_3.fmx, launched FSAL and established AdminServer.formsapp.18. User runtime
 logon and visual/runtime parity are still unverified.
 
@@ -126,7 +158,7 @@ logon and visual/runtime parity are still unverified.
   Same-form reopen retains its current job details. Native Oracle windows remain independent.
 - Corrected an accidental stylesheet overwrite in the prior uncommitted logon work by restoring
   tracked CSS and reapplying the intended dialog rules. Added a CSS/HTML integrity regression.
-- Browser screenshot verified the redesigned dialog on port 7075. Seventeen frontend checks
+- Browser screenshot verified the redesigned dialog. Seventeen frontend checks
   cover credential handling, readiness, stale results, stylesheet integrity and other workflows.
   Full Rust verification remains required after edits, per repository instructions.
 
@@ -159,7 +191,7 @@ Instructions explain Oracle installer/licensing prerequisites, configured domain
 Podman machine/container startup, log inspection, health checks, native viewer startup, and
 separate compile/runtime logons. Checks do not install anything, start services, authenticate
 to the database, or certify compiler success. Java commands run with a four-second timeout.
-The newest server on 7075 was rebuilt/restarted to expose this endpoint; existing FSAL desktop
+The server was rebuilt/restarted to expose this endpoint; existing FSAL desktop
 windows run independently, but old preview-job history in the Rust process is not retained.
 
 Validation: 119 Rust tests and 13 frontend tests passed; missing dependencies, available setup,
@@ -222,7 +254,7 @@ and unavailable readiness-endpoint handling are covered by tests/ui_oracle_setup
   This was a TEST_DB verification window, not Employee Directory.
 - **OFW_DEMO_EMPLOYEES** preview saved `samples/ofw_demo_employees_edited_1_fmb.xml`,
   converted/compiled `ofw_demo_employees_edited_1.fmx`, launched FSAL and established
-  Forms session AdminServer.formsapp.8. Job 60286-2 on port 7075. Runtime logon and visual
+  Forms session AdminServer.formsapp.8. Runtime logon and visual
   equivalence remain to be confirmed by the user.
 
 ### Outstanding work and known limits
@@ -247,9 +279,8 @@ and unavailable readiness-endpoint handling are covered by tests/ui_oracle_setup
 
 ### Running and validation
 
-The newest server with disk Save Form and Oracle preview routes is on **http://127.0.0.1:7075**.
-Older processes on 7070–7074 may still be running; their UIs may read current assets but their
-API routes can be older. Use 7075 for this implementation until restarting the standard server.
+The standard workbench server URL is **http://127.0.0.1:7070**. Restart it when needed to load
+current backend routes and assets; preserve any in-memory runtime sessions before restarting.
 Keep browser-only edits or export them before refreshing/restarting. Native module/session
 state is in memory; Save Form XML files survive restarts.
 
@@ -271,7 +302,7 @@ samples are generated artifacts; review them before any commit. Use git history 
 
 ## Quick Context Summary
 
-- **Repository**: `oracle-forms-fmb-research` (GitHub: `richfrem/oracle-forms-workbench`)
+- **Repository**: `oracle-forms-workbench` (GitHub: `richfrem/oracle-forms-workbench`)
 - **Working tree**: active, uncommitted improvements; inspect `git status` before continuing
 - **Active Stack**:
   - Native multi-crate Rust workspace at root (`crates/oracle-forms-*`)
@@ -286,7 +317,7 @@ samples are generated artifacts; review them before any commit. Use git history 
 Copy everything inside the box below and paste it as your initial prompt in the new session:
 
 ```markdown
-You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-fmb-research`), a native Rust toolchain and web viewer for legacy Oracle Forms & Reports.
+You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-workbench`), a native Rust toolchain and web viewer for legacy Oracle Forms & Reports.
 
 ### 1. Invariants to Always Follow
 - **Zero JVM / Node in Rust Workspace**: The Rust crates (`crates/`) must remain 100% pure native Rust.
@@ -295,6 +326,7 @@ You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-fmb-researc
 - **Verification Gate**: After every change, verify with `cargo check && cargo test`. All tests must pass with zero warnings.
 
 ### 2. Current Project State
+- **Runtime session API (Implemented)**: `/api/sessions` creates sessions, returns session state, dispatches events, handles alerts, and deletes sessions. Do not treat this as proof of full Oracle Forms parity.
 - **Phase A (Completed)**: Read-only block query engine (`crates/oracle-forms-db`), SQL generator, live container execution against Oracle 23ai (`oracle23ai-lite`), CLI `query` command, and REST API (`/api/forms/query-block`).
 - **Phase A.1 (Completed)**: Hardened `TestbedSqlplusDriver` (`testbed_sqlplus.rs`), `/nolog` stdin authentication (zero passwords in `ps`), `BoundSql` trait parameter mapping, `ROWID` selection, and complete removal of hardcoded passwords in Rust crates.
 - **Phase B (Completed)**: Runtime spine & navigation engine (`crates/oracle-forms-runtime`), `FormSession`, `BlockBuffer`, `FormsRecordStatus` (`NEW`, `INSERT`, `QUERY`, `CHANGED`), `ValidationStatus`, `:SYSTEM.*` variables, trigger resolution hierarchy (`Override`, `Before`, `After`), master-detail coordination (`ORDERS` -> `ORDER_LINES`), and verified conformance suites (`conf_01_startup`, `conf_02_nav_valid`).
@@ -306,17 +338,15 @@ You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-fmb-researc
 - **Track T (Completed)**: Pure-Rust Oracle Thin Driver (`crates/oracle-forms-db/src/thin.rs`), native zero-client wire protocol over TCP :1521 using Oracle's official `oracledb = "26.0.0-beta.5"` crate without JVM, C-libraries, Instant Client, or SQL*Plus container execution. Supports connection pooling, named/positional binds, `OracleTimestamp`, `ROWID`, live container queries in 8 ms, and CLI/server/UI `--backend oracle-thin` integration.
 - **Database Testbed**: Podman container `oracle23ai-lite` is running with seeded schema tables (`ORDERS`, `CUSTOMERS`, `DEPARTMENTS`, `EMPLOYEES`, `CLAIMS`, `ITEMS`, `STOCK`, etc.).
 
-### 3. Immediate Mission: Live Interactive Runtime UI Engine (`/api/forms/session`) or Track K Conformance Kit
-Please inspect `docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md` and help me execute the next milestone:
+### 3. Immediate Mission: Current open work
+Use `start-next.md` and the active roadmap to work on one of these remaining areas:
 
-- **Mission A: Live Interactive Runtime UI Engine (`/api/forms/session`)**:
-  1. Wire `FormSession` into `oracle-forms-server` REST & WebSocket session endpoints.
-  2. Live interactive keyboard navigation (`Tab`, `Shift+Tab`, `Up/Down`, `Enter`), real-time field validation, and master-detail synchronization on the web canvas.
-  3. Interactive alert dialogs, query mode (`Enter Query` / `Execute Query`), and commit buttons on the web UI.
+1. Track K golden trace capture and native-vs-Oracle comparison.
+2. Multi-module dependency graph discovery, staging, and ordered compilation.
+3. External database/network/TNS and compiler-account object-visibility validation.
+4. UI parity work, including font persistence, theme/zoom/DPI, tabs/overlays, and runtime behavior.
 
-- **Mission B: Track K (Conformance Testing Kit & Trace Logger)**:
-  1. Autonomous trace logger `ofw_trace` capturing Golden event traces from live Forms 14c container execution.
-  2. Parity assertion suite comparing native Rust execution against Oracle Forms engine traces.
+The session API already exists at `/api/sessions`; do not recreate or describe it as a future endpoint.
 
 Let's review where we are, confirm git status, and proceed with the next milestone!
 ```
@@ -325,7 +355,8 @@ Let's review where we are, confirm git status, and proceed with the next milesto
 
 ## Reference Architecture Documents
 - [06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
-- [08-PLSQL-AND-EVENT-EXECUTION.md](08-PLSQL-AND-EVENT-EXECUTION.md)
-- [03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md](03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md)
-- [04-DATABASE-INTEGRATION-AND-CRUD.md](04-DATABASE-INTEGRATION-AND-CRUD.md)
+- [09-CONFORMANCE-TESTING.md](09-CONFORMANCE-TESTING.md)
+- [completed/08-PLSQL-AND-EVENT-EXECUTION.md](completed/08-PLSQL-AND-EVENT-EXECUTION.md)
+- [completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md](completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md)
+- [completed/04-DATABASE-INTEGRATION-AND-CRUD.md](completed/04-DATABASE-INTEGRATION-AND-CRUD.md)
 - [AGENTS.md](../../AGENTS.md)

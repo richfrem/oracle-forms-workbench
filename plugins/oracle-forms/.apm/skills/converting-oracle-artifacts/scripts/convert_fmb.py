@@ -65,8 +65,7 @@ Script Dependencies:
         * Working Directory: /work (mounted from host parent directory via /work:Z)
 
 Consumed by:
-    - forms-viewer-poc/src/main/kotlin/com/viewer/forms/converter/ModuleConverter.kt
-      (Automated ingestion pipeline: queries --check and dispatches conversion before direct binary fallback)
+    - The optional workbench conversion pipeline
     - Developers performing manual, local Oracle Forms module inspections via CLI
 """
 

@@ -38,7 +38,8 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/tes
 1. **Binary to XML:** `convert_fmb.py form.fmb` (also `.mmb`, `.olb`; output `<name>_<ext>.xml`); `convert_pll.py lib.pll` (to `lib.pld`; prints FAILED when no file is written); `convert_rpt.py report.rdf` (to `report_rdf.xml`).
 2. **XML to binary:** run XML2Forms in the container (`oracle.forms.util.xmltools.XML2Forms`); `test_conversions.py` shows the exact command per type.
 3. **Check the schema** when a conversion rejects XML: `references/forms-xml-schema.md` (what it is, where it came from) and `extract_forms_schema.py` (re-extract and compare).
-4. **Test every path** with `test_conversions.py` (`--only forms|menus|libraries|olb|reports`, `--offline`) and report its table.
+4. **Whole project:** `build_dependency_manifest.py --source-dir <folder> --build-dir <external>` analyzes, orders and converts every module, then compile with the other skill's `compile_from_manifest.py`.
+5. **Test every path** with `test_conversions.py` (`--only forms|menus|libraries|olb|reports`, `--offline`) and report its table.
 
 ## Scripts
 
@@ -48,6 +49,8 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/tes
 | `convert_fmb.py`, `convert_pll.py`, `convert_rpt.py` | Forms/menus/object libraries, PL/SQL libraries, and Reports conversions |
 | `test_conversions.py` | Runs every path for the five types and prints a PASS, FAIL, BLOCKED, SKIP table |
 | `extract_forms_schema.py` | Runs Oracle's `SchemaGenerator` in a container, compares the result with `assets/forms-14c.xsd`, `--update` refreshes the copies. **Not verified:** the generator's arguments (`--usage`) |
+| `build_dependency_manifest.py` | Batch: scans a read-only source folder (prompts for it if `--source-dir` is omitted), writes `<build-dir>/build-manifest.json` in dependency order, then stages and converts XML to binary. `--analyze-only`, `--allow-missing`, `--normalize`. Build dir must be outside the repo. [references/batch-dependency-conversion.md](references/batch-dependency-conversion.md) |
+| `assets/build-manifest.schema.json`, `assets/build-manifest.template.json` | Manifest contract and a starting template |
 
 ## Verified conversion paths
 

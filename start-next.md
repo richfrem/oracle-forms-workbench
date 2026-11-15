@@ -2,7 +2,29 @@
 
 Read [AGENTS.md](AGENTS.md) and every file in [.agent/rules/](.agent/rules/) first. After every step below, update the documentation before the next step (change log: `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-wsl-change-log.md`), script anything done by hand, and report only what was verified. Run everything inside WSL2. Do not remove or replace the owner's containers or images, and say what will happen before any image rebuild.
 
-## Current state (2026-11-14)
+## Current open work
+
+1. **Track K golden traces**: build deterministic trace capture from Oracle Forms 14c and compare it with native runtime sessions. Full golden-trace parity is not verified.
+2. **Multi-module dependency staging**: extend single-form parent staging into complete dependency discovery and ordered batch conversion/compilation.
+3. **External database validation**: verify Forms-container connectivity, `TNS_ADMIN` resolution, and compiler-account object/role visibility. No external database was tested for this status update.
+4. **UI parity**: continue font persistence, theme/zoom/DPI comparison, tab/overlay behavior, and runtime verification. Compilation alone does not establish parity.
+
+The runtime session REST API at `/api/sessions` is implemented. The current standard workbench URL is `http://127.0.0.1:7070`. For detailed status and the copy-paste continuation prompt, see [docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md](docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md).
+
+## Proposed post-G design
+
+Phase H is a proposed direction, not implemented work: establish equivalent login, role, context,
+and global-state initialization before comparing legacy form behavior across the two runtimes.
+The [dual-runtime session and parity harness](docs/plans/11-DUAL-RUNTIME-DEV-PARITY-AND-SESSION-HARNESS.md)
+defines its milestones; the [test-user and form-launcher specification](docs/plans/12-ROLE-IMPERSONATION-AND-FORM-LAUNCHER-SPEC.md)
+describes the synthetic utility form. Neither document is evidence of current runtime support or
+of verified parity.
+
+## Historical setup notes (2026-11-14; not the active backlog)
+
+The following notes describe an earlier environment state. Recheck current settings and references
+before acting; do not assume any previously reported container, path, credential, or test status
+still applies.
 
 - **Oracle Home on Ubuntu's disk (`~/oracle_home_14c`) — DONE:** `OFW_ORACLE_HOME=/home/<you>/oracle_home_14c` is set in `.env`, `forms-server-14c` is recreated on `~/oracle_home_14c`, `python3 start_testbed.py` booted WebLogic + Forms servlet in **45s** (down from 15–44 minutes on `/mnt/c`), `launch_fsal.py ofw_demo_employees.fmx` started without error (with `OFW_EMP_MENU.mmx -> ofw_emp_menu.mmx` symlink, also scripted in `apply_forms14c_config.sh`), and `health_check.py` passed (**All systems operational!**).
 - **Cleaned up:** deleted the old `oracle-reference-stack/oracle_home_14c/` folder and removed the one-off `restore_oracle_home_attributes.sh` script. Kept `apply_forms14c_config.sh` and `provision_oracle_home.sh`.
@@ -15,7 +37,7 @@ Read [AGENTS.md](AGENTS.md) and every file in [.agent/rules/](.agent/rules/) fir
     1. Fix `frmcmp_batch` `userid=` quoting/logon in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py` (and `compile_form.py`) so `frmcmp_batch` connects whenever `sqlplus -L` connects.
     2. For binary `.fmb` files opened from `OFW_FORMS_PATH_EXTRA` (or uploaded), use Oracle's `frmf2xml` (`convert_fmb.py` / container `frmf2xml`) for full XML export (or compile the source `.fmb` directly when unmodified) instead of compiling a regenerated `.fmb` from lossy `(summary)` XML.
 
-**Remaining work:**
+**Historical checklist (not the active backlog):**
 1. **Password rotation (verified for WebLogic & `DB_USER`):** `WLS_ADMIN_USER`/`WLS_ADMIN_PASSWORD` (`boot.properties` + `DefaultAuthenticatorInit.ldift` reset, `forms-server-14c` booted to `RUNNING` in **36s**, WebLogic REST auth `200 OK`) and `DB_USER`/`DB_PASSWORD` (`sqlplus` `exit=0`) are verified. `SYSTEM` login with `ORACLE_PWD` returned `exit=1` (not yet checked). Still to check tracked files with `git grep`.
 
 **Step 0, every session:** read `architecture.md`, then in the WSL shell run `python3 start_testbed.py --status` (read-only). If it says "Podman runtime directory missing", ask the user to run `python3 start_testbed.py --no-forms` (or the full command) in the Ubuntu shell: it recreates `/run/user/<uid>` and prompts for the WSL sudo password, which an agent cannot enter. Throwaway `podman run --rm` containers (conversions, schema extraction) need that directory but not the running `forms-server-14c`.

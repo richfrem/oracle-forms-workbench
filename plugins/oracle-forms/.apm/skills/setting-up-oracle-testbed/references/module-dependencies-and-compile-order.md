@@ -2,12 +2,15 @@
 
 What was learned running Oracle's Forms conversion and compile tools in the 14.1.2 container, and how to avoid the silent failures. Evidence level is stated for each point; anything not run is "not verified".
 
+The simplest reproducible strategy is to stage the required source modules together in one flat work folder and include that folder on `FORMS_PATH`. This reduces path and case mismatches, but is not a claim that Oracle requires every dependency to occupy the same directory. Lookup can depend on the tool, embedded references, current working directory, and `FORMS_PATH`; exact search precedence has not been exhaustively verified here.
+
 ## Contents
 
 - [Dependencies must sit beside the input (verified)](#dependencies-must-sit-beside-the-input-verified)
 - [Which tool handles which file](#which-tool-handles-which-file)
 - [Finding the dependencies](#finding-the-dependencies)
 - [Compile order and why compiles fail (verified)](#compile-order-and-why-compiles-fail-verified)
+- [Dependency graphs, not fixed waves](#dependency-graphs-not-fixed-waves)
 - [Diagnosing a silent failure](#diagnosing-a-silent-failure)
 
 ## Dependencies must sit beside the input (verified)
@@ -58,11 +61,31 @@ Batch result: a folder of 24 libraries, 4 menus and 2 object libraries was conve
 
 **Order and folder.** Compile modules with no attachments first, then the ones that attach them, then menus and forms. Keep every attached library, object library and menu in one folder. `compile_form.py` does this itself: it copies the module and the `.pll`, `.olb` and `.mmb` files found beside it and in `OFW_FORMS_PATH_EXTRA` into `<work folder>/stage/` (the work folder is `OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`, mounted in the container as `/oracle_home_14c/ofw-work`), compiles there, and then publishes the `.fmx`, `.mmx` or `.plx` to `<Oracle Home>/forms/`. Nothing is written in the repository. `--no-publish` skips the copy to `forms/`. Whether the attachments being present is required for compiling, as it is for PLL export, was not separated out; they were always present.
 
-**Compile location is not runtime location.** Compiling happens in the work folder. At run time the Forms server loads compiled `.plx`, `.mmx` and `.fmx` files from the `FORMS_PATH` in the domain `default.env` (by default `<Oracle Home>/forms`, plus any extra folder configured through `OFW_FORMS_PATH_EXTRA`). `compile_form.py` copies them there when a compile succeeds. See `compiling-and-running-oracle-forms/references/forms-path-and-dependencies.md`.
+## Dependency graphs, not fixed waves
+
+For a batch of related modules, inventory the actual references and order each provider before the module that needs it. Do not assume one universal sequence of artifact-type waves: attached libraries, menus, object libraries, and parent forms can create different dependencies. Object libraries must be discoverable when needed; they are not compiled by `compile_form.py`. Check that every referenced artifact exists with the expected filename case on the Linux container.
+
+`oracle-forms-cli inspect --json` emits a `ModuleIndex` for one input module. Its `attachedLibraries`, `menuModule`, and inherited parent metadata can contribute graph edges, but the CLI does not produce a multi-module dependency graph or perform topological conversion/compilation. A dependency inventory must distinguish `.pll` binary sources, which are compiled directly to `.plx`, from supported XML sources that require XML2Forms conversion.
+
+Build provider-to-consumer edges from the declared references, such as `AttachedLibrary`, `MenuModule`, `ParentFilename`, and `ParentModule`. Resolve names with exact case on the Linux container, report missing or ambiguous providers, and stop on cycles instead of guessing an order. `.olb` modules are staged as providers but have no `frmcmp_batch` executable compile step; `.pll` files must remain available as source binaries and should not be routed through an XML round-trip.
+
+**Conversion order is a separate question from compile order.** Parent `.fmb` and `.olb` sources may need to be discoverable while XML2Forms converts a dependent XML module. This is a conservative staging precaution, not yet verified as a universal XML2Forms requirement in this repository. Preserve original sources, stage the expected providers before conversion, and inspect conversion output before compiling. Do not claim that a successful XML export is lossless or that a fixed `.olb -> .pll -> .mmb -> .fmb` sequence is mandatory for every module set.
+
+When processing external material, keep source folders read-only and direct staging and generated artifacts to `OFW_WORK_DIR` outside both the repository and source tree. Do not use `temp/`, `context/`, or `samples/` for external staging. `compile_form.py` remains a single-module compiler, not a batch dependency planner. For parent-form staging limitations and XML round-trip caveats, see [inheriting forms and XML round-trip](../../compiling-and-running-oracle-forms/references/inheriting-forms-and-xml-roundtrip.md).
+
+**Database access is a separate check.** Artifact discovery and compile order do not prove that the compiler account can resolve and access referenced database objects, or that the Forms runtime can reach the target database. Follow [the target-database and Forms path guide](../../compiling-and-running-oracle-forms/references/forms-path-and-dependencies.md) to check those separately.
+
+**Compilation and application login use different sessions.** `frmcmp_batch` compiles with its own database logon; it does not run the application's Forms login workflow. Do not assume that roles, synonyms, globals, or other session state initialized by an application entry form are present during compilation. Conversely, a successful compile does not prove that a runtime session has the state needed by the form. Check compile-time object visibility with the compiler account, then test runtime behavior through the application's intended entry point and navigation path.
+
+**Test database reachability from the executing environment.** A database address that resolves or connects from the host may not do so from the container running the compiler or Forms runtime. Check name resolution, network access, and Oracle Net configuration from the environment that makes the connection; the linked guide covers the supported target-database settings.
+
+**Compile location is not runtime location.** Compiling happens in the work folder. At run time the Forms server loads compiled `.plx`, `.mmx` and `.fmx` files from the `FORMS_PATH` in the domain `default.env` (by default `<Oracle Home>/forms`). Publish only the intended generated outputs to a runtime-visible directory; keep external source directories read-only. See `compiling-and-running-oracle-forms/references/forms-path-and-dependencies.md`.
 
 **Cross-check.** If a compile fails, repeat it in a desktop Forms Builder with the same account (Program > Compile > All). Same errors in both means the account's visibility; different results means the container setup. A Builder-built `.plx` is the Builder's version and may not load in a different Forms version.
 
 **Credentials.** Passwords with characters other than letters, digits, `_`, `#` or `$` must be wrapped in double quotes inside `userid=`. `compile_form.py` and `run_form.py` do this (`format_userid`). Prompt for the password instead of typing it in a command, and never put it in tracked files.
+
+Not verified: using `inspect --json` as a complete dependency manifest; automatic ordering, XML2Forms provider lookup, or compilation across a multi-module dependency graph; exact tool lookup precedence among the current directory and `FORMS_PATH`; and external target-database connectivity.
 
 ## Diagnosing a silent failure
 

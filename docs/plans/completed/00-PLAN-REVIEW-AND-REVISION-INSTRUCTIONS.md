@@ -143,11 +143,8 @@ oracle-forms-workbench/
 ```
 Done in **one dedicated PR**: `git mv`, plus fixing paths in `Cargo.toml`, `AGENTS.md`, `README.md`, `architecture.md`, `HOW-TO-RUN.md`, `docs/*`, every skill script/reference. No feature work mixed in.
 
-Files that still contain the old repo name `oracle-forms-fmb-research`:
-- `HOW-TO-RUN.md`
-- `DEPENDENCIES.md`, `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/dependencies.md`
-- `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/podman-setup-guide.md`
-- `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md`
+Use the canonical repository identity consistently in documentation and tooling. Avoid retaining
+historical repository aliases in user-facing content.
 
 Also update the `repository` field in the workspace `Cargo.toml` and in any plugin manifest.
 

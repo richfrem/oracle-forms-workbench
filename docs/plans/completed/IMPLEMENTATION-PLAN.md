@@ -1,7 +1,7 @@
 # Implementation Plan: Oracle Forms Workbench
 
 > **Document Status**: Revised Implementation Plan (Post-Review Alignment)  
-> **Location**: `temp/plan/IMPLEMENTATION-PLAN.md`  
+> **Status**: Archived completed design specification
 > **Execution Order**: Phase A ✅ $\to$ Phase A.1 $\to$ Phase B $\to$ Phase C $\to$ Phase D $\to$ Phase E $\to$ Phase F $\to$ Phase G  
 > **Parallel Tracks**: Track T (Pure-Rust Thin Driver), Track K (Conformance Kit)
 

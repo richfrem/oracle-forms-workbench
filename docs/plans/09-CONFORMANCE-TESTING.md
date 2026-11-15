@@ -1,8 +1,13 @@
 # 09: Conformance Testing Kit & Ground-Truth Oracle
 
-> **Status**: Specification  
-> **Reference Oracle**: Oracle Forms 14c + Oracle Database 23ai Free (Local Podman Testbed)  
-> **Target**: Automated, verifiable behavioral parity between Oracle Forms Workbench and native Oracle Forms
+> **Status**: Active Track K design; the complete golden-trace harness is not yet verified
+> **Reference Oracle**: Optional Oracle Forms 14c and database testbed
+> **Target**: Automated behavioral comparisons between Oracle Forms Workbench and native Oracle Forms
+
+Related current status: [implementation roadmap](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
+and [next-phase prompt](10-NEXT-PHASE-SESSION-PROMPT.md). Historical runtime and event design
+is in [completed/03](completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md) and
+[completed/08](completed/08-PLSQL-AND-EVENT-EXECUTION.md).
 
 ---
 
@@ -10,7 +15,7 @@
 
 In reverse-engineering complex enterprise middleware, the primary failure mode is **speculative implementation**: guessing how Oracle Forms handles edge cases (trigger ordering, failure propagation, validation timing) and implementing an idealized model that diverges from real-world behavior.
 
-Because this repository already maintains a certified, headless **Oracle Forms 14c and Database 23ai testbed** in Podman, we have access to the ultimate arbiter: **the genuine Oracle Forms runtime itself**.
+When the optional Oracle Forms 14c reference testbed is available, it can provide runtime evidence. Its availability, database connectivity, and results must be checked for each test run; this document does not certify that the testbed is currently running.
 
 We leverage this environment as our **Conformance Oracle**:
 1. We construct small, targeted test forms.
@@ -139,7 +144,10 @@ The canonical output recorded from Oracle Forms 14c:
 
 ---
 
-## 5. Verification Gates by Phase
+## 5. Target Verification Gates by Phase
+
+These are intended acceptance gates, not a claim that the corresponding live Oracle comparisons
+have all been performed.
 
 Every phased milestone must pass its associated conformance suite:
 

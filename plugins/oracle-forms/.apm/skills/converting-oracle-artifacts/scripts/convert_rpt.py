@@ -17,11 +17,11 @@ Purpose:
 Layer: Tooling / Container Bridge
 
 Usage Examples:
-    python3 oracle-reference-stack/convert_rpt.py --check
-    python3 oracle-reference-stack/convert_rpt.py samples/invoice.rdf
-    python3 oracle-reference-stack/convert_rpt.py samples/invoice.rdf -o ./custom/invoice.xml
-    python3 oracle-reference-stack/convert_rpt.py samples/invoice.rdf --format rex
-    python3 oracle-reference-stack/convert_rpt.py samples/invoice.rdf --oracle-home /custom/oracle_home
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_rpt.py --check
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_rpt.py samples/invoice.rdf
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_rpt.py samples/invoice.rdf -o ./custom/invoice.xml
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_rpt.py samples/invoice.rdf --format rex
+    python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_rpt.py samples/invoice.rdf --oracle-home /custom/oracle_home
 
 Supported Object Types:
     - .rdf (Oracle Reports Binary Definition) -> XML (*_rdf.xml) or ASCII Text (*.rex)
@@ -35,9 +35,9 @@ CLI Arguments:
     --check               : Probes host container engine and Reports runtime readiness.
     --oracle-home <path>  : Path to local Oracle Home directory (optional).
 
-Input Files:
-    - oracle-reference-stack/Containerfile (Container image definition)
-    - oracle-reference-stack/oracle_home/bin/rwconverter.sh (Oracle Reports converter)
+Input Dependencies:
+    - oracle-reference-stack/Containerfile.14c (container image definition)
+    - <OFW_ORACLE_HOME>/bin/rwconverter.sh (Oracle Reports converter)
     - Target report binary files (.rdf, .rpt, .rex)
 
 Output:
@@ -60,7 +60,7 @@ Script Dependencies:
         * Python 3.8+ (sys, shutil, platform, subprocess, pathlib, argparse, typing)
         * Podman CLI (or Docker) installed and active on host system
         * Rosetta 2 binary translation active on macOS Apple Silicon
-    - Container Image ('forms-converter:latest'):
+    - Container Image (forms-converter-14c:latest; OFW_CONVERTER_IMAGE overrides):
         * Base OS: Oracle Linux 8 Slim (linux/amd64)
         * Oracle Fusion Middleware Reports component (rwconverter.sh)
 

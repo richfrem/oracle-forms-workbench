@@ -26,6 +26,7 @@ CLI Arguments:
     form_path             : Path to input .fmx, .fmb, or .xml file.
     -p, --port <int>      : WebLogic AdminServer port (default: 7001).
     -u, --userid <str>    : Database logon connection string (default: DB_USER/DB_PASSWORD/DB_SERVICE from .env).
+    --param NAME=VALUE    : URL-encoded Forms module parameter (repeatable).
     --interactive         : Omit credentials and prompt via native GUI Logon dialog.
     --offline             : Compile offline without database verification (logon=no).
 
@@ -43,12 +44,12 @@ Key Functions:
     - resolve_workspace_root() -> Path
     - convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path
     - compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bool) -> Path
-    - launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool) -> int
+    - launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool, params: List[str]) -> int
     - parse_cli_args(argv: List[str]) -> argparse.Namespace
     - main() -> int
 
 Script Dependencies:
-    - Python 3.8+ (standard library: sys, os, argparse, subprocess, urllib.parse, pathlib, typing)
+    - Python 3.8+ (standard library: sys, os, argparse, subprocess, pathlib, typing)
     - Java 17+ or Java 25 installed on host machine
     - Podman running containers 'forms-server-14c' and 'oracle23ai-lite'
 
@@ -65,7 +66,6 @@ import subprocess
 import shlex
 import re
 import xml.etree.ElementTree as ET
-import urllib.parse
 from pathlib import Path
 from typing import List, Optional
 
@@ -281,9 +281,12 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
     format_userid = _compile_form().format_userid
     logon_param = "logon=no" if offline else "userid=" + shlex.quote(format_userid(userid))
     extra_forms_path = resolve_extra_forms_path(repo_root)
-    forms_path = f"/oracle_home_14c/forms:{container_fmb.rsplit('/', 1)[0]}"
+    stage_folder = _compile_form().stage_folder(repo_root)
+    stage_path = _compile_form().container_path(stage_folder, repo_root)
+    forms_path = f"/oracle_home_14c/forms:{stage_path}:{container_fmb.rsplit('/', 1)[0]}"
     if extra_forms_path:
-        forms_path = f"{forms_path}:{extra_forms_path}"
+        if extra_forms_path not in forms_path.split(":"):
+            forms_path = f"{forms_path}:{extra_forms_path}"
 
     print(f"[2/3] Compiling {fmb_path.name} to executable FMX (logon={'no' if offline else 'yes'})...")
     cmd = (
@@ -339,7 +342,7 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
 
 
 # Launches the compiled form in the host desktop Forms Standalone Launcher client.
-def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool) -> int:
+def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool, params: Optional[List[str]] = None) -> int:
     """Run Forms Standalone Launcher (frmsal.jar) natively on host OS.
 
     Args:
@@ -348,6 +351,7 @@ def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str,
         port: WebLogic listening port (default: 7001).
         userid: Database logon string.
         interactive: If True, prompt for logon in GUI.
+        params: Optional NAME=VALUE module parameters.
 
     Returns:
         Process exit code from frmsal.jar.
@@ -359,14 +363,12 @@ def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str,
         print(f"Error: frmsal.jar not found at {frmsal_jar}", file=sys.stderr)
         return 1
 
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from launch_fsal import build_fsal_url
     form_name = fmx_path.name
-    base_url = f"http://localhost:{port}/forms/frmservlet?config=standaloneapp&form={form_name}"
-
-    if not interactive and userid and userid.lower() != "none":
-        encoded_userid = urllib.parse.quote(userid, safe="@/:")
-        url = f"{base_url}&userid={encoded_userid}"
-    else:
-        url = base_url
+    url = build_fsal_url(fmx_path.name, port, userid, interactive, params)
 
     print(f"[3/3] Launching live form in Forms Standalone Launcher (FSAL)...")
     print(f"  Target Form: {form_name}")
@@ -410,6 +412,7 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--interactive", action="store_true", help="Prompt for credentials via native GUI Logon dialog")
     parser.add_argument("--compile-from-env", action="store_true", help="Read compile logon from OFW_PREVIEW_DB_LOGON (FSAL remains interactive)")
     parser.add_argument("--offline", action="store_true", help="Compile without database connection (logon=no)")
+    parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="URL-encoded Forms module parameter (repeatable)")
     args = parser.parse_args(argv)
     if args.userid is None:
         args.userid = _default_userid()
@@ -462,7 +465,7 @@ def main() -> int:
             print(f"Error: Unsupported file format '{suffix}'. Expected .xml, .fmb, or .fmx", file=sys.stderr)
             return 1
 
-        return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive)
+        return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive, args.param)
     except Exception as err:
         print(f"\nExecution error: {err}", file=sys.stderr)
         return 1

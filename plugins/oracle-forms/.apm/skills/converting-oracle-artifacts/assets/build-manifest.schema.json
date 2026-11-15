@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Oracle Forms build manifest",
+  "description": "Dependency-ordered build plan written by build_dependency_manifest.py and read by compile_from_manifest.py. Lives in an external build folder, never in the repository.",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "sourceDir", "buildDir", "modules", "unresolvedDependencies", "cycles"],
+  "properties": {
+    "schemaVersion": {"type": "integer", "const": 1},
+    "generatedAt": {"type": "string"},
+    "sourceDir": {"type": "string", "description": "Read-only folder the sources came from."},
+    "buildDir": {"type": "string", "description": "External folder that holds the manifest and stage/."},
+    "modules": {
+      "type": "array",
+      "description": "Topologically sorted: every provider precedes its consumers.",
+      "items": {
+        "type": "object",
+        "required": ["order", "name", "artifactType", "sourceFile", "stagedInputFile", "binaryFile", "executableFile", "requiresConversion", "dependencies", "status"],
+        "properties": {
+          "order": {"type": "integer", "minimum": 1},
+          "name": {"type": "string"},
+          "artifactType": {"enum": ["OLB", "PLL", "MMB", "FMB"]},
+          "sourceFile": {"type": "string"},
+          "stagedInputFile": {"type": "string", "description": "Path relative to buildDir."},
+          "binaryFile": {"type": "string", "description": "Path relative to buildDir."},
+          "executableFile": {"type": ["string", "null"], "description": ".plx, .mmx or .fmx path relative to buildDir; null for OLB."},
+          "requiresConversion": {"type": "boolean"},
+          "dependencies": {
+            "type": "object",
+            "required": ["objectLibraries", "attachedLibraries", "menus", "parentModules"],
+            "properties": {
+              "objectLibraries": {"type": "array", "items": {"type": "string"}},
+              "attachedLibraries": {"type": "array", "items": {"type": "string"}},
+              "menus": {"type": "array", "items": {"type": "string"}},
+              "parentModules": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "status": {"enum": ["pending", "converted", "compiled", "failed", "skipped"]},
+          "diagnostics": {"type": "string"}
+        }
+      }
+    },
+    "unresolvedDependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module", "dependency", "kind"],
+        "properties": {
+          "module": {"type": "string"},
+          "dependency": {"type": "string"},
+          "kind": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "cycles": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+  }
+}

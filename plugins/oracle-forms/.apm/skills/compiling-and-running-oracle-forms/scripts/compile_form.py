@@ -38,6 +38,7 @@ Output:
 
 Key Functions:
     - resolve_workspace_root() -> Path
+    - find_parent_forms(module: Path, search_dirs: List[Path]) -> List[Path]
     - build_compiler_command(container_path: str, mod_type: str, logon_param: str) -> str
     - execute_compilation(cmd: str) -> int
     - parse_cli_args(argv: List[str]) -> argparse.Namespace
@@ -57,11 +58,13 @@ import sys
 import os
 import argparse
 import platform
+import re
 import shlex
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List
+from typing import List, Set
 
 
 # Resolves the absolute path to the repository root directory.
@@ -138,7 +141,13 @@ def work_dir(repo_root: Path) -> Path:
     mounts at /oracle_home_14c, so no extra container mount is needed.
     """
     raw = _env("OFW_WORK_DIR").strip()
-    return Path(os.path.expanduser(raw)) if raw else oracle_home_host(repo_root) / "ofw-work"
+    folder = Path(os.path.expanduser(raw)) if raw else oracle_home_host(repo_root) / "ofw-work"
+    resolved = folder.resolve()
+    try:
+        resolved.relative_to(repo_root.resolve())
+    except ValueError:
+        return resolved
+    raise RuntimeError(f"OFW_WORK_DIR must resolve outside the repository: {resolved}")
 
 
 def ensure_work_dir(repo_root: Path) -> Path:
@@ -206,6 +215,76 @@ def stage_folder(repo_root: Path) -> Path:
     return folder
 
 
+def _parent_form_names(module: Path) -> Set[str]:
+    """Read declared XML parent names or heuristic binary name tokens.
+
+    Args:
+        module: XML or binary form module to inspect.
+
+    Returns:
+        Case-folded candidate parent module stems.
+    """
+    if module.suffix.lower() == ".xml":
+        try:
+            root = ET.parse(module).getroot()
+        except ET.ParseError as err:
+            raise RuntimeError(f"Cannot inspect parent references in {module.name}: {err}") from err
+        names = set()
+        for element in root.iter():
+            for attribute in ("ParentFilename", "ParentModule"):
+                value = (element.get(attribute) or "").strip()
+                if not value:
+                    continue
+                leaf = value.replace("\\", "/").rsplit("/", 1)[-1]
+                suffix = Path(leaf).suffix.lower()
+                if attribute == "ParentFilename" and suffix not in ("", ".fmb"):
+                    continue
+                name = Path(leaf).stem if suffix == ".fmb" else leaf
+                if name and name.casefold() != module.stem.casefold():
+                    names.add(name.casefold())
+        return names
+    if module.suffix.lower() != ".fmb":
+        return set()
+    return {
+        token.decode("ascii").casefold()
+        for token in re.findall(rb"[A-Za-z][A-Za-z0-9_$]{0,63}", module.read_bytes())
+    }
+
+
+def find_parent_forms(module: Path, search_dirs: List[Path]) -> List[Path]:
+    """Find recursively referenced parent FMBs in the source and extra search folders.
+
+    Args:
+        module: XML or binary module whose parents are required.
+        search_dirs: Read-only source folders, ordered by lookup preference.
+
+    Returns:
+        Parent FMB source paths, with source filename casing preserved.
+    """
+    candidate_by_stem = {}
+    for source_dir in search_dirs:
+        if not source_dir.is_dir():
+            continue
+        for candidate in source_dir.iterdir():
+            if candidate.is_file() and candidate.suffix.lower() == ".fmb":
+                candidate_by_stem.setdefault(candidate.stem.casefold(), candidate.resolve())
+
+    root = module.resolve()
+    visited = {root}
+    pending = [root]
+    parents = {}
+    while pending:
+        current = pending.pop()
+        for name in _parent_form_names(current):
+            candidate = candidate_by_stem.get(name)
+            if candidate is None or candidate in visited:
+                continue
+            visited.add(candidate)
+            parents[candidate] = candidate
+            pending.append(candidate)
+    return sorted(parents.values(), key=lambda path: (path.name.casefold(), path.name))
+
+
 def stage_module(module: Path, repo_root: Path) -> Path:
     """Copy a module, plus the attached modules found beside it and in OFW_FORMS_PATH_EXTRA, into the stage folder.
 
@@ -218,7 +297,10 @@ def stage_module(module: Path, repo_root: Path) -> Path:
         return module
     except ValueError:
         pass
-    for source_dir in [module.parent, *extra_forms_dirs()]:
+    source_dirs = [module.parent, *extra_forms_dirs()]
+    for parent in find_parent_forms(module, source_dirs):
+        _sync_file(parent, folder / parent.name)
+    for source_dir in source_dirs:
         for src in source_dir.iterdir():
             if src.is_file() and src.suffix.lower() in _FORMS_DEP_EXTS:
                 _sync_file(src, folder / src.name)

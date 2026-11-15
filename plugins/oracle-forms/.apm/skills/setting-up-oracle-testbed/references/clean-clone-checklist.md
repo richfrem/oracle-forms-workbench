@@ -8,7 +8,7 @@ What you need to bring: an Oracle account for eDelivery, the three installer fil
 |---|---|---|---|
 | 1 | Host prerequisites | `brew install podman`; Podman machine; Rosetta 2 check: [podman-setup-guide.md](podman-setup-guide.md) | WSL2 and Ubuntu 24.04; `/etc/wsl.conf` automount options; Podman in Ubuntu; `/run/user/<uid>`; Ubuntu packages (`podman python3 build-essential unzip openjdk-21-jre libxml2-utils`): [windows-podman-setup.md](windows-podman-setup.md) sections 2 and 3 |
 | 2 | Run your AI coding agent | natively | from the Ubuntu shell: [windows-podman-setup.md](windows-podman-setup.md) section 14 |
-| 3 | `.env` | `scripts/create_env.py`, then `set -a; source .env; set +a` | same |
+| 3 | `.env` | `scripts/create_env.py` (optional `OFW_FORMS_PATH_EXTRA` for external `.pll`/`.mmx`/`.fmx` folders: [forms-path-and-dependencies.md](../../compiling-and-running-oracle-forms/references/forms-path-and-dependencies.md)), then `set -a; source .env; set +a` | same |
 | 4 | Network and database | [database-23ai.md](database-23ai.md) | same |
 | 5 | Installers: download, stage, response files | [installing-forms-14c.md](installing-forms-14c.md) steps 2 and 3 | same; on WSL `chmod +x` the `.bin` |
 | 6 | Where the Oracle Home goes (decide BEFORE installing) | default (the repo folder) | **Ubuntu's disk, never the repo folder:** set `OFW_ORACLE_HOME=/home/<you>/oracle_home_14c` in `.env` and create it first: [installing-forms-14c.md](installing-forms-14c.md), [oracle-home-location.md](oracle-home-location.md) |

@@ -460,12 +460,19 @@ struct ExportXmlResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SaveFormRequest { module_name: String, username: Option<String>, password: Option<String>, #[serde(default)] offline: bool }
+struct SaveFormRequest {
+    module_name: String,
+    username: Option<String>,
+    password: Option<String>,
+    database: Option<String>,
+    #[serde(default)]
+    offline: bool,
+}
 
 async fn save_form_file(State(service): State<FormsService>, Json(req): Json<SaveFormRequest>) -> Response {
     match service.save_form_file(&req.module_name) {
-        Ok((filename, mode)) => Json(serde_json::json!({
-            "fileName": filename, "path": format!("samples/{}", filename), "mode": mode
+        Ok((_path, filename, display_path, mode)) => Json(serde_json::json!({
+            "fileName": filename, "path": display_path, "mode": mode
         })).into_response(),
         Err(error) => session_error(400, error.to_string()),
     }
@@ -479,9 +486,9 @@ async fn start_oracle_preview(State(service): State<FormsService>, Json(req): Js
         }
     };
     match service.save_form_file(&req.module_name) {
-        Ok((filename, mode)) => match crate::oracle_preview::start(&filename, credentials) {
-            Ok(id) => Json(serde_json::json!({ "jobId": id, "fileName": filename, "mode": mode })).into_response(),
-            Err(error) => session_error(400, format!("Saved samples/{}. Oracle preview failed: {}", filename, error)),
+        Ok((saved_path, filename, display_path, mode)) => match crate::oracle_preview::start(&saved_path, &filename, credentials, req.database.as_deref()) {
+            Ok(id) => Json(serde_json::json!({ "jobId": id, "fileName": filename, "path": display_path, "mode": mode })).into_response(),
+            Err(error) => session_error(400, format!("Saved {}. Oracle preview failed: {}", display_path, error)),
         },
         Err(error) => session_error(400, error.to_string()),
     }
@@ -718,11 +725,6 @@ fn try_open_as_report(file_path: &Path, file_name: &str) -> Option<Response> {
     let lower = file_name.to_ascii_lowercase();
     if lower.ends_with("_report.xml") || lower.ends_with("_rdf.xml") || lower.ends_with(".rdf") || lower.ends_with(".rpt") {
         if let Ok(report) = oracle_forms_xml::ReportsXmlParser::parse_file(file_path) {
-            // Ensure report is accessible in samples_dir if uploaded to temp
-            let samples_target = FormsService::samples_dir().join(file_name);
-            if file_path != samples_target && !samples_target.exists() {
-                let _ = std::fs::copy(file_path, &samples_target);
-            }
             return Some(
                 Json(serde_json::json!({
                     "isReport": true,
@@ -1120,6 +1122,23 @@ mod tests {
             .body(Body::from(r#"{"moduleName":"DO_NOT_SAVE_WITHOUT_CREDENTIALS"}"#)).unwrap()).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("Database-connected compilation needs"), "{body}");
+        let _ = std::fs::remove_dir_all(cache);
+    }
+
+    #[tokio::test]
+    async fn preview_rejects_invalid_target_database() {
+        let (service, cache) = security_test_service("preview-bad-target");
+        let payload = serde_json::json!({
+            "moduleName": "orders_fmb.xml",
+            "username": "forms_user",
+            "password": "secret",
+            "database": "MY_ALIAS;bad"
+        });
+        let (status, body, _) = send(service, Request::builder().method("POST")
+            .uri("/api/forms/oracle-preview").header("content-type", "application/json")
+            .body(Body::from(payload.to_string())).unwrap()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.contains("Invalid target database"), "{body}");
         let _ = std::fs::remove_dir_all(cache);
     }
 

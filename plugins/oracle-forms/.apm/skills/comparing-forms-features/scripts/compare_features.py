@@ -188,12 +188,35 @@ def extract_builtins_from_plsql(text: str) -> Set[str]:
     return found
 
 
+def _dotenv(repo_root: Path, name: str) -> str:
+    """One KEY from the git-ignored .env at the repo root, or an empty string."""
+    env_file = repo_root / ".env"
+    if env_file.is_file():
+        for raw in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                if key.strip() == name:
+                    return value.strip().strip('"').strip("'")
+    return ""
+
+
+def work_dir(repo_root: Path) -> Path:
+    """Scratch folder outside the repository: OFW_WORK_DIR, else <OFW_ORACLE_HOME>/ofw-work (same rule as the compile skill)."""
+    raw = os.environ.get("OFW_WORK_DIR") or _dotenv(repo_root, "OFW_WORK_DIR")
+    if raw:
+        return Path(os.path.expanduser(raw))
+    home = os.environ.get("OFW_ORACLE_HOME") or _dotenv(repo_root, "OFW_ORACLE_HOME")
+    base = Path(os.path.expanduser(home)) if home else repo_root / "oracle-reference-stack" / "oracle_home_14c"
+    return base / "ofw-work"
+
+
 def extract_all_plsql_code(ast: Dict[str, Any], file_path: Path, repo_root: Path) -> Tuple[List[Dict[str, str]], Set[str]]:
     triggers = []
     builtins_used = set()
 
     # Use dump-sql to extract raw trigger text safely
-    out_dir = repo_root / "temp" / f"eval_{file_path.stem}"
+    out_dir = work_dir(repo_root) / f"eval_{file_path.stem}"
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         cmd = [

@@ -51,7 +51,7 @@ Notes:
     - Inside WSL, recreating /run/user/<uid> needs sudo and will prompt for the WSL password in this
       terminal. From Windows PowerShell the WSL distro is --distro (default: Ubuntu).
     - Credentials come from the git-ignored .env at the repo root. Values are never printed.
-    - Rust server log: temp/oracle-forms-server.log (temp/ is git-ignored).
+    - Rust server log: <OFW_WORK_DIR>/logs/oracle-forms-server.log (outside the repository; falls back to the system temp folder).
 """
 import argparse
 import glob
@@ -86,7 +86,6 @@ if IS_WSL:
     RUST_BIN = WSL_TARGET_DIR / "debug" / "oracle-forms-server"
 else:
     RUST_BIN = REPO / "target" / "debug" / ("oracle-forms-server.exe" if IS_WINDOWS else "oracle-forms-server")
-RUST_LOG = REPO / "temp" / "oracle-forms-server.log"
 FSAL_LAUNCHER = REPO / "plugins" / "oracle-forms" / ".apm" / "skills" / "compiling-and-running-oracle-forms" / "scripts" / "launch_fsal.py"
 FORMS_SERVLET_URL = "http://127.0.0.1:7001/forms/frmservlet"
 RUST_URL = f"http://127.0.0.1:{RUST_PORT}/"
@@ -169,6 +168,32 @@ def read_dotenv() -> Dict[str, str]:
                 key, value = line.split("=", 1)
                 values[key.strip()] = value.strip().strip('"').strip("'")
     return values
+
+
+def log_dir() -> Path:
+    """Folder for logs, outside the repository: <work folder>/logs, else the system temp folder.
+
+    The work folder is OFW_WORK_DIR, else <OFW_ORACLE_HOME>/ofw-work (the same rule as the compile skill).
+    """
+    env = {**read_dotenv(), **{k: v for k, v in os.environ.items() if k.startswith("OFW_")}}
+    raw = env.get("OFW_WORK_DIR", "").strip()
+    if raw:
+        base = Path(os.path.expanduser(raw))
+    else:
+        home = env.get("OFW_ORACLE_HOME", "").strip()
+        base = (Path(os.path.expanduser(home)) if home else REPO / "oracle-reference-stack" / "oracle_home_14c") / "ofw-work"
+    for folder in (base / "logs", Path(__import__("tempfile").gettempdir()) / "ofw-logs"):
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            if os.access(folder, os.W_OK):
+                return folder
+        except OSError:
+            continue
+    raise SystemExit("No writable log folder. Set OFW_WORK_DIR in .env to a writable folder outside the repository.")
+
+
+def rust_log() -> Path:
+    return log_dir() / "oracle-forms-server.log"
 
 
 def run_shell(command: str, distro: str, interactive: bool = False, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
@@ -476,7 +501,7 @@ def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) 
     if restart:
         say("Stopping the running Rust server (--restart-rust)...")
         stop_rust()
-    build_log = REPO / "temp" / "cargo-build.log"
+    build_log = log_dir() / "cargo-build.log"
     build_log.parent.mkdir(parents=True, exist_ok=True)
     say(f"Building the Rust server (cargo build -p oracle-forms-server); the first build takes a few minutes. Full cargo output: {build_log}")
     with open(build_log, "w", encoding="utf-8") as out:
@@ -490,14 +515,13 @@ def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) 
             print("    " + line, flush=True)
         return record("Rust app", "FAIL", f"cargo build failed (last lines above; full log: {build_log}); see DEPENDENCIES.md section 3.1")
 
-    RUST_LOG.parent.mkdir(parents=True, exist_ok=True)
-    log = open(RUST_LOG, "ab")
+    log = open(rust_log(), "ab")
     kwargs = {}
     if IS_WINDOWS:
         kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
-    say(f"Starting {RUST_BIN.name} in the background (log: {RUST_LOG})...")
+    say(f"Starting {RUST_BIN.name} in the background (log: {rust_log()})...")
     subprocess.Popen([str(RUST_BIN)], cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, **kwargs)
 
     deadline = time.time() + build_timeout
@@ -506,7 +530,7 @@ def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) 
         if detail:
             return record("Rust app", "OK", f"built and started ({detail})")
         time.sleep(1)
-    return record("Rust app", "FAIL", f"did not answer on port {RUST_PORT}; see {RUST_LOG}")
+    return record("Rust app", "FAIL", f"did not answer on port {RUST_PORT}; see {rust_log()}")
 
 
 # ----------------------------------------------------------------------------- FSAL launch

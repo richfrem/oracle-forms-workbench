@@ -9,6 +9,40 @@ fn jobs() -> &'static Mutex<HashMap<String, Job>> { JOBS.get_or_init(|| Mutex::n
 /// Interpreter for the Python launcher: `python` on Windows (there is no `python3` command), `python3` elsewhere.
 fn python_program() -> &'static str { if cfg!(windows) { "python" } else { "python3" } }
 
+/// A setting from the environment, then the git-ignored `.env` at the repo root.
+fn setting(root: &std::path::Path, name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty()).or_else(|| {
+        fs::read_to_string(root.join(".env")).ok().and_then(|text| {
+            text.lines().find_map(|line| {
+                let val = line.trim().strip_prefix(name)?.strip_prefix('=')?.trim().trim_matches('"').trim_matches('\'');
+                (!val.is_empty()).then(|| val.to_string())
+            })
+        })
+    })
+}
+
+fn expand_home(value: String) -> PathBuf {
+    match value.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME").map(|home| PathBuf::from(home).join(rest)).unwrap_or_else(|| PathBuf::from(value)),
+        None => PathBuf::from(value),
+    }
+}
+
+/// Oracle Home folder on the host: `OFW_ORACLE_HOME` (env or `.env`), falling back to the repo default.
+fn oracle_home(root: &std::path::Path) -> PathBuf {
+    setting(root, "OFW_ORACLE_HOME").map(expand_home).unwrap_or_else(|| root.join("oracle-reference-stack/oracle_home_14c"))
+}
+
+/// Folder for staged Oracle preview jobs: `OFW_WORK_DIR`, else `<Oracle Home>/ofw-work`. Never inside the repository.
+pub(crate) fn work_dir(root: &std::path::Path) -> PathBuf {
+    setting(root, "OFW_WORK_DIR").map(expand_home).unwrap_or_else(|| oracle_home(root).join("ofw-work"))
+}
+
+/// Resolves `frmsal.jar` from the Oracle Home.
+fn fsal_jar(root: &std::path::Path) -> PathBuf {
+    oracle_home(root).join("forms/java/frmsal.jar")
+}
+
 /// WSL distribution that runs Podman on Windows. Override with OFW_WSL_DISTRO.
 fn wsl_distro() -> String {
     std::env::var("OFW_WSL_DISTRO").ok().filter(|name| !name.is_empty()).unwrap_or_else(|| "Ubuntu".into())
@@ -29,13 +63,37 @@ fn podman_command(args: &[&str]) -> tokio::process::Command {
     }
 }
 
-pub fn start(filename: &str, credentials: Option<(String, String)>) -> Result<String, String> {
+/// Validates the Oracle compile target (TNS alias or `host:port/service`), defaulting to `FREEPDB1`.
+pub(crate) fn validate_compile_target(target: Option<&str>) -> Result<String, String> {
+    let trimmed = target.unwrap_or("").trim();
+    if trimmed.is_empty() {
+        return Ok("FREEPDB1".into());
+    }
+    if trimmed.len() > 256
+        || !trimmed.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':' | b'/'))
+    {
+        return Err("Invalid target database. Use a TNS alias (e.g. FREEPDB1) or host:port/service.".into());
+    }
+    Ok(trimmed.into())
+}
+
+pub fn start(
+    saved_xml: &std::path::Path,
+    filename: &str,
+    credentials: Option<(String, String)>,
+    target_db: Option<&str>,
+) -> Result<String, String> {
     if !filename.ends_with(".xml") || !filename.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.')) {
         return Err("Invalid saved form filename".into());
     }
+    let compile_target = if credentials.is_some() {
+        Some(validate_compile_target(target_db)?)
+    } else {
+        None
+    };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().map_err(|e| e.to_string())?;
     let script = root.join("plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py");
-    if !root.join("oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar").is_file() {
+    if !fsal_jar(&root).is_file() {
         return Err("FSAL client is missing. Set up the Oracle 14c reference environment first.".into());
     }
     let mut jobs = jobs().lock().unwrap();
@@ -48,11 +106,18 @@ pub fn start(filename: &str, credentials: Option<(String, String)>) -> Result<St
     }
     let id = format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
     // Oracle converters may choose output names from the internal module name.
-    // Stage in an ignored job directory so conversion can never replace a source FMB.
-    let staging = root.join("temp/oracle-preview").join(&id);
-    fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    // Stage in a job directory in the work folder (outside the repository) so conversion can never replace a source FMB.
+    let staging = work_dir(&root).join("oracle-preview").join(&id);
+    if fs::create_dir_all(&staging).is_err() {
+        // The Oracle Home belongs to the container user; the compile script creates the work folder through Podman.
+        let init = Command::new(python_program()).arg(&script).arg("--init-work-dir").current_dir(&root).output().map_err(|e| e.to_string())?;
+        if !init.status.success() {
+            return Err(format!("Cannot create the work folder: {}", String::from_utf8_lossy(&init.stderr).trim()));
+        }
+        fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+    }
     let staged_xml = staging.join(filename);
-    fs::copy(root.join("samples").join(filename), &staged_xml).map_err(|e| e.to_string())?;
+    fs::copy(saved_xml, &staged_xml).map_err(|e| e.to_string())?;
     let log = std::env::temp_dir().join(format!("ofw-oracle-preview-{}.log", id));
     let output = fs::OpenOptions::new().write(true).create_new(true).open(&log).map_err(|e| e.to_string())?;
     let stderr = output.try_clone().map_err(|e| e.to_string())?;
@@ -65,7 +130,8 @@ pub fn start(filename: &str, credentials: Option<(String, String)>) -> Result<St
     }
     command.arg("-u").arg(script).arg(staged_xml).args(["--interactive", "--userid", "none"]);
     if let Some((username, password)) = credentials {
-        command.arg("--compile-from-env").env("OFW_PREVIEW_DB_LOGON", format!("{}/{}@FREEPDB1", username, password));
+        let target = compile_target.unwrap_or_else(|| "FREEPDB1".into());
+        command.arg("--compile-from-env").env("OFW_PREVIEW_DB_LOGON", format!("{}/{}@{}", username, password, target));
     } else { command.arg("--offline"); }
     let child = command.current_dir(&root).stdin(Stdio::null()).stdout(output).stderr(stderr).spawn().map_err(|e| e.to_string())?;
     jobs.insert(id.clone(), Job { child, log });
@@ -126,7 +192,7 @@ pub async fn readiness() -> serde_json::Value {
         container("forms-server-14c"), container("oracle23ai-lite"), servlet()
     );
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let jar = root.join("oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar").is_file();
+    let jar = fsal_jar(&root).is_file();
     let tooling = root.join("plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py").is_file();
     serde_json::json!({ "ready": python && java && podman && forms && listener && jar && tooling,
         "checks": [
@@ -204,4 +270,27 @@ pub async fn convert_to_xml(source_path: &std::path::Path) -> Result<(PathBuf, S
         ));
     }
     Ok((expected_path, log))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_compile_target;
+
+    #[test]
+    fn compile_target_defaults_and_accepts_tns_or_easy_connect() {
+        assert_eq!(validate_compile_target(None).unwrap(), "FREEPDB1");
+        assert_eq!(validate_compile_target(Some("   ")).unwrap(), "FREEPDB1");
+        assert_eq!(validate_compile_target(Some("MY_ALIAS")).unwrap(), "MY_ALIAS");
+        assert_eq!(
+            validate_compile_target(Some("db.example.com:1521/ORCLPDB1")).unwrap(),
+            "db.example.com:1521/ORCLPDB1"
+        );
+    }
+
+    #[test]
+    fn compile_target_rejects_shell_or_logon_delimiters() {
+        for bad in ["user@FREEPDB1", "MY_ALIAS;rm -rf /", "host:1521/svc name", "MY_ALIAS'"] {
+            assert!(validate_compile_target(Some(bad)).is_err(), "should reject {bad}");
+        }
+    }
 }

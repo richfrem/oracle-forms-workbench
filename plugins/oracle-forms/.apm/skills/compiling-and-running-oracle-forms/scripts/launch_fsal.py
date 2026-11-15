@@ -24,6 +24,7 @@ CLI Arguments:
     -p, --port <int>      : WebLogic AdminServer port (default: 7001).
     -u, --userid <str>    : Database logon string (default: DB_USER/DB_PASSWORD from .env, service FREEPDB1; if unset, the client prompts).
     --interactive         : Omit credentials and show the native GUI Logon dialog.
+    --param NAME=VALUE    : Form parameter passed on the launch URL (repeatable).
     --frmsal-jar <path>   : Custom path to frmsal.jar (optional).
 
 Input Files:
@@ -68,6 +69,20 @@ def resolve_workspace_root() -> Path:
     return Path(__file__).resolve().parents[6]
 
 
+def resolve_oracle_home(repo_root: Path) -> Path:
+    """Resolve Oracle Home from OFW_ORACLE_HOME (env or .env), or the repo default."""
+    val = os.environ.get("OFW_ORACLE_HOME", "").strip()
+    if not val:
+        dotenv = repo_root / ".env"
+        if dotenv.is_file():
+            for raw in dotenv.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if line.startswith("OFW_ORACLE_HOME="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+    return Path(val) if val else repo_root / "oracle-reference-stack/oracle_home_14c"
+
+
 # Constructs the complete Forms Listener Servlet URL with safe parameter encoding.
 def default_userid() -> str:
     """Logon string built from DB_USER and DB_PASSWORD in the environment (load .env first).
@@ -77,7 +92,7 @@ def default_userid() -> str:
     return f"{user}/{password}@FREEPDB1" if user and password else "none"
 
 
-def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool) -> str:
+def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, params: Optional[List[str]] = None) -> str:
     """Construct the HTTP URL for the standaloneapp configuration.
 
     Args:
@@ -85,11 +100,15 @@ def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool) ->
         port: Listening port for WebLogic Forms server.
         userid: Database logon credential string.
         interactive: If True, omit credentials so Forms displays the GUI logon box.
+        params: Optional NAME=VALUE form parameters appended to the URL.
 
     Returns:
         Formatted and URL-encoded query string.
     """
     base_url = f"http://localhost:{port}/forms/frmservlet?config=standaloneapp&form={form_name}"
+    for item in params or []:
+        name, _, value = item.partition("=")
+        base_url += f"&{urllib.parse.quote(name)}={urllib.parse.quote(value)}"
     if not interactive and userid and userid.lower() != "none":
         # Password '#' must be URL encoded as '%23'
         encoded_userid = urllib.parse.quote(userid, safe="@/:")
@@ -134,6 +153,7 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("-p", "--port", default=7001, type=int, help="WebLogic AdminServer port (default: 7001)")
     parser.add_argument("-u", "--userid", default=default_userid(), help="Database logon string (default: DB_USER/DB_PASSWORD from .env; if unset, the FSAL client prompts)")
     parser.add_argument("--interactive", action="store_true", help="Omit credentials and show native GUI Logon dialog")
+    parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="Form parameter added to the launch URL (repeatable)")
     parser.add_argument("--frmsal-jar", default=None, help="Custom path to frmsal.jar (optional)")
     return parser.parse_args(argv)
 
@@ -151,16 +171,21 @@ def main() -> int:
         form_name += ".fmx"
 
     repo_root = resolve_workspace_root()
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from compile_form import resolve_extra_forms_path
+    resolve_extra_forms_path(repo_root)
     if args.frmsal_jar:
         frmsal_path = Path(args.frmsal_jar).resolve()
     else:
-        frmsal_path = repo_root / "oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar"
+        frmsal_path = resolve_oracle_home(repo_root) / "forms/java/frmsal.jar"
 
     if not frmsal_path.exists():
         print(f"Error: frmsal.jar not found at {frmsal_path}", file=sys.stderr)
         return 1
 
-    url = build_fsal_url(form_name, args.port, args.userid, args.interactive)
+    url = build_fsal_url(form_name, args.port, args.userid, args.interactive, args.param)
     return launch_fsal_process(frmsal_path, url)
 
 

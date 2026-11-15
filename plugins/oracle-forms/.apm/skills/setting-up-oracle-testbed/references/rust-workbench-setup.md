@@ -22,7 +22,7 @@ cargo run -p oracle-forms-server          # prints "Listening on http://127.0.0.
 
 Open `http://127.0.0.1:7070`. `Ctrl + C` stops it. On Windows also `export XDG_RUNTIME_DIR=/run/user/$(id -u)` so Preview in Oracle can reach Podman.
 
-To start the containers and the app together, and to confirm each one, use `python3 start_testbed.py` (Windows: from the Ubuntu shell). It builds with the right settings, starts the app in the background (log `temp/oracle-forms-server.log`, cargo output `temp/cargo-build.log`), never stops a running app unless `--restart-rust`, and ends with a summary table. `python3 start_testbed.py --status` is read-only.
+To start the containers and the app together, and to confirm each one, use `python3 start_testbed.py` (Windows: from the Ubuntu shell). It builds with the right settings, starts the app in the background (log `<OFW_WORK_DIR>/logs/oracle-forms-server.log`, cargo output `<OFW_WORK_DIR>/logs/cargo-build.log`), never stops a running app unless `--restart-rust`, and ends with a summary table. `python3 start_testbed.py --status` is read-only.
 
 ## Settings
 

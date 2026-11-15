@@ -64,3 +64,10 @@ Symptom, cause, fix. Windows-only problems (WSL, `/mnt/c`, the Podman runtime di
 | The Rust app: `Address already in use` | Another copy holds port 7070 | `lsof -i :7070`; stop only a process you started |
 | Preview in Oracle reports a check as missing | A container, the servlet, Java, or Python is not available to the server | `GET http://127.0.0.1:7070/api/forms/oracle-preview/readiness`; the list of what must be true first is in [windows-podman-status-log.md](windows-podman-status-log.md) |
 | Samples keep appearing as `samples/*_edited_N_fmb.xml` | An old running app, or Save & launch used for testing | Restart the app on the current build; do not use Save & launch to test |
+
+## Compile: `must be declared` for database objects, or `FRM-10043`
+
+- **`PL/SQL ERROR 201 ... identifier '<NAME>' must be declared`, `FRM-30312`, no output file:** the compile account cannot see those database objects. Try an account that can; compare `all_objects` and `session_roles` between accounts. See [module-dependencies-and-compile-order.md](module-dependencies-and-compile-order.md).
+- **`FRM-10043: Cannot open file` on a `.pll`:** it was compiled as a form. Pass `--type library` (or `menu` for `.mmb`).
+- **PLL export (`convert_pll.py`) writes nothing and prints nothing:** copy the attached libraries into the input's folder; the converter stages them automatically.
+- **`error while loading shared libraries: libig.so.0`:** a pasted `export` line was split by the terminal; use short separate lines.

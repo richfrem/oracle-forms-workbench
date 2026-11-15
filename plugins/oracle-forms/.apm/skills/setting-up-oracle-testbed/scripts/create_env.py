@@ -36,6 +36,15 @@ OPTIONAL_HINTS = {
         "verified the Oracle Home onto Ubuntu's disk, enter an absolute path such as /home/<you>/oracle_home_14c. "
         "Do not set it before that folder exists."
     ),
+    "OFW_FORMS_PATH_EXTRA": (
+        "Optional: extra host/WSL folder(s) (colon-separated) with Forms dependencies (.pll, .plx, .olb, .mmb, .mmx, "
+        ".fmb, .fmx) to append to FORMS_PATH (for example /mnt/c/forms on Windows WSL). Press Enter to skip."
+    ),
+    "OFW_WORK_DIR": (
+        "Optional: folder for staged, compiled and converted files, never inside the repository. Press Enter to use "
+        "<OFW_ORACLE_HOME>/ofw-work. It must be inside the Oracle Home for compiles, because the Forms container "
+        "mounts only the repository and the Oracle Home."
+    ),
 }
 
 

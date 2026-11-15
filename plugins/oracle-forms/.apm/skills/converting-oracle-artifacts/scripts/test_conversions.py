@@ -24,7 +24,7 @@ Platforms:
     inside WSL.
 
 Output:
-    Test copies go in ./temp/conversion-tests/ (git-ignored). Source samples are never modified.
+    Test copies go in <work folder>/conversion-tests/ (OFW_WORK_DIR, outside the repository). Source samples are never modified.
     Exit code 0 when no path FAILED. BLOCKED and SKIPPED paths do not fail the run, but are listed.
 
 Statuses:
@@ -47,7 +47,7 @@ import converter_runtime as rt
 ROOT = rt.repo_root()
 SCRIPTS = Path(__file__).resolve().parent
 COMPILE_FORM = SCRIPTS.parents[1] / "compiling-and-running-oracle-forms" / "scripts" / "compile_form.py"
-WORK = ROOT / "temp" / "conversion-tests"
+WORK = rt.work_dir() / "conversion-tests"
 SAMPLES = ROOT / "samples"
 ORACLE_HOME = rt.default_oracle_home()
 
@@ -70,13 +70,13 @@ def tail(text: str, lines: int = 6) -> str:
 
 
 def run_container(script: str, cwd: Path, timeout: int = 300) -> Tuple[int, str]:
-    """Runs a bash snippet in the converter image with the repo mounted at /repo and cwd as the working folder."""
-    rel = cwd.relative_to(ROOT).as_posix()
+    """Runs a bash snippet in the converter image with the work folder mounted at /scratch and cwd as the working folder."""
+    rel = cwd.relative_to(WORK).as_posix()
     cmd = rt.podman_cmd([
         "run", "--rm", "--platform", "linux/amd64",
         "-v", f"{rt.host_path(ORACLE_HOME)}:{H}:Z",
-        "-v", f"{rt.host_path(ROOT)}:/repo:Z",
-        rt.IMAGE, "bash", "-c", f"{CONTAINER_ENV} cd /repo/{rel}; {script}",
+        "-v", f"{rt.host_path(WORK)}:/scratch:Z",
+        rt.IMAGE, "bash", "-c", f"{CONTAINER_ENV} cd /scratch/{rel}; {script}",
     ])
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -107,7 +107,8 @@ def check_output(kind: str, path: str, produced: Path, rc: int, log: str, blocke
 def fresh(case: str) -> Path:
     folder = WORK / case
     shutil.rmtree(folder, ignore_errors=True)
-    (folder / "back").mkdir(parents=True)
+    rt.ensure_dir(folder)
+    rt.ensure_dir(folder / "back")
     return folder
 
 
@@ -133,7 +134,7 @@ def test_forms(offline: bool) -> None:
     rc, log = run_container(f"{XML2FORMS} r.xml", case / "back")
     if not check_output("Forms", "XML -> FMB", case / "back" / "r.fmb", rc, log):
         return skip("Forms", "Compile FMB -> FMX", "needs XML -> FMB")
-    args = [str((case / "back" / "r.fmb").relative_to(ROOT))] + (["--offline"] if offline else [])
+    args = [str(case / "back" / "r.fmb"), "--no-publish"] + (["--offline"] if offline else [])
     res = subprocess.run([sys.executable, str(COMPILE_FORM), *args], capture_output=True, text=True, cwd=str(ROOT), timeout=400)
     check_output("Forms", "Compile FMB -> FMX", case / "back" / "r.fmx", res.returncode, res.stdout + res.stderr)
 
@@ -225,7 +226,7 @@ def test_reports(offline: bool = False) -> None:
     if "DTDVersion=" not in xml_text:
         xml_text = xml_text.replace("<report name=", '<report DTDVersion="9.0.4.0.0" name=', 1)
     (case / "r.xml").write_text(xml_text, encoding="utf-8")
-    rel = case.relative_to(ROOT).as_posix()
+    rel = case.relative_to(WORK).as_posix()
     wslg = ["-v", "/mnt/wslg/.X11-unix:/tmp/.X11-unix", "-e", "DISPLAY=:0"] if Path("/mnt/wslg/.X11-unix").is_dir() else []
     rw_env = (
         f"export HOME=/tmp; mkdir -p /tmp/US; touch /tmp/prefs.ora; "
@@ -235,15 +236,15 @@ def test_reports(offline: bool = False) -> None:
         f"TNS_ADMIN={H}/user_projects/domains/base_domain/config/fmwconfig "
         f"REPORTS_CLASSPATH={H}/reports/jlib/rwbuilder.jar:{H}/reports/jlib/rwrun.jar:{H}/jlib/zrclient.jar "
         f"LD_LIBRARY_PATH={H}/lib:{H}/oracle_common/lib:/usr/lib/jvm/jdk-17.0.12/lib:/usr/lib/jvm/jdk-17.0.12/lib/server "
-        f"REPORTS_PATH=/repo/{rel}:{H}/reports/templates:{H}/reports/printers; "
+        f"REPORTS_PATH=/scratch/{rel}:{H}/reports/templates:{H}/reports/printers; "
     )
     cmd = rt.podman_cmd([
         "run", "--rm", "--platform", "linux/amd64", "--network", "oracle-net",
         "-v", f"{rt.host_path(ORACLE_HOME)}:{H}:Z",
-        "-v", f"{rt.host_path(ROOT)}:/repo:Z",
+        "-v", f"{rt.host_path(WORK)}:/scratch:Z",
         *wslg,
         rt.IMAGE, "bash", "-c",
-        f"{rw_env} cd /repo/{rel}; {H}/bin/rwconverter stype=xmlfile source=r.xml dtype=rdffile dest=r.rdf userid={userid} batch=yes overwrite=yes",
+        f"{rw_env} cd /scratch/{rel}; {H}/bin/rwconverter stype=xmlfile source=r.xml dtype=rdffile dest=r.rdf userid={userid} batch=yes overwrite=yes",
     ])
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     rc, log = res.returncode, (res.stdout or "") + (res.stderr or "")
@@ -281,7 +282,7 @@ def main() -> int:
     if ORACLE_HOME is None:
         print(f"NOT_READY: no Oracle Home folder found for image {rt.IMAGE}")
         return 2
-    WORK.mkdir(parents=True, exist_ok=True)
+    rt.ensure_dir(WORK)
     selected = args.only or TYPES
     runners: dict = {
         "forms": lambda: test_forms(args.offline),

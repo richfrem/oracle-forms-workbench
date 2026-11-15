@@ -32,10 +32,13 @@ window.FormsRuntime = class FormsRuntime {
   }
 
   /** Starts a session. `backend` may be '' for no database. */
-  async start({ moduleName, backend, username, password, allowWrites }) {
+  async start({ moduleName, backend, host, port, serviceName, username, password, allowWrites }) {
     const state = await this.request('POST', '/api/sessions', {
       moduleName,
       backend: backend || null,
+      host: host || null,
+      port: port || null,
+      serviceName: serviceName || null,
       username: username || null,
       password: password || null,
       allowWrites: !!allowWrites,

@@ -660,6 +660,20 @@
             <option value="mock">Mock Driver (Synthetic Sample Data)</option>
           </select>
         </div>
+        <div id="oracleThinConnFields">
+          <div class="ora-field-row">
+            <label for="dbHostInput"><u>H</u>ost:</label>
+            <input id="dbHostInput" type="text" value="127.0.0.1" placeholder="127.0.0.1" aria-describedby="dbLogonStatus">
+          </div>
+          <div class="ora-field-row">
+            <label for="dbPortInput">Po<u>r</u>t:</label>
+            <input id="dbPortInput" type="number" value="1521" placeholder="1521" min="1" max="65535" aria-describedby="dbLogonStatus">
+          </div>
+          <div class="ora-field-row">
+            <label for="dbServiceInput"><u>S</u>ervice:</label>
+            <input id="dbServiceInput" type="text" value="FREEPDB1" placeholder="FREEPDB1" aria-describedby="dbLogonStatus">
+          </div>
+        </div>
         <div class="ora-field-row ora-check-row">
           <label></label>
           <label class="ora-checkbox-label">
@@ -819,8 +833,9 @@
           <div id="oracleCompileCredentials" class="oracle-compile-fields">
             <label for="oracleCompileUser">Database username<input id="oracleCompileUser" autocomplete="username" aria-describedby="oraclePreviewSummary"></label>
             <label for="oracleCompilePassword">Database password<input id="oracleCompilePassword" type="password" autocomplete="current-password" placeholder="Enter compile password" aria-describedby="oraclePreviewSummary"></label>
+            <label for="oracleCompileTarget">Target database (TNS alias or host:port/service)<input id="oracleCompileTarget" value="FREEPDB1" placeholder="FREEPDB1 or host:port/service" aria-describedby="oraclePreviewSummary"></label>
           </div>
-          <p class="preview-help">Uses the local testbed's FREEPDB1 alias. Run clears its password after connecting; enter it here again for compilation. Runtime logon in Oracle is separate.</p>
+          <p class="preview-help">Defaults to FREEPDB1 (local testbed), or enter a TNS alias (e.g. MY_ALIAS) or host:port/service (e.g. db.example.com:1521/ORCLPDB1). Run clears its password after connecting; enter it here again for compilation. Runtime logon in Oracle is separate.</p>
         </fieldset>
         <button id="launchOraclePreviewBtn" class="btn btn-primary" disabled>Save &amp; launch in Oracle</button>
         <p id="oraclePreviewSummary" class="oracle-preview-summary" role="status" aria-live="polite">No preview launched for this form.</p>

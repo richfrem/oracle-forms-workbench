@@ -47,9 +47,28 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 | `scripts/validate_forms_xml.py`, `scripts/ValidateXml.java` | Schema validation with xmllint, lxml, or Java in a container; `--version`, `--schema`, `--list-versions` |
 | `scripts/compile_form.py` | `frmcmp_batch` in the Forms container with TNS binding and error parsing (form, menu, library) |
 | `scripts/run_form.py` | Prepare, convert, compile, and launch FSAL in one step; used by the Rust app's Preview in Oracle |
-| `scripts/launch_fsal.py` | Open a compiled form through the Forms servlet with FSAL |
+| `scripts/launch_fsal.py` | Open a compiled form through the Forms servlet with FSAL; `--param NAME=VALUE` adds form parameters to the URL |
+| `references/xml-validation.md` | Forms 14c XML Schema rules and common fixups |
+| `references/forms-path-and-dependencies.md` | Where to place `.pll`/`.plx`/`.mmx`/`.olb`/`.fmx` dependencies on `FORMS_PATH` (WSL & macOS) and how to target another dev DB |
+| `references/inheriting-forms-and-xml-roundtrip.md` | Extract to XML, compare versions, compile with parent forms and libraries in one folder, run with form parameters, diagnose inside a form, known setup-only messages |
 | `assets/forms-14c.xsd`, `assets/reports.dtd` | Oracle's Forms 14.1.2 XML Schema and the Reports DTD (script inputs, not for reading whole) |
 | `assets/12c/forms.xsd` | The owner's 12c Forms schema, dropped here; **not yet wired** as a `12c` version, so `--version 12c` fails until it is |
+
+## Dependencies, account and compile order
+
+- **The database account decides whether a compile works.** A library that uses database objects by bare name compiles with an account that can see them and fails with `PL/SQL ERROR 201 ... must be declared` for an account that cannot, with the same file in the same folder. A successful logon is not proof of visibility. Check with `all_objects` and `session_roles` as that account.
+- **Pass the right type:** `compile_form.py --type library|menu|form`. A library compiled as a form gives `FRM-10043`.
+- **Order:** modules with no attachments first, then those that attach them, then menus and forms, all in one staged folder inside the repo.
+- **Compile folder is not run folder:** copy the compiled `.plx`, `.mmx` and `.fmx` to the server's `FORMS_PATH` (default `<Oracle Home>/forms`).
+- **Cross-check in desktop Forms Builder** with the same account when a compile fails.
+- **Forms that inherit from other forms:** compile the original `.fmb` with its parent `.fmb` files, libraries, menus and object libraries in the same folder; do not round-trip through XML ([references/inheriting-forms-and-xml-roundtrip.md](references/inheriting-forms-and-xml-roundtrip.md)).
+- **Passwords with special characters** are quoted automatically (`format_userid` in `compile_form.py`).
+
+Full evidence and what is not verified: `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`.
+
+## Where files go
+
+Nothing is staged, compiled or converted inside the repository. `OFW_WORK_DIR` (default `<Oracle Home>/ofw-work`, created on first use or with `compile_form.py --init-work-dir`) holds the staged inputs; a successful `compile_form.py` publishes the `.fmx`, `.mmx` or `.plx` to `<Oracle Home>/forms/`, the folder the Forms server loads from. Use `--no-publish` to keep the result in the work folder. Not yet verified end to end after this change (no compile run against a database).
 
 ## Verification
 

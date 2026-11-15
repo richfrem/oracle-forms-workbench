@@ -119,6 +119,21 @@ in_container '
   fi
   ln -sfn libfrmjapi.so.0 /oracle_home_14c/lib/libfrmjapi.so'
 
+step "4c. Runtime FORMS_PATH in default.env"
+in_container '
+  DEFAULT_ENV=/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env
+  if [ -f "$DEFAULT_ENV" ]; then
+    CUR=$(grep "^FORMS_PATH=" "$DEFAULT_ENV" | head -n1 | cut -d= -f2-)
+    NEW="${CUR:-/oracle_home_14c/forms}"
+    case ":$NEW:" in
+      *:/oracle_home_14c/ofw-work/stage:*) ;;
+      *) NEW="$NEW:/oracle_home_14c/ofw-work/stage" ;;
+    esac
+    if [ "$NEW" != "$CUR" ]; then
+      sed -i "s|^FORMS_PATH=.*|FORMS_PATH=$NEW|" "$DEFAULT_ENV"
+    fi
+  fi'
+
 if [ "$SKIP_SAMPLES" -eq 0 ]; then
   step "5. Sample menu and form compiled into forms/ (.mmx, .fmx)"
   in_container '
@@ -128,7 +143,8 @@ if [ "$SKIP_SAMPLES" -eq 0 ]; then
     cp /work/samples/ofw_emp_menu.mmb /work/samples/ofw_demo_employees.fmb .
     /oracle_home_14c/bin/frmcmp_batch module=ofw_emp_menu.mmb module_type=menu logon=no compile_all=yes batch=yes
     /oracle_home_14c/bin/frmcmp_batch module=ofw_demo_employees.fmb module_type=form logon=no compile_all=yes batch=yes
-    cp ofw_emp_menu.mmx ofw_demo_employees.fmx /oracle_home_14c/forms/'
+    cp ofw_emp_menu.mmx ofw_demo_employees.fmx /oracle_home_14c/forms/
+    ln -sfn ofw_emp_menu.mmx /oracle_home_14c/forms/OFW_EMP_MENU.mmx'
 fi
 
 step "5b. Oracle Reports preference and printer config files (rwconverter)"

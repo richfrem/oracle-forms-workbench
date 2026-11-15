@@ -26,21 +26,7 @@ pub enum PatchError {
     ItemNotFound { block: String, item: String },
 }
 
-fn escape_attr(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\n' => out.push_str("&#10;"),
-            '\r' => out.push_str("&#13;"),
-            c => out.push(c),
-        }
-    }
-    out
-}
+use crate::writer::escape_attr;
 
 /// Sets `name="value"` inside one start tag (`<Item ...>` or `<Item .../>`), replacing
 /// the existing attribute if present or appending it otherwise.

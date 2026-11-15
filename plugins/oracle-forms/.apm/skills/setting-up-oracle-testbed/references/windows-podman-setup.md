@@ -72,7 +72,7 @@ python start_testbed.py --no-forms   # database + Rust app only (fast)
 python start_testbed.py --status     # what is running
 ```
 
-On Windows it runs Podman through WSL (`--distro` sets the distro name; default `Ubuntu`). If `/run/user/<uid>` is missing, it recreates it with `sudo` and prompts for your WSL password in the terminal. It starts the existing `oracle23ai-lite` and `forms-server-14c` containers, waits for the database, rebuilds and restarts the Rust app in the background (log: `temp/oracle-forms-server.log`), and waits for the Forms server to reach RUNNING. It does not create containers; run the setup steps below for that.
+On Windows it runs Podman through WSL (`--distro` sets the distro name; default `Ubuntu`). If `/run/user/<uid>` is missing, it recreates it with `sudo` and prompts for your WSL password in the terminal. It starts the existing `oracle23ai-lite` and `forms-server-14c` containers, waits for the database, rebuilds and restarts the Rust app in the background (log: `<OFW_WORK_DIR>/logs/oracle-forms-server.log`), and waits for the Forms server to reach RUNNING. It does not create containers; run the setup steps below for that.
 
 ---
 

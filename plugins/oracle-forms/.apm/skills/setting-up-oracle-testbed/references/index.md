@@ -31,6 +31,7 @@ The one source of truth for setting up, running, and troubleshooting the Oracle 
 | [starting-the-stack.md](starting-the-stack.md) | `start_testbed.py`: start, restart, and confirm everything; options; how to read the summary |
 | [forms-and-reports-testing-guide.md](forms-and-reports-testing-guide.md) | Test the Forms server, FSAL, compiling, and Reports |
 | [forms-builder-gui.md](forms-builder-gui.md) | Open the Forms Builder (`frmbld`) from the container (macOS XQuartz, Windows WSLg) and run a live form with FSAL |
+| [module-dependencies-and-compile-order.md](module-dependencies-and-compile-order.md) | Why PLL to PLD fails silently without attached libraries, how dependencies are staged, compile order, silent-failure checklist |
 | [reports-conversion.md](reports-conversion.md) | Oracle `rwconverter` and the native Rust Reports engine |
 | [troubleshooting.md](troubleshooting.md) | Symptom, cause, fix for installing, starting, using, converting |
 

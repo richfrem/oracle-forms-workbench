@@ -177,7 +177,7 @@ and unavailable readiness-endpoint handling are covered by tests/ui_oracle_setup
   compiles FMX in Forms 14c, deploys that unique executable and starts desktop FSAL.
 - The optional reference integration is isolated from native parsing/runtime. It requires
   Python, Podman, the existing Forms 14c container and host Java/FSAL. Generated binary files
-  are staged under ignored `temp/oracle-preview/<job>/`; source FMBs are not replaced.
+  are staged under `<work folder>/oracle-preview/<job>/` (outside the repository); source FMBs are not replaced.
 - Preview uses Logon username/password for database-connected compilation against the local
   FREEPDB1 alias, if supplied; otherwise it compiles offline. FSAL always prompts for runtime
   logon. Credentials are not saved to artifacts or launcher arguments. Compilation script

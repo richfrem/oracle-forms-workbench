@@ -13,10 +13,10 @@ Layer: Tooling / Container Bridge
 
 Usage Examples:
     python3 oracle-reference-stack/convert_fmb.py --check
-    python3 oracle-reference-stack/convert_fmb.py example-fmb/form0000.fmb
-    python3 oracle-reference-stack/convert_fmb.py example-fmb/form0000.fmb -o example-fmb/custom_output.xml
-    python3 oracle-reference-stack/convert_fmb.py example-fmb/formslib.pll
-    python3 oracle-reference-stack/convert_fmb.py example-fmb/form0000.fmb --oracle-home /custom/oracle_home
+    python3 oracle-reference-stack/convert_fmb.py <path>/<form>.fmb
+    python3 oracle-reference-stack/convert_fmb.py <path>/<form>.fmb -o <path>/<output>.xml
+    python3 oracle-reference-stack/convert_fmb.py <path>/<library>.pll
+    python3 oracle-reference-stack/convert_fmb.py <path>/<form>.fmb --oracle-home /custom/oracle_home
 
 Supported Object Types:
     - .fmb (Oracle Forms Binary Module) -> *_fmb.xml via frmf2xml

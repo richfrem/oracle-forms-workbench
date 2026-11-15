@@ -11,13 +11,9 @@ pub struct GeneratedLayout {
 pub fn generate_2column_layout(
     module_name: &str,
     discovered_items: &BTreeMap<String, BTreeSet<String>>,
-    raw_text: &str,
+    _raw_text: &str,
 ) -> GeneratedLayout {
-    let canvas_name = if raw_text.to_ascii_uppercase().contains("CRCCMAINMENU") {
-        "CRCCMAINMENU".to_string()
-    } else {
-        "CV_MAIN".to_string()
-    };
+    let canvas_name = "CV_MAIN".to_string();
     let window_name = "WINDOW_MAIN".to_string();
 
     let mut blocks = Vec::new();
@@ -46,7 +42,7 @@ pub fn generate_2column_layout(
         let mut block_items = Vec::new();
 
         for item_name in items_set {
-            let is_button = item_name.starts_with("BTN") || item_name.starts_with("ITSLIB");
+            let is_button = item_name.starts_with("BTN");
             let is_check = item_name.starts_with("CHK") || item_name.contains("CHECK");
             let is_display = item_name.starts_with("DSP") || item_name.starts_with("TXT");
 
@@ -173,7 +169,7 @@ pub fn generate_2column_layout(
 }
 
 pub fn prettify_name(name: &str) -> String {
-    let re = regex::Regex::new(r"^(?i)(BTN_|BTN|ITSLIB|CHK_|CHK|DSP_|TXT_)").unwrap();
+    let re = regex::Regex::new(r"^(?i)(BTN_|BTN|CHK_|CHK|DSP_|TXT_)").unwrap();
     let stripped = re.replace(name, "").replace('_', " ");
     let mut chars = stripped.chars();
     match chars.next() {

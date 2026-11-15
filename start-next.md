@@ -2,16 +2,21 @@
 
 Read [AGENTS.md](AGENTS.md) and every file in [.agent/rules/](.agent/rules/) first. After every step below, update the documentation before the next step (change log: `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-wsl-change-log.md`), script anything done by hand, and report only what was verified. Run everything inside WSL2. Do not remove or replace the owner's containers or images, and say what will happen before any image rebuild.
 
-## Current state and in-progress tasks (2026-11-14, end of session)
+## Current state (2026-11-14)
 
-**In progress: moving the Oracle Home to Ubuntu's disk** (`~/oracle_home_14c`, not the repo folder; see `oracle-home-location.md`).
-- Done: the copy has all 46,736 files and all 404 symbolic links; `frmweb` and the other programs are executable; owner is 1000:1000 (`podman unshare chown`); 377 Windows `Zone.Identifier` files removed from the copy.
-- Last `--verify` **FAILED**: the file counts and links match, but total bytes differ (copy 6,141,025,443; original 6,141,047,460), and the original's byte count kept moving between runs, so the original was still being written to. `forms-server-14c` was force-stopped to freeze it (exit 137). **Re-run `--verify` now that it is stopped**; if it still fails, list the differing files before changing anything.
-- Not done, owner's approval needed: set `OFW_ORACLE_HOME` in `.env`, recreate `forms-server-14c` on the new folder, and record the boot time. Until then the Forms container still mounts the repo copy.
-- `start_testbed.py --stop-forms` added: graceful stop with a 60-second wait; it prints manual steps if the container will not stop and never kills processes.
-- `restore_oracle_home_attributes.sh` is written but **not run** (the manual steps above did the same job); keep it for future copies and test it before relying on it.
-- `apply_forms14c_config.sh` is kept: it reads `OFW_ORACLE_HOME` and is how the configuration is re-applied to a rebuilt Oracle Home.
-- The Windows install docs now say to put the Oracle Home on Ubuntu's disk before installing. Stack and change-log docs are updated. Nothing is committed yet.
+- **Oracle Home on Ubuntu's disk (`~/oracle_home_14c`) — DONE:** `OFW_ORACLE_HOME=/home/<you>/oracle_home_14c` is set in `.env`, `forms-server-14c` is recreated on `~/oracle_home_14c`, `python3 start_testbed.py` booted WebLogic + Forms servlet in **45s** (down from 15–44 minutes on `/mnt/c`), `launch_fsal.py ofw_demo_employees.fmx` started without error (with `OFW_EMP_MENU.mmx -> ofw_emp_menu.mmx` symlink, also scripted in `apply_forms14c_config.sh`), and `health_check.py` passed (**All systems operational!**).
+- **Cleaned up:** deleted the old `oracle-reference-stack/oracle_home_14c/` folder and removed the one-off `restore_oracle_home_attributes.sh` script. Kept `apply_forms14c_config.sh` and `provision_oracle_home.sh`.
+- **Preview in Oracle & `OFW_FORMS_PATH_EXTRA` (2026-11-14):**
+  - **Done:** Non-sample forms load from `OFW_FORMS_PATH_EXTRA` without touching `samples/`, and saves/conversions for non-sample forms write to `OFW_FORMS_PATH_EXTRA` (or `temp/saved/` if unset; `forms` path dependencies are synced to `temp/forms_extra/` and appended to `FORMS_PATH`). `run_form.py` runs a `sqlplus -L` logon diagnostic when `frmcmp_batch` fails without `PL/SQL ERROR` / `ORA-`.
+  - **Two verified blockers on external `.fmb` Preview in Oracle:**
+    1. **`frmcmp_batch` silent logon failure despite `sqlplus -L` exit `0`:** `sqlplus -L -S <userid>` connected OK (`exit 0`) to `<db-host>:1521/<service>`, yet `frmcmp_batch ... userid=<userid> compile_all=yes` printed only the Oracle banner + `Form not created` and exited `0` (verified with an invalid `userid=` test that `frmcmp_batch` suppresses logon `ORA-`/`FRM-` errors and exits `0`). Likely cause: `frmcmp_batch`'s `userid=` parser rejecting special characters in the password (needing `user/"pass"@...` quoting) or OCI/Easy Connect differences vs `sqlplus`.
+    2. **Lossy `(summary)` XML omits `<AttachedLibrary>` and truncates PL/SQL:** Opening a binary `.fmb` with the workbench's native reader exports `(summary)` XML (`summary_xml` in `service.rs`), which omits `<AttachedLibrary>` tags (even when the `.pll`/`.olb` dependencies are present in `OFW_FORMS_PATH_EXTRA`) and truncates PL/SQL (`PL/SQL ERROR 103` `Encountered the symbol "end-of-file"` when tested with `frmcmp_batch ... logon=no`).
+  - **Next:**
+    1. Fix `frmcmp_batch` `userid=` quoting/logon in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py` (and `compile_form.py`) so `frmcmp_batch` connects whenever `sqlplus -L` connects.
+    2. For binary `.fmb` files opened from `OFW_FORMS_PATH_EXTRA` (or uploaded), use Oracle's `frmf2xml` (`convert_fmb.py` / container `frmf2xml`) for full XML export (or compile the source `.fmb` directly when unmodified) instead of compiling a regenerated `.fmb` from lossy `(summary)` XML.
+
+**Remaining work:**
+1. **Password rotation (verified for WebLogic & `DB_USER`):** `WLS_ADMIN_USER`/`WLS_ADMIN_PASSWORD` (`boot.properties` + `DefaultAuthenticatorInit.ldift` reset, `forms-server-14c` booted to `RUNNING` in **36s**, WebLogic REST auth `200 OK`) and `DB_USER`/`DB_PASSWORD` (`sqlplus` `exit=0`) are verified. `SYSTEM` login with `ORACLE_PWD` returned `exit=1` (not yet checked). Still to check tracked files with `git grep`.
 
 **Step 0, every session:** read `architecture.md`, then in the WSL shell run `python3 start_testbed.py --status` (read-only). If it says "Podman runtime directory missing", ask the user to run `python3 start_testbed.py --no-forms` (or the full command) in the Ubuntu shell: it recreates `/run/user/<uid>` and prompts for the WSL sudo password, which an agent cannot enter. Throwaway `podman run --rm` containers (conversions, schema extraction) need that directory but not the running `forms-server-14c`.
 

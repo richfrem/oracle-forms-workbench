@@ -19,9 +19,10 @@ Runs Oracle's own conversion tools inside the Forms 14c container image (`forms-
 ## Constraints
 
 1. Needs the testbed image and Oracle Home from `setting-up-oracle-testbed`; check with `convert_fmb.py --check`.
-2. Test on copies under git-ignored `temp/`, never in `samples/`.
+2. Test on copies in the work folder (`OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`), never in `samples/` or the repository.
 3. In 14c the `bin/*.sh` wrappers are templates; the scripts call the Java classes and binaries directly. Details and limits: [references/conversion-notes.md](references/conversion-notes.md).
-4. Validate hand-written XML before XML to binary (`validate_forms_xml.py`, `compiling-and-running-oracle-forms` skill). Do not call a path working unless `test_conversions.py` shows PASS.
+4. Keep every attached library, object library and menu in the input's folder; the scripts stage them automatically. Details: [references/conversion-notes.md](references/conversion-notes.md) and `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`.
+5. Validate hand-written XML before XML to binary (`validate_forms_xml.py`, `compiling-and-running-oracle-forms` skill). Do not call a path working unless `test_conversions.py` shows PASS.
 
 ## Quick start
 
@@ -34,7 +35,7 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/tes
 
 ## Workflow
 
-1. **Binary to XML:** `convert_fmb.py form.fmb` (also `.mmb`, `.olb`; output `<name>_<ext>.xml`); `convert_pll.py lib.pll` (to `lib.pld`); `convert_rpt.py report.rdf` (to `report_rdf.xml`).
+1. **Binary to XML:** `convert_fmb.py form.fmb` (also `.mmb`, `.olb`; output `<name>_<ext>.xml`); `convert_pll.py lib.pll` (to `lib.pld`; prints FAILED when no file is written); `convert_rpt.py report.rdf` (to `report_rdf.xml`).
 2. **XML to binary:** run XML2Forms in the container (`oracle.forms.util.xmltools.XML2Forms`); `test_conversions.py` shows the exact command per type.
 3. **Check the schema** when a conversion rejects XML: `references/forms-xml-schema.md` (what it is, where it came from) and `extract_forms_schema.py` (re-extract and compare).
 4. **Test every path** with `test_conversions.py` (`--only forms|menus|libraries|olb|reports`, `--offline`) and report its table.
@@ -56,7 +57,7 @@ Windows 11 in WSL2, 14.1.2 image, 2026-11-14: 9 PASS, 2 BLOCKED (PLD to PLL; XML
 |---|---|---|
 | Forms | FMB to XML, XML to FMB, compile FMB to FMX | PASS |
 | Menus | MMB to XML, XML to MMB, compile MMB to MMX | PASS |
-| Libraries | PLL to PLD | PASS |
+| Libraries | PLL to PLD | PASS, only when the attached libraries are in the same folder (otherwise silent: exit 0, no file) |
 | Libraries | PLD to PLL | BLOCKED: no command-line route on 14c |
 | OLB | OLB to XML, XML to OLB (14c-format XML) | PASS |
 | Reports | XML to RDF, RDF to XML | Reported PASS by the owner; re-run to confirm |

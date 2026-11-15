@@ -160,6 +160,19 @@
   const allowWritesToggle = document.getElementById('allowWritesToggle');
   const dbUserInput = document.getElementById('dbUserInput');
   const dbPassInput = document.getElementById('dbPassInput');
+  const dbHostInput = document.getElementById('dbHostInput');
+  const dbPortInput = document.getElementById('dbPortInput');
+  const dbServiceInput = document.getElementById('dbServiceInput');
+  const oracleThinConnFields = document.getElementById('oracleThinConnFields');
+  // Returns host/port/serviceName overrides when Oracle Thin is selected.
+  const getOracleThinConn = () => {
+    if (dbBackendSelect?.value !== 'oracle-thin') return {};
+    const host = dbHostInput?.value.trim() || '127.0.0.1';
+    const parsedPort = Number.parseInt(dbPortInput?.value || '1521', 10);
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 1521;
+    const serviceName = dbServiceInput?.value.trim() || 'FREEPDB1';
+    return { host, port, serviceName };
+  };
   const sessionBadge = document.getElementById('sessionBadge');
   const sessionTracePanel = document.getElementById('sessionTracePanel');
   const sessionTrace = document.getElementById('sessionTrace');
@@ -464,13 +477,17 @@
       });
     });
 
-    // Update DB status label when backend or username changes
+    // Update DB status label and Oracle Thin field visibility when backend or inputs change
     const updateDbPill = () => {
+      if (oracleThinConnFields && dbBackendSelect) {
+        oracleThinConnFields.hidden = dbBackendSelect.value !== 'oracle-thin';
+      }
       const label = document.getElementById('dbStatusLabel');
       if (!label || !dbBackendSelect) return;
       const user = dbUserInput?.value.trim() || 'Logon required';
+      const service = dbServiceInput?.value.trim() || 'FREEPDB1';
       const map = {
-        'oracle-thin': `${user}@FREEPDB1`,
+        'oracle-thin': `${user}@${service}`,
         'oracle': `${user}@23ai`,
         'sqlite': 'SQLite Local',
         'mock': 'Mock Engine'
@@ -478,7 +495,7 @@
       label.textContent = map[dbBackendSelect.value] || dbBackendSelect.value;
     };
     dbBackendSelect?.addEventListener('change', updateDbPill);
-    dbUserInput?.addEventListener('input', updateDbPill);
+    [dbUserInput, dbHostInput, dbServiceInput].forEach(el => el?.addEventListener('input', updateDbPill));
     updateDbPill();
 
     document.getElementById('logonConnectRunBtn')?.addEventListener('click', () => {
@@ -486,7 +503,7 @@
       startRuntimeSession();
     });
 
-    [dbUserInput, dbPassInput].forEach(input => input?.addEventListener('keydown', event => {
+    [dbUserInput, dbPassInput, dbHostInput, dbPortInput, dbServiceInput].forEach(input => input?.addEventListener('keydown', event => {
       if (event.key === 'Enter') {
         event.preventDefault();
         document.getElementById('logonConnectRunBtn').click();
@@ -1042,6 +1059,7 @@
         offline: document.getElementById('oracleCompileMode').value === 'offline',
         username: (document.getElementById('oracleCompileUser').value || '').trim(),
         password: document.getElementById('oracleCompilePassword').value || '',
+        database: (document.getElementById('oracleCompileTarget').value || '').trim() || 'FREEPDB1',
       };
       if (!compile.offline && (!compile.username || !compile.password)) {
         const missing = !compile.username ? 'username' : 'password';
@@ -1066,13 +1084,19 @@
         if (!isCurrent()) return;
         const response = await checkedSave('/api/forms/oracle-preview', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ moduleName: sourceModule, offline: compile.offline, username: compile.offline ? null : compile.username, password: compile.offline ? null : compile.password })
+          body: JSON.stringify({
+            moduleName: sourceModule,
+            offline: compile.offline,
+            username: compile.offline ? null : compile.username,
+            password: compile.offline ? null : compile.password,
+            database: compile.offline ? null : compile.database,
+          })
         });
         compile.password = '';
         if (isCurrent()) document.getElementById('oracleCompilePassword').value = '';
         const result = await response.json();
         if (!isCurrent()) return;
-        const heading = `Source form: ${sourceModule}\nSaved samples/${result.fileName} (${result.mode}).\n`;
+        const heading = `Source form: ${sourceModule}\nSaved ${result.path || ('samples/' + result.fileName)} (${result.mode}).\n`;
         summary.textContent = `Preparing ${sourceModule} for Oracle…`;
         for (let poll = 0; poll < 300; poll++) {
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -1138,6 +1162,7 @@
       if (!currentPayload) return showBanner('Open a form first.');
       resetOraclePreview(currentPayload.moduleIndex.key.name);
       document.getElementById('oracleCompileUser').value = dbUserInput?.value.trim() || '';
+      document.getElementById('oracleCompileTarget').value = 'FREEPDB1';
       referenceForm.value = `${currentPayload.moduleIndex.key.name.toLowerCase()}.fmx`;
       updateOracleReference();
       document.getElementById('oracleReferenceDialog').showModal();
@@ -2291,6 +2316,7 @@
       const state = await runtime.start({
         moduleName: currentPayload.summary.moduleName || currentPayload.moduleIndex.key.name,
         backend: backend === 'mock' ? 'mock' : backend,
+        ...getOracleThinConn(),
         username: dbUserInput?.value.trim(),
         password: dbPassInput?.value,
         allowWrites: allowWritesToggle?.checked,
@@ -4563,6 +4589,7 @@
         const response = await fetch('/api/db/describe', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tableName: table, backend: dbBackendSelect.value,
+            ...getOracleThinConn(),
             username: dbUserInput.value.trim() || null, password: dbPassInput.value || null })
         });
         const result = await response.json();

@@ -23,7 +23,7 @@ How it works:
     oracle.forms.util.xmltools.SchemaGenerator in jlib/frmxmltools.jar (the template forms/templates/scripts/
     frmxmlsg.sh just wraps it). This script runs that class in a throwaway forms-converter-14c container, using the
     same classpath as Forms2XML. It accepts the schema either printed to stdout or written as a .xsd file in the
-    working folder (temp/forms-schema/<version>/).
+    work folder (<OFW_WORK_DIR>/forms-schema/<version>/, outside the repository).
 
 Compare / update:
     Compares the SHA-256 of the extracted schema with assets/forms-<version>.xsd in this skill. IDENTICAL or DIFFERENT
@@ -53,7 +53,7 @@ import converter_runtime as rt
 SKILL = Path(__file__).resolve().parents[1]
 REPO = rt.repo_root()
 COMPILING_ASSETS = SKILL.parent / "compiling-and-running-oracle-forms" / "assets"
-WORK_ROOT = REPO / "temp" / "forms-schema"
+WORK_ROOT = rt.work_dir() / "forms-schema"
 
 
 def sha256(path: Path) -> str:
@@ -61,20 +61,19 @@ def sha256(path: Path) -> str:
 
 
 def run_generator(work: Path, extra_args: str, usage: bool, oracle_home: Path) -> subprocess.CompletedProcess:
-    """Run SchemaGenerator in a throwaway container with the repo at /work; return the finished process."""
+    """Run SchemaGenerator in a throwaway container with the work folder at /work; return the finished process."""
     home = rt.HOME
     classpath = f"{home}/jlib/frmjdapi.jar:{home}/jlib/frmxmltools.jar:{home}/oracle_common/modules/oracle.xdk/xmlparserv2.jar"
-    rel = work.relative_to(REPO).as_posix()
     args = "-help" if usage else extra_args
     script = (
         f"export ORACLE_HOME={home} FORMS_API_TK_BYPASS=TRUE ORACLE_TERM=vt220 TERM=vt220; "
         f"export LD_LIBRARY_PATH={home}/lib:{home}/oracle_common/lib; "
-        f"cd /work/{rel}; "
+        f"cd /work; "
         f"java -Djava.library.path={home}/lib -classpath {classpath} oracle.forms.util.xmltools.SchemaGenerator {args}"
     )
     cmd = rt.podman_cmd([
         "run", "--rm", "--platform", "linux/amd64",
-        "-v", f"{rt.host_path(oracle_home)}:{home}:Z", "-v", f"{rt.host_path(REPO)}:/work:Z",
+        "-v", f"{rt.host_path(oracle_home)}:{home}:Z", "-v", f"{rt.host_path(work)}:/work:Z",
         rt.IMAGE, "bash", "-c", script,
     ])
     return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -115,7 +114,7 @@ def main() -> int:
         return 2
     work = WORK_ROOT / args.version
     shutil.rmtree(work, ignore_errors=True)
-    work.mkdir(parents=True)
+    rt.ensure_dir(work)
 
     result = run_generator(work, args.generator_args, args.usage, oracle_home)
     if args.usage:

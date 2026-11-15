@@ -14,7 +14,7 @@ Details behind the converting skill's `SKILL.md`. Results are from `test_convers
 - On Windows and WSL, `podman run` uses `--user root`. Rootless Podman maps the container's `oracle` user to a UID that cannot write on the Windows drive (`/mnt/c`); container root maps to your user.
 - `convert_fmb.py` runs Forms2XML as a Java class with `-Djava.library.path=/oracle_home_14c/lib` and `FORMS_API_TK_BYPASS=TRUE`. In 14c, `bin/frmf2xml.sh` and the other `bin/*.sh` batch scripts are templates with `$$placeholder$$` values, not runnable files, so the scripts call the Java class and the binaries directly.
 - `bin/rwconverter.sh` is also a template; call `bin/rwconverter` directly.
-- Keep test files under git-ignored `temp/`, never in `samples/`.
+- Keep test files in the work folder (`OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`), never in `samples/` or the repository.
 - The Oracle Home location is a setting: `OFW_ORACLE_HOME` (environment, then `.env`) overrides the default `oracle-reference-stack/oracle_home_14c`; `converter_runtime.py` reads it.
 
 ## Known limits
@@ -27,3 +27,7 @@ Details behind the converting skill's `SKILL.md`. Results are from `test_convers
 ## Schema and validation
 
 The Forms XML schema is `forms-14c.xsd` in this skill's `assets/` (see [forms-xml-schema.md](forms-xml-schema.md) for provenance and extraction with `extract_forms_schema.py`). Validate XML before converting it with the `compiling-and-running-oracle-forms` skill's `validate_forms_xml.py`.
+
+## Dependencies and silent failures
+
+PLL to PLD (`frmcmp_batch script=yes`) writes no file, prints nothing and exits 0 when the libraries the `.pll` attaches are not in the same folder. Copy them beside the input and the same command works. `convert_pll.py` and `convert_fmb.py` now find the attached `.pll`, `.olb` and `.mmb` files (name match inside the binary) and, when needed, convert in a git-ignored `temp/convert-stage/<name>/` folder. Forms2XML works without dependencies but prints `Object group child ... has no real object` for objects held in absent object libraries. Forms2XML does not accept `.pll`. Full notes and the evidence level for each claim: `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`.

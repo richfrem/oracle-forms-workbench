@@ -120,8 +120,8 @@ def build_container_script(file_name: str, stem: str) -> str:
     """Generates the headless bash script string to be executed inside the container.
 
     Args:
-        file_name: Base file name including extension (e.g., 'rccm0000.fmb', 'aglib.pll').
-        stem: File name without extension (e.g., 'rccm0000', 'aglib').
+        file_name: Base file name including extension (e.g., 'myform.fmb', 'mylib.pll').
+        stem: File name without extension (e.g., 'myform', 'mylib').
 
     Returns:
         str: Multi-line bash command for testing tools and running conversion.
@@ -200,6 +200,7 @@ def convert_file(
     input_path_str: str,
     output_path_str: Optional[str] = None,
     custom_oracle_home: Optional[str] = None,
+    stage: bool = True,
 ) -> int:
     """Mounts the host directory into an on-demand container and executes file conversion.
 
@@ -216,7 +217,8 @@ def convert_file(
         print(f"Error: Input file '{input_path}' does not exist.")
         return 1
 
-    target_dir = input_path.parent
+    source_dir = input_path.parent
+    target_dir = rt.stage_for_conversion(input_path) if stage else source_dir
     file_name = input_path.name
     file_ext = input_path.suffix.lower()
     oracle_home_path = resolve_oracle_home(custom_oracle_home)

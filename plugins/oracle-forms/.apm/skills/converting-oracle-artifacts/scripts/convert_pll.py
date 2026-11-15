@@ -12,10 +12,10 @@ Layer: Tooling / Container Bridge
 
 Usage Examples:
     python3 oracle-reference-stack/convert_pll.py --check
-    python3 oracle-reference-stack/convert_pll.py samples/aglib.pll
-    python3 oracle-reference-stack/convert_pll.py samples/aglib.pll -o ./custom/aglib.pld
-    python3 oracle-reference-stack/convert_pll.py samples/aglib.pld --compile
-    python3 oracle-reference-stack/convert_pll.py samples/aglib.pll --oracle-home /custom/oracle_home
+    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll
+    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll -o ./custom/mylib.pld
+    python3 oracle-reference-stack/convert_pll.py samples/mylib.pld --compile
+    python3 oracle-reference-stack/convert_pll.py samples/mylib.pll --oracle-home /custom/oracle_home
 
 Supported Object Types:
     - .pll (Oracle PL/SQL Binary Library) -> *.pld plain text script export
@@ -60,6 +60,8 @@ Consumed by:
     - Rust native viewer ingestion pipeline for .pld AST parsing
 """
 
+import os
+import re
 import sys
 import shutil
 import argparse
@@ -110,12 +112,13 @@ def resolve_oracle_home(custom_oracle_home: Optional[str]) -> Optional[Path]:
 # Container Bash Command Builder
 # -----------------------------------------------------------------------------
 # Generates the shell execution script to run frmcmp_batch inside container
-def build_container_script(file_name: str, stem: str, is_compile: bool) -> str:
+def build_container_script(file_name: str, stem: str, is_compile: bool, userid: Optional[str] = None,
+                           no_batch: bool = False) -> str:
     """Generates the headless bash script string to be executed inside the container.
 
     Args:
-        file_name: Base file name including extension (e.g., 'aglib.pll', 'aglib.pld').
-        stem: File name without extension (e.g., 'aglib').
+        file_name: Base file name including extension (e.g., 'mylib.pll', 'mylib.pld').
+        stem: File name without extension (e.g., 'mylib').
         is_compile: True if compiling script into library, False if exporting to text.
 
     Returns:
@@ -130,7 +133,7 @@ def build_container_script(file_name: str, stem: str, is_compile: bool) -> str:
         f"export FORMS_PATH=/work:/work/shared:$FORMS_PATH; "
     )
     # Forms 14c needs batch=yes for the PL/SQL library step (without it: PDE-PER001).
-    batch = " batch=yes" if rt.IS_14C else ""
+    batch = " batch=yes" if rt.IS_14C and not no_batch else ""
     if is_compile:
         # Parses .pld text script into binary .pll, or compiles .pll to executable .plx
         if file_name.lower().endswith(".pld"):
@@ -146,6 +149,14 @@ def build_container_script(file_name: str, stem: str, is_compile: bool) -> str:
         )
 
     # Exports binary .pll into plain-text .pld script
+    if userid:
+        # Variant from the reference procedure: database logon, parse=yes, explicit output_file
+        return env + (
+            f"cd /work; "
+            f"echo 'Executing Oracle frmcmp_batch (userid, parse=yes) to export PL/SQL library to .pld...'; "
+            f"{home}/bin/frmcmp_batch module={file_name} userid=\"$OFW_PLL_USERID\" module_type=library "
+            f"parse=yes script=yes output_file=/work/{stem}.pld{batch}; "
+        )
     return env + (
         f"cd /work; "
         f"echo 'Executing Oracle native frmcmp_batch utility to export PL/SQL library to .pld...'; "
@@ -185,6 +196,9 @@ def convert_library(
     output_path_str: Optional[str] = None,
     is_compile: bool = False,
     custom_oracle_home: Optional[str] = None,
+    stage: bool = True,
+    userid: Optional[str] = None,
+    no_batch: bool = False,
 ) -> int:
     """Mounts host directory into container and executes library export or compilation.
 
@@ -202,7 +216,8 @@ def convert_library(
         print(f"Error: Input file '{input_path}' does not exist.")
         return 1
 
-    target_dir = input_path.parent
+    source_dir = input_path.parent
+    target_dir = rt.stage_for_conversion(input_path) if stage else source_dir
     file_name = input_path.name
     file_ext = input_path.suffix.lower()
     oracle_home_path = resolve_oracle_home(custom_oracle_home)
@@ -231,20 +246,26 @@ def convert_library(
     else:
         expected_output = target_dir / f"{input_path.stem}.pld"
 
-    container_cmd = build_container_script(file_name, input_path.stem, is_compile)
+    container_cmd = build_container_script(file_name, input_path.stem, is_compile, userid, no_batch)
+    env_args = ["-e", "OFW_PLL_USERID"] if userid else []
     cmd = rt.podman_cmd([
-        "run", "--rm", "--platform", "linux/amd64",
+        "run", "--rm", "--platform", "linux/amd64", *env_args,
         "-v", f"{rt.host_path(target_dir)}:/work:Z",
         *extra_mount,
         rt.IMAGE, "bash", "-c", container_cmd,
     ])
 
     try:
-        res = subprocess.run(cmd)
-        if res.returncode == 0:
-            if expected_output.is_file():
-                print(f"SUCCESS: Output file available at {expected_output}")
-                copy_to_custom_output(expected_output, output_path_str)
+        run_env = {**os.environ, "OFW_PLL_USERID": userid} if userid else None
+        res = subprocess.run(cmd, env=run_env)
+        print(f"frmcmp_batch container exit code: {res.returncode}")
+        if expected_output.is_file():
+            print(f"SUCCESS: Output file available at {expected_output}")
+            copy_to_custom_output(expected_output, output_path_str)
+        else:
+            print(f"FAILED: frmcmp_batch wrote no {expected_output.name}. It prints no error when it fails; "
+                  "see the change log (convert_pll.py exports no .pld).")
+            return res.returncode or 1
         return res.returncode
     except Exception as err:
         print(f"Execution failed: {err}")
@@ -290,6 +311,17 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
         help="Path to host directory containing Oracle Home runtime.",
     )
     parser.add_argument(
+        "--userid-from-env",
+        action="store_true",
+        help="Export with a DB logon (userid, parse=yes, output_file) taken from OFW_PREVIEW_DB_LOGON "
+             "(environment or .env); the value is never printed.",
+    )
+    parser.add_argument(
+        "--no-batch",
+        action="store_true",
+        help="Omit batch=yes so frmcmp_batch may print its own messages (diagnostic).",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Probes host container engine readiness and exits.",
@@ -301,6 +333,18 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
 # Main Entry Point
 # -----------------------------------------------------------------------------
 # Dispatches execution based on parsed command line options
+def read_logon_from_env() -> Optional[str]:
+    """Returns OFW_PREVIEW_DB_LOGON from the environment or the repo .env (never printed)."""
+    if os.environ.get("OFW_PREVIEW_DB_LOGON"):
+        return os.environ["OFW_PREVIEW_DB_LOGON"]
+    env_file = Path(__file__).resolve().parents[6] / ".env"
+    if env_file.is_file():
+        m = re.search(r"^OFW_PREVIEW_DB_LOGON=(.*)$", env_file.read_text(), re.M)
+        if m:
+            return m.group(1).strip().strip("\"'")
+    return None
+
+
 def main() -> int:
     """Parses command-line arguments and dispatches probe or library conversion actions.
 
@@ -317,7 +361,16 @@ def main() -> int:
         print("       convert_pll.py --check")
         return 1
 
+    userid = None
+    if args.userid_from_env:
+        userid = read_logon_from_env()
+        if not userid:
+            print("Error: OFW_PREVIEW_DB_LOGON is not set in the environment or .env.")
+            return 1
+
     return convert_library(
+        userid=userid,
+        no_batch=args.no_batch,
         input_path_str=args.pll_path,
         output_path_str=args.output_path,
         is_compile=args.compile,

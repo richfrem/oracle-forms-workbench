@@ -1,6 +1,6 @@
 # Where the Oracle Home lives: why it should be on Ubuntu's disk, how to move it, how to prove the copy
 
-**Status (2026-11-14): designed and scripted, not yet run.** `oracle-reference-stack/provision_oracle_home.sh` was written and syntax-checked, but no copy, verify, or backup has run yet. Nothing below is measured until a run has been recorded in the change log.
+**Status (2026-11-14): `--verify` and boot from `~/oracle_home_14c` verified.** Moving `oracle_home_14c` to Ubuntu's ext4 reduced WebLogic boot time from **15–44 minutes** to **45 seconds** (directory walk: **8–11s** vs **259s** on `/mnt/c`). `--from-copy`, `--backup`, and `--from-installers` are **not yet run**.
 
 ## On Windows: install there from the start
 
@@ -11,7 +11,6 @@ Do not install into `oracle-reference-stack/oracle_home_14c` (on the slow Window
 - [Why](#why)
 - [The setting](#the-setting)
 - [The protocol](#the-protocol)
-- [Repairing a copy made with Windows Explorer](#repairing-a-copy-made-with-windows-explorer)
 - [How to test that it was copied correctly](#how-to-test-that-it-was-copied-correctly)
 - [Risks and unknowns](#risks-and-unknowns)
 
@@ -33,7 +32,7 @@ What is in git is the **procedure**, not the data: the 5.4 GB cannot be committe
 
 ## The setting
 
-`OFW_ORACLE_HOME` (in the git-ignored `.env`, or the environment) is the host folder of the Oracle Home. Empty means the default, `oracle-reference-stack/oracle_home_14c`, so macOS does not change. Use an absolute path, for example `/home/<you>/oracle_home_14c`. It is read by `provision_oracle_home.sh`, `apply_forms14c_config.sh`, `converter_runtime.py` (so the converters and `test_conversions.py` follow it), and `compose.yaml`. Not yet updated: `testing-forms-parity/scripts/test_parity.py`, which still has the repo path in two places.
+`OFW_ORACLE_HOME` (in the git-ignored `.env`, or the environment) is the host folder of the Oracle Home. Empty means the default, `oracle-reference-stack/oracle_home_14c`, so macOS does not change. Use an absolute path, for example `/home/<you>/oracle_home_14c`. It is read by `provision_oracle_home.sh`, `apply_forms14c_config.sh`, `converter_runtime.py` (so the converters and `test_conversions.py` follow it), `compose.yaml`, `oracle_preview.rs`, `launch_fsal.py`, and `run_form.py`. Not yet updated: `testing-forms-parity/scripts/test_parity.py`, which still has the repo path in two places.
 
 ## The protocol
 
@@ -59,18 +58,6 @@ Run everything from the repo root in the Ubuntu shell, after `set -a; source .en
    ```
    `temp/` is git-ignored and on the Windows drive, so the archive survives losing the Ubuntu distro.
 6. **Rebuild from scratch** (if both copies are lost): `provision_oracle_home.sh --from-installers --target PATH` runs the two silent installs, creates the domain, and applies the configuration. **Unverified on the Ubuntu disk.**
-
-## Repairing a copy made with Windows Explorer
-
-Copying the Oracle Home with Windows Explorer (or any Windows tool) loses what Linux needs: the **execute permission** on the programs (`frmcmp_batch`, `frmweb`, `rwconverter`, `startWebLogic.sh` arrive as `-rw-r--r--`), the **404 symbolic links** (the copy has none), and the owner the container expects. It may also leave files missing. Observed on 2026-11-14 after a hand copy. **Do not use Explorer for this.** If it was done anyway, repair it in WSL with the original as the reference:
-
-```bash
-bash oracle-reference-stack/restore_oracle_home_attributes.sh --dry-run --from oracle-reference-stack/oracle_home_14c --target ~/oracle_home_14c   # shows what would change
-bash oracle-reference-stack/restore_oracle_home_attributes.sh            --from oracle-reference-stack/oracle_home_14c --target ~/oracle_home_14c
-bash oracle-reference-stack/provision_oracle_home.sh --verify --target ~/oracle_home_14c --against oracle-reference-stack/oracle_home_14c
-```
-
-It runs `rsync` inside `podman unshare` (adds missing files, restores permissions and symbolic links; same-size files are not re-compared), then sets the owner to the container's `oracle` user (1000:1000). It never changes the original or deletes anything in the copy. **Status: written, not yet run.**
 
 ## How to test that it was copied correctly
 

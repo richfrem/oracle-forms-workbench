@@ -62,7 +62,7 @@ The Track 1 stack has been validated on two hosts. On macOS, Podman runs in a ma
 
 ### Where the Oracle Home lives (a setting)
 
-The host folder behind `/oracle_home_14c` defaults to `oracle-reference-stack/oracle_home_14c` and is set by `OFW_ORACLE_HOME` (`.env`). On Windows the default is on the slow Windows drive (`/mnt/c`), where WebLogic took 15 to 44 minutes to boot, so on Windows install it on Ubuntu's own disk from the start; never into the repo folder and never with Windows Explorer (it loses execute permissions and symbolic links). `oracle-reference-stack/provision_oracle_home.sh` creates, copies, verifies (fingerprint and timed file walk), and backs it up; moving it needs a recreated `forms-server-14c` container (new mount) but no image rebuild. Why, protocol, and tests: `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/oracle-home-location.md`. **Scripted, not yet run.**
+The host folder behind `/oracle_home_14c` defaults to `oracle-reference-stack/oracle_home_14c` and is set by `OFW_ORACLE_HOME` (`.env`). On Windows the default is on the slow Windows drive (`/mnt/c`), where WebLogic took 15 to 44 minutes to boot, so on Windows install it on Ubuntu's own disk from the start; never into the repo folder and never with Windows Explorer (it loses execute permissions and symbolic links). `oracle-reference-stack/provision_oracle_home.sh` creates, copies, verifies (fingerprint and timed file walk), and backs it up; moving it needs a recreated `forms-server-14c` container (new mount) but no image rebuild. Why, protocol, and tests: `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/oracle-home-location.md`. **Verified on Windows WSL2:** `--verify` and booting `forms-server-14c` from `~/oracle_home_14c` (45s vs 15–44 minutes on `/mnt/c`); `--from-copy`, `--backup`, and `--from-installers` not yet run.
 
 ### Starting and checking the stack: `start_testbed.py`
 
@@ -230,7 +230,7 @@ sequenceDiagram
     UI->>Server: Poll job status and diagnostics
 ```
 
-The bridge uses fixed repository tooling and isolated `temp/oracle-preview/<job>/` staging so Oracle converters cannot replace source binaries. Known hand-authored fixture compatibility adjustments are applied to a separate `oracle_compatible/` copy and logged. They include supported version/attribute aliases and explicit defaults for missing geometry metadata. Arbitrary XML migration is not guaranteed; conflicting aliases and remaining Oracle schema errors must surface.
+The bridge uses fixed repository tooling and isolated `<work folder>/oracle-preview/<job>/` staging (`OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`, outside the repository) so Oracle converters cannot replace source binaries. Known hand-authored fixture compatibility adjustments are applied to a separate `oracle_compatible/` copy and logged. They include supported version/attribute aliases and explicit defaults for missing geometry metadata. Arbitrary XML migration is not guaranteed; conflicting aliases and remaining Oracle schema errors must surface.
 
 Database-connected compilation is the default UI choice and requires a username/password. Offline compilation requires explicit selection and can fail when PL/SQL references database objects. Compile credentials travel through the child environment and compiler stdin rather than host command-line arguments; they must not be retained in saved artifacts, browser storage, or displayed logs. FSAL then uses a separate interactive Logon dialog.
 

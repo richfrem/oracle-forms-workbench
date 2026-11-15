@@ -11,10 +11,7 @@ impl FormsXmlWriter {
         let mut out = String::with_capacity(32 * 1024);
         out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
 
-        let version = module
-            .forms_version
-            .as_deref()
-            .unwrap_or("12.2.1.19.0");
+        let version = normalize_module_version(module.forms_version.as_deref());
 
         let _ = writeln!(
             out,
@@ -530,8 +527,14 @@ impl FormsXmlWriter {
     }
 }
 
-/// Escapes standard XML characters for attribute strings.
-fn escape_attr(s: &str) -> String {
+/// Returns true for characters allowed in XML 1.0 documents.
+fn is_valid_xml_char(ch: char) -> bool {
+    let code = ch as u32;
+    matches!(code, 0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
+}
+
+/// Escapes standard XML characters for attribute strings and strips illegal XML 1.0 control bytes.
+pub(crate) fn escape_attr(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
@@ -541,8 +544,37 @@ fn escape_attr(s: &str) -> String {
             '"' => escaped.push_str("&quot;"),
             '\n' => escaped.push_str("&#10;"),
             '\r' => escaped.push_str("&#13;"),
-            _ => escaped.push(ch),
+            '\t' => escaped.push('\t'),
+            c if is_valid_xml_char(c) => escaped.push(c),
+            _ => {}
         }
     }
     escaped
+}
+
+/// `forms-14c.xsd` declares `<Module version>` as `xs:long`; replace non-numeric strings (e.g. "6i (ROS.60050)").
+pub(crate) fn normalize_module_version(forms_version: Option<&str>) -> &str {
+    forms_version
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+        .unwrap_or("122010400")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_attr, normalize_module_version};
+
+    #[test]
+    fn escape_attr_strips_illegal_xml_control_chars() {
+        let input = "BEGIN\x00\x01\x08\x0B\x0C\x1F\t\nEND";
+        assert_eq!(escape_attr(input), "BEGIN\t&#10;END");
+    }
+
+    #[test]
+    fn normalize_module_version_requires_numeric_xsd_long() {
+        assert_eq!(normalize_module_version(None), "122010400");
+        assert_eq!(normalize_module_version(Some("6i (ROS.60050)")), "122010400");
+        assert_eq!(normalize_module_version(Some("12.2.1.19.0")), "122010400");
+        assert_eq!(normalize_module_version(Some("140102000")), "140102000");
+    }
 }

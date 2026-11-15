@@ -203,6 +203,15 @@ def prepare_oracle_preview_xml(source: Path) -> Path:
     return target
 
 
+def _compile_form():
+    """The compile_form module, which owns the work-folder and container path rules."""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import compile_form
+    return compile_form
+
+
 # Converts a Forms XML definition file into a binary .fmb via XML2Forms inside the container.
 def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
     """Invoke official Oracle XML2Forms tool in the container to generate a binary FMB.
@@ -218,13 +227,11 @@ def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
         RuntimeError: If XML2Forms conversion fails.
     """
     xml_path = prepare_oracle_preview_xml(xml_path)
-    rel_path = xml_path.resolve().relative_to(repo_root)
-    container_xml = f"/work/{rel_path.as_posix()}"
+    container_xml = _compile_form().container_path(xml_path, repo_root)
     # XML2Forms strips the Forms2XML _fmb suffix when naming its binary output.
     stem = xml_path.stem[:-4] if xml_path.stem.lower().endswith("_fmb") else xml_path.stem
     output_fmb = xml_path.resolve().with_name(stem + ".fmb")
-    rel_fmb = output_fmb.relative_to(repo_root)
-    container_fmb = f"/work/{rel_fmb.as_posix()}"
+    container_fmb = _compile_form().container_path(output_fmb, repo_root)
 
     print(f"[1/3] Converting XML definition {xml_path.name} to binary FMB...")
     cmd = (
@@ -236,7 +243,7 @@ def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
         f"-classpath /oracle_home_14c/jlib/frmjdapi.jar:/oracle_home_14c/jlib/frmxmltools.jar:/oracle_home_14c/oracle_common/modules/oracle.xdk/xmlparserv2.jar "
         f"oracle.forms.util.xmltools.XML2Forms "
         f"OVERWRITE=YES "
-        f"OUTPUTDIR=/work/{rel_fmb.parent.as_posix()} "
+        f"OUTPUTDIR={container_fmb.rsplit('/', 1)[0]} "
         f"{container_xml}"
     )
 
@@ -267,18 +274,25 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
     Raises:
         RuntimeError: If compilation fails.
     """
-    rel_path = fmb_path.resolve().relative_to(repo_root)
-    container_fmb = f"/work/{rel_path.as_posix()}"
+    container_fmb = _compile_form().container_path(fmb_path, repo_root)
     fmx_path = fmb_path.resolve().with_suffix(".fmx")
-    logon_param = "logon=no" if offline else "userid=" + shlex.quote(userid)
+    err_path = fmb_path.resolve().with_suffix(".err")
+    resolve_extra_forms_path = _compile_form().resolve_extra_forms_path
+    format_userid = _compile_form().format_userid
+    logon_param = "logon=no" if offline else "userid=" + shlex.quote(format_userid(userid))
+    extra_forms_path = resolve_extra_forms_path(repo_root)
+    forms_path = f"/oracle_home_14c/forms:{container_fmb.rsplit('/', 1)[0]}"
+    if extra_forms_path:
+        forms_path = f"{forms_path}:{extra_forms_path}"
 
     print(f"[2/3] Compiling {fmb_path.name} to executable FMX (logon={'no' if offline else 'yes'})...")
     cmd = (
+        f"cd {container_fmb.rsplit('/', 1)[0]}; "
         f"export ORACLE_HOME=/oracle_home_14c; "
         f"export LD_LIBRARY_PATH=/oracle_home_14c/lib; "
         f"export ORACLE_TERM=vt220; "
         f"export TERM=vt220; "
-        f"export FORMS_PATH=/oracle_home_14c/forms:/work/samples:{container_fmb.rsplit('/', 1)[0]}; "
+        f"export FORMS_PATH={forms_path}; "
         f"export TNS_ADMIN=/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig; "
         f"/oracle_home_14c/bin/frmcmp_batch "
         f"module={container_fmb} "
@@ -289,13 +303,32 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
 
     res = subprocess.run(podman_cmd(["exec", "-i", "-u", "oracle", "forms-server-14c", "/bin/sh", "-s"]),
                          input=cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if not offline:
-        res.stdout = res.stdout.replace(userid, "<redacted>")
-    if "Created form file" not in res.stdout and res.returncode != 0:
+    err_details = err_path.read_text(errors="replace").strip() if err_path.is_file() else ""
+    if not offline and userid:
+        for secret in {userid, format_userid(userid)}:
+            res.stdout = res.stdout.replace(secret, "<redacted>")
+            err_details = err_details.replace(secret, "<redacted>")
+    combined = "\n".join(part for part in [res.stdout.strip(), err_details] if part)
+    if not fmx_path.is_file() or res.returncode != 0:
+        if not offline and userid and "PL/SQL ERROR" not in combined and "ORA-" not in combined:
+            probe_cmd = (
+                f"export ORACLE_HOME=/oracle_home_14c; "
+                f"export LD_LIBRARY_PATH=/oracle_home_14c/lib; "
+                f"export TNS_ADMIN=/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig; "
+                f"/oracle_home_14c/bin/sqlplus -L -S {shlex.quote(userid)} </dev/null"
+            )
+            probe = subprocess.run(
+                podman_cmd(["exec", "-i", "-u", "oracle", "forms-server-14c", "/bin/sh", "-s"]),
+                input=probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=15,
+            )
+            probe_out = probe.stdout.replace(userid, "<redacted>").strip()
+            target_part = userid.split("@", 1)[1] if "@" in userid else "(none)"
+            status_note = probe_out if probe_out else f"sqlplus connected OK (exit {probe.returncode}) to {target_part}"
+            combined = f"{combined}\n\n[Database logon diagnostic (sqlplus -L)]\n{status_note}"
         hint = ("Offline compilation cannot resolve database tables used by PL/SQL. Select database-connected compilation and enter compile credentials."
-                if offline and "must be declared" in res.stdout else
-                "Verify the connected schema has the referenced objects and privileges." if not offline and "must be declared" in res.stdout else "")
-        raise RuntimeError(f"Compilation failed: {hint}\n{res.stdout}")
+                if offline and "must be declared" in combined else
+                "Verify the connected schema has the referenced objects and privileges." if not offline and "must be declared" in combined else "")
+        raise RuntimeError(f"Compilation failed: {hint}\n{combined}")
 
     # Ensure the compiled form is mirrored into container forms deployment directory
     copy_cmd = f"cp {container_fmb.rsplit('.', 1)[0]}.fmx /oracle_home_14c/forms/{fmx_path.name}"
@@ -319,7 +352,9 @@ def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str,
     Returns:
         Process exit code from frmsal.jar.
     """
-    frmsal_jar = repo_root / "oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar"
+    oracle_home_val = _env("OFW_ORACLE_HOME")
+    oracle_home = Path(oracle_home_val) if oracle_home_val else repo_root / "oracle-reference-stack/oracle_home_14c"
+    frmsal_jar = oracle_home / "forms/java/frmsal.jar"
     if not frmsal_jar.exists():
         print(f"Error: frmsal.jar not found at {frmsal_jar}", file=sys.stderr)
         return 1
@@ -388,6 +423,13 @@ def main() -> int:
     Returns:
         0 on success, non-zero on failure.
     """
+    if "--init-work-dir" in sys.argv[1:]:
+        try:
+            print(_compile_form().ensure_work_dir(resolve_workspace_root()))
+            return 0
+        except RuntimeError as err:
+            print(err, file=sys.stderr)
+            return 1
     args = parse_cli_args(sys.argv[1:])
     if args.compile_from_env:
         args.userid = os.environ.pop("OFW_PREVIEW_DB_LOGON", "")
@@ -403,6 +445,9 @@ def main() -> int:
 
     suffix = input_file.suffix.lower()
     try:
+        if suffix in (".xml", ".fmb", ".fmx"):
+            # Work only on a copy in the work folder (outside the repository), never beside the source.
+            input_file = _compile_form().stage_module(input_file, repo_root)
         if suffix == ".xml":
             fmb_file = convert_xml_to_fmb(input_file, repo_root)
             fmx_file = compile_fmb_to_fmx(fmb_file, repo_root, args.userid, args.offline)
@@ -411,8 +456,7 @@ def main() -> int:
         elif suffix == ".fmx":
             fmx_file = input_file
             # Copy into container forms path to guarantee availability
-            rel_fmx = fmx_file.relative_to(repo_root)
-            cmd = f"cp /work/{rel_fmx.as_posix()} /oracle_home_14c/forms/{fmx_file.name}"
+            cmd = f"cp {_compile_form().container_path(fmx_file, repo_root)} /oracle_home_14c/forms/{fmx_file.name}"
             subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", cmd]), check=True)
         else:
             print(f"Error: Unsupported file format '{suffix}'. Expected .xml, .fmb, or .fmx", file=sys.stderr)

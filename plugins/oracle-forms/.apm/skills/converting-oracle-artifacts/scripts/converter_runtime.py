@@ -130,3 +130,96 @@ def check_readiness() -> int:
         return 1
     print(f"READY: Podman engine and '{IMAGE}' image are operational.")
     return 0
+
+
+DEPENDENCY_EXTENSIONS = (".pll", ".olb", ".mmb", ".fmb")
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[6]
+
+
+def dependency_search_dirs(input_dir: Path) -> List[Path]:
+    """Folders searched for attached modules: the input folder, then OFW_FORMS_PATH_EXTRA (.env or environment)."""
+    dirs = [input_dir]
+    extra = os.environ.get("OFW_FORMS_PATH_EXTRA", "")
+    env_file = _repo_root() / ".env"
+    if not extra and env_file.is_file():
+        for line in env_file.read_text(errors="ignore").splitlines():
+            if line.startswith("OFW_FORMS_PATH_EXTRA="):
+                extra = line.split("=", 1)[1].strip().strip("\"'")
+    for item in extra.split(os.pathsep if os.pathsep in extra else ":"):
+        if item.strip() and Path(item.strip()).is_dir():
+            dirs.append(Path(item.strip()))
+    return dirs
+
+
+def find_dependencies(module: Path, search_dirs: List[Path]) -> List[Path]:
+    """Heuristic: a module's attachments are stored as plain names in the binary, so any identifier that
+    matches the stem of a .pll/.olb/.mmb/.fmb in the search folders is treated as a dependency. Repeats for
+    each dependency found. May over-include (a name that only appears in code); extra files are harmless."""
+    import re
+    index = {}
+    for directory in search_dirs:
+        for path in directory.iterdir():
+            if path.suffix.lower() in DEPENDENCY_EXTENSIONS and path.is_file():
+                index.setdefault((path.stem.lower(), path.suffix.lower()), path)
+    found, queue = {}, [module]
+    while queue:
+        current = queue.pop()
+        tokens = {t.decode("latin-1").lower() for t in re.findall(rb"[A-Za-z][A-Za-z0-9_$]{1,40}", current.read_bytes())}
+        for (stem, ext), path in index.items():
+            if stem in tokens and path.resolve() != module.resolve() and path not in found.values():
+                if ext == ".fmb":
+                    continue
+                found[(stem, ext)] = path
+                queue.append(path)
+    return sorted(found.values())
+
+
+def work_dir() -> Path:
+    """Folder for staged conversion inputs: OFW_WORK_DIR, else <Oracle Home>/ofw-work. Never inside the repository.
+
+    The same rule as compile_form.work_dir in the compiling skill (kept in step by hand: the skills do not import each other).
+    """
+    raw = os.environ.get("OFW_WORK_DIR") or _dotenv_value("OFW_WORK_DIR")
+    if raw:
+        return Path(os.path.expanduser(raw))
+    home = os.environ.get("OFW_ORACLE_HOME") or _dotenv_value("OFW_ORACLE_HOME")
+    base = Path(os.path.expanduser(home)) if home else repo_root() / "oracle-reference-stack" / "oracle_home_14c"
+    return base / "ofw-work"
+
+
+def ensure_dir(folder: Path) -> None:
+    """Create a folder the host user can write. Inside the Oracle Home the container user owns everything, so on
+    Linux and WSL the folder is created through `podman unshare` (owned by the host user, world-writable)."""
+    if folder.is_dir() and os.access(folder, os.W_OK):
+        return
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        folder.chmod(0o777)
+        return
+    except OSError:
+        pass
+    quoted = shlex.quote(str(folder))
+    res = subprocess.run(podman_cmd(["unshare", "sh", "-c", f"mkdir -p {quoted} && chown 0:0 {quoted} && chmod 777 {quoted}"]),
+                         capture_output=True, text=True)
+    if res.returncode != 0 or not os.access(folder, os.W_OK):
+        raise RuntimeError(f"Cannot create a writable work folder {folder}. Set OFW_WORK_DIR to a writable folder.\n{res.stdout}{res.stderr}")
+
+
+def stage_for_conversion(input_path: Path) -> Path:
+    """Returns the folder to run the conversion in. If the module has dependencies outside its own folder,
+    copies the module and all dependencies into <work folder>/convert-stage/<name> (outside the repository) and
+    returns it; otherwise returns the module's own folder. Never copies into samples/ or the source folders."""
+    deps = find_dependencies(input_path, dependency_search_dirs(input_path.parent))
+    missing = [d for d in deps if d.parent.resolve() != input_path.parent.resolve()]
+    if not missing:
+        print(f" Dependencies:   {len(deps)} found beside the input" if deps else " Dependencies:   none detected")
+        return input_path.parent
+    stage = work_dir() / "convert-stage" / input_path.stem
+    ensure_dir(stage)
+    for path in [input_path, *deps]:
+        shutil.copy2(path, stage / path.name)
+    print(f" Dependencies:   staged {len(deps)} module(s) with the input in {stage}")
+    return stage

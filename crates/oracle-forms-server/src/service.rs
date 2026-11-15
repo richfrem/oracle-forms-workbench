@@ -84,19 +84,43 @@ impl FormsService {
         PathBuf::from("samples")
     }
 
+    /// Extra host/WSL directories from `OFW_FORMS_PATH_EXTRA` (env or `.env`, colon-separated).
+    /// Read-only source locations for loading external forms without copying them into `samples/`.
+    pub fn extra_forms_dirs() -> Vec<PathBuf> {
+        let raw = std::env::var("OFW_FORMS_PATH_EXTRA").ok().filter(|v| !v.trim().is_empty()).or_else(|| {
+            let env_path = Self::samples_dir().parent().map(|p| p.join(".env")).unwrap_or_else(|| PathBuf::from(".env"));
+            fs::read_to_string(env_path).ok().and_then(|text| {
+                text.lines().find_map(|line| {
+                    let val = line.trim().strip_prefix("OFW_FORMS_PATH_EXTRA=")?.trim().trim_matches('"').trim_matches('\'');
+                    (!val.is_empty()).then(|| val.to_string())
+                })
+            })
+        });
+        raw.unwrap_or_default()
+            .split(':')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir())
+            .collect()
+    }
+
     pub fn get_sample_list(&self) -> Vec<String> {
         let mut list = HashSet::new();
-        let samples_dir = Self::samples_dir();
+        let mut dirs = vec![Self::samples_dir()];
+        dirs.extend(Self::extra_forms_dirs());
 
-        if let Ok(entries) = fs::read_dir(&samples_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        let ext_lower = ext.to_ascii_lowercase();
-                        if matches!(ext_lower.as_str(), "xml" | "fmb" | "mmb" | "olb" | "pll" | "pld" | "rdf") {
-                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                list.insert(name.to_string());
+        for dir in dirs {
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                            let ext_lower = ext.to_ascii_lowercase();
+                            if matches!(ext_lower.as_str(), "xml" | "fmb" | "mmb" | "olb" | "pll" | "pld" | "rdf") {
+                                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                    list.insert(name.to_string());
+                                }
                             }
                         }
                     }
@@ -109,16 +133,22 @@ impl FormsService {
         sorted
     }
 
-    /// Loads a module from the samples directory. Only plain file names are accepted, so a
-    /// request cannot use this to open arbitrary paths.
+    /// Loads a module from `samples/` or `OFW_FORMS_PATH_EXTRA` directories.
+    /// Only plain file names are accepted, so a request cannot open arbitrary paths.
     pub fn load_sample(&self, sample_name: &str) -> Result<ModuleIndex> {
         if !is_plain_file_name(sample_name) {
             return Err(FormsError::NotFound(format!("Invalid sample name '{}'", sample_name)));
         }
-        match safe_join(&Self::samples_dir(), sample_name) {
-            Some(path) if path.is_file() => self.load_module(&path),
-            _ => Err(FormsError::NotFound(format!("Sample form '{}' not found in samples directory", sample_name))),
+        let mut search_dirs = vec![Self::samples_dir()];
+        search_dirs.extend(Self::extra_forms_dirs());
+        for dir in search_dirs {
+            if let Some(path) = safe_join(&dir, sample_name) {
+                if path.is_file() {
+                    return self.load_module(&path);
+                }
+            }
         }
+        Err(FormsError::NotFound(format!("Sample form '{}' not found in samples or OFW_FORMS_PATH_EXTRA directories", sample_name)))
     }
 
     pub fn load_module(&self, file_path: &Path) -> Result<ModuleIndex> {
@@ -455,11 +485,17 @@ impl FormsService {
     }
 
     #[allow(dead_code)]
-    pub fn save_module(&self, module: ModuleIndex) {
+    pub fn save_module(&self, mut module: ModuleIndex) {
         let mut st = self.state.write().unwrap();
         let key = module.key.name.to_ascii_uppercase();
-        if st.modules.get(&key).is_some_and(|previous| previous != &module) {
-            st.model_edited.insert(key.clone());
+        if let Some(previous) = st.modules.get(&key) {
+            // Preserve the server-side source_file so client sync cannot redirect saves into samples/.
+            if !previous.source_file.is_empty() {
+                module.source_file = previous.source_file.clone();
+            }
+            if previous != &module {
+                st.model_edited.insert(key.clone());
+            }
         }
         st.modules.insert(key, module);
     }
@@ -663,13 +699,45 @@ impl FormsService {
         Ok((Self::summary_xml(&module), ExportMode::Summary))
     }
 
-    /// Saves the form by updating its one XML file, `<form>_fmb.xml`, in place (no copy per edit).
-    ///
-    /// The write goes to a temporary file that is then renamed over the target, so an interrupted
-    /// save cannot leave a half-written form. If the export is only the lossy model summary and the
-    /// file already exists, a new `_edited_N_fmb.xml` version is written instead, so a complete XML is
-    /// never replaced by a partial one. Binary `.fmb` sources are never touched.
-    pub fn save_form_file(&self, module_name: &str) -> Result<(String, ExportMode)> {
+    /// Directory for saved forms that did not originate from `samples/` (such as uploaded binaries): `saved/` in
+    /// the work folder (`OFW_WORK_DIR`), which is outside the repository so nothing can be committed by accident.
+    pub fn temp_saved_dir() -> PathBuf {
+        let root = Self::samples_dir().canonicalize().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("."));
+        crate::oracle_preview::work_dir(&root).join("saved")
+    }
+
+    fn is_in_samples_dir(path: &Path) -> bool {
+        let samples = Self::samples_dir();
+        if let (Ok(canon_path), Ok(canon_samples)) = (path.canonicalize(), samples.canonicalize()) {
+            return canon_path.is_file() && canon_path.starts_with(canon_samples);
+        }
+        false
+    }
+
+    fn resolve_save_destination(source_file: &str, extra_dirs: &[PathBuf]) -> (PathBuf, String) {
+        let source_path = Path::new(source_file);
+        if Self::is_in_samples_dir(source_path) {
+            return (Self::samples_dir(), "samples".to_string());
+        }
+        if let Ok(canon_source) = source_path.canonicalize() {
+            if let Some(matching_extra) = extra_dirs.iter().find(|dir| {
+                dir.canonicalize().is_ok_and(|canon_dir| canon_source.starts_with(canon_dir))
+            }) {
+                return (matching_extra.clone(), matching_extra.to_string_lossy().to_string());
+            }
+        }
+        if let Some(first_extra) = extra_dirs.first() {
+            return (first_extra.clone(), first_extra.to_string_lossy().to_string());
+        }
+        let saved = Self::temp_saved_dir();
+        let display = saved.to_string_lossy().to_string();
+        (saved, display)
+    }
+
+    /// Saves the form in place: into `samples/` if it originated from `samples/`, into the matching
+    /// (or first) `OFW_FORMS_PATH_EXTRA` directory for external/uploaded forms, or `<work folder>/saved/` (outside the repository)
+    /// when `OFW_FORMS_PATH_EXTRA` is not configured.
+    pub fn save_form_file(&self, module_name: &str) -> Result<(PathBuf, String, String, ExportMode)> {
         let module = self.get_or_load_module(module_name)?;
         if module.key.module_type != ModuleType::Form {
             return Err(FormsError::InvalidFormat("Save Form requires a form module".into()));
@@ -678,23 +746,21 @@ impl FormsService {
         if stem.is_empty() || !stem.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
             return Err(FormsError::InvalidFormat("Form names must contain letters, digits or underscores".into()));
         }
+        let extra_dirs = Self::extra_forms_dirs();
+        let (target_dir, prefix) = Self::resolve_save_destination(&module.source_file, &extra_dirs);
         let (xml, mode) = self.export_xml(module_name)?;
-        let summary_only = matches!(mode, ExportMode::Summary);
-        Self::write_form_file(&Self::samples_dir(), &stem, &xml, summary_only)?
-            .map(|name| (name, mode))
-            .ok_or_else(|| FormsError::Internal("No available version filename".into()))
+        let name = Self::write_form_file(&target_dir, &stem, &xml)?;
+        let saved_path = target_dir.join(&name);
+        let display_path = format!("{}/{}", prefix.trim_end_matches('/'), name);
+        Ok((saved_path, name, display_path, mode))
     }
 
     /// Updates `<stem>_fmb.xml` in place via a temporary file and a rename.
-    /// Falls back to a new numbered version when only the lossy summary is available and the file exists.
-    fn write_form_file(directory: &Path, stem: &str, xml: &str, summary_only: bool) -> Result<Option<String>> {
+    fn write_form_file(directory: &Path, stem: &str, xml: &str) -> Result<String> {
         use std::io::Write;
         fs::create_dir_all(directory)?;
         let name = format!("{}_fmb.xml", stem);
         let path = directory.join(&name);
-        if summary_only && path.exists() {
-            return Self::write_form_version(directory, stem, xml);
-        }
         let temp = directory.join(format!(".{}.saving", name));
         let result = fs::File::create(&temp)
             .and_then(|mut file| file.write_all(xml.as_bytes()).and_then(|_| file.sync_all()))
@@ -703,28 +769,7 @@ impl FormsService {
             let _ = fs::remove_file(&temp);
             return Err(error.into());
         }
-        Ok(Some(name))
-    }
-
-    fn write_form_version(directory: &Path, stem: &str, xml: &str) -> Result<Option<String>> {
-        use std::io::Write;
-        fs::create_dir_all(directory)?;
-        for version in 1..=10000 {
-            let name = format!("{}_edited_{}_fmb.xml", stem, version);
-            let path = directory.join(&name);
-            match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(mut file) => {
-                    if let Err(error) = file.write_all(xml.as_bytes()).and_then(|_| file.sync_all()) {
-                        let _ = fs::remove_file(&path);
-                        return Err(error.into());
-                    }
-                    return Ok(Some(name));
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Ok(None)
+        Ok(name)
     }
 
     /// Regenerated (lossy) XML, clearly labelled as such.
@@ -1019,14 +1064,53 @@ mod disk_save_tests {
     use super::*;
 
     #[test]
-    fn form_versions_persist_without_overwriting_existing_files() {
+    fn save_updates_single_file_in_place_without_numbered_copies() {
         let directory = std::env::temp_dir().join(format!("ofw-save-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
-        let first = FormsService::write_form_version(&directory, "test", "<Module original=\"yes\"/>").unwrap().unwrap();
-        let second = FormsService::write_form_version(&directory, "test", "<Module edited=\"yes\"/>").unwrap().unwrap();
-        assert_ne!(first, second);
-        assert_eq!(fs::read_to_string(directory.join(first)).unwrap(), "<Module original=\"yes\"/>");
-        assert_eq!(fs::read_to_string(directory.join(second)).unwrap(), "<Module edited=\"yes\"/>");
+        let first = FormsService::write_form_file(&directory, "test", "<Module original=\"yes\"/>").unwrap();
+        let second = FormsService::write_form_file(&directory, "test", "<Module edited=\"yes\"/>").unwrap();
+        assert_eq!(first, "test_fmb.xml");
+        assert_eq!(second, "test_fmb.xml");
+        assert_eq!(fs::read_to_string(directory.join("test_fmb.xml")).unwrap(), "<Module edited=\"yes\"/>");
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn non_sample_or_stale_samples_path_never_saves_into_samples() {
+        let stale_path = FormsService::samples_dir().join("stale_non_sample_fmb.xml");
+        assert!(!stale_path.exists());
+        assert!(!FormsService::is_in_samples_dir(&stale_path));
+        assert!(!FormsService::is_in_samples_dir(Path::new("/mnt/c/external/custom.fmb")));
+
+        let extra_dir = std::env::temp_dir().join(format!("ofw-extra-{}", std::process::id()));
+        fs::create_dir_all(&extra_dir).unwrap();
+        let (dir_with_extra, prefix_with_extra) = FormsService::resolve_save_destination(
+            &stale_path.to_string_lossy(),
+            std::slice::from_ref(&extra_dir),
+        );
+        assert_eq!(dir_with_extra, extra_dir);
+        assert_eq!(prefix_with_extra, extra_dir.to_string_lossy());
+
+        let (dir_without_extra, prefix_without_extra) =
+            FormsService::resolve_save_destination(&stale_path.to_string_lossy(), &[]);
+        assert_eq!(dir_without_extra, FormsService::temp_saved_dir());
+        assert_eq!(prefix_without_extra, FormsService::temp_saved_dir().to_string_lossy());
+
+        let cache_dir = std::env::temp_dir().join(format!("ofw-save-cache-{}", std::process::id()));
+        let service = FormsService::new(&cache_dir);
+        let mut module = service.load_sample("orders_fmb.xml").unwrap();
+        module.key.name = "EXT_TEMP_TEST".to_string();
+        module.source_file = stale_path.to_string_lossy().to_string();
+        service.save_module(module);
+
+        let (saved_path, file_name, _, _) = service.save_form_file("EXT_TEMP_TEST").unwrap();
+        assert_eq!(file_name, "ext_temp_test_fmb.xml");
+        assert!(!stale_path.exists());
+        assert!(!FormsService::is_in_samples_dir(&saved_path));
+        assert!(saved_path.is_file());
+        let _ = fs::remove_file(&saved_path);
+        let _ = fs::remove_dir_all(&extra_dir);
+        let _ = fs::remove_dir_all(&cache_dir);
     }
 }

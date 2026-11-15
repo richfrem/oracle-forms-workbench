@@ -20,9 +20,10 @@ Sets up and runs the Oracle Forms 14c and Oracle Database Free testbed in Podman
 1. **Windows means the Ubuntu WSL shell.** Never PowerShell, never a native Windows build (Visual Studio and C++ were a red herring). Use Ubuntu's `podman`, not the Windows one or `podman-machine-default`.
 2. **Credentials only from the git-ignored `.env`.** Never type or commit passwords. `git check-ignore -v .env` must match.
 3. **The Oracle Home is a host folder** (5.4 GB) mounted into containers. Updating images or containers never touches it. Where it lives is a setting (`OFW_ORACLE_HOME`). **On Windows install it on Ubuntu's disk from the start; never into the repo folder** (`oracle-reference-stack/oracle_home_14c`, on the slow Windows drive), and never copy it with Windows Explorer.
-4. **Never remove or replace the owner's containers or images**, or rebuild an image, without saying what will happen first. `start_testbed.py` needs the owner's sudo password on Windows; ask the owner to run it.
-5. **Do not test with Save & launch in Oracle**; each click rewrites the form's XML. Use `launch_fsal.py`.
-6. **Document every step**: a change-log row and the reference that owns the topic (`.agent/rules/document-every-step.md`). Mark anything not run as not verified.
+4. **Extra `FORMS_PATH` dependencies**: set optional `OFW_FORMS_PATH_EXTRA` in `.env` (for example `/mnt/c/forms` on Windows WSL) to append external `.pll`/`.plx`/`.mmb`/`.mmx`/`.olb`/`.fmb`/`.fmx` folders to compile and runtime `FORMS_PATH` (see [forms-path-and-dependencies.md](../compiling-and-running-oracle-forms/references/forms-path-and-dependencies.md)).
+5. **Never remove or replace the owner's containers or images**, or rebuild an image, without saying what will happen first. `start_testbed.py` needs the owner's sudo password on Windows; ask the owner to run it.
+6. **Do not test with Save & launch in Oracle**; each click rewrites the form's XML. Use `launch_fsal.py`.
+7. **Document every step**: a change-log row and the reference that owns the topic (`.agent/rules/document-every-step.md`). Mark anything not run as not verified.
 
 ## Quick start
 
@@ -55,6 +56,8 @@ All references, linked directly (grouped list: [references/index.md](references/
 - Setup: [installing-forms-14c.md](references/installing-forms-14c.md), [database-23ai.md](references/database-23ai.md), [rust-workbench-setup.md](references/rust-workbench-setup.md), [dependencies.md](references/dependencies.md), [oracle-home-location.md](references/oracle-home-location.md), [oracle-reference-stack-map.md](references/oracle-reference-stack-map.md), [legacy-12c.md](references/legacy-12c.md)
 - Running and testing: [starting-the-stack.md](references/starting-the-stack.md), [forms-and-reports-testing-guide.md](references/forms-and-reports-testing-guide.md), [forms-builder-gui.md](references/forms-builder-gui.md), [reports-conversion.md](references/reports-conversion.md), [troubleshooting.md](references/troubleshooting.md)
 - Reference and history: [native-rust-workbench-architecture.md](references/native-rust-workbench-architecture.md), [podman-architecture.mmd](references/podman-architecture.mmd), [windows-wsl-change-log.md](references/windows-wsl-change-log.md)
+
+Converting and compiling modules that attach other modules: [references/module-dependencies-and-compile-order.md](references/module-dependencies-and-compile-order.md).
 
 ## Verification
 

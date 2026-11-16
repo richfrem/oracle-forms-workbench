@@ -15,13 +15,18 @@ complete Forms behavior or parity.
 XML-based form editing, conversion, compilation, and FSAL launch; keep native runtime support,
 official Oracle tooling, and visual parity claims distinct.
 
-**Open work** (also tracked in [start-next.md](../../start-next.md)):
+**Open work:**
 
 1. **Track K golden traces**: build deterministic Oracle trace capture and compare traces with
    native runtime sessions. Full golden-trace parity remains unverified.
-2. **Multi-module dependency staging**: parent `.fmb` staging has been added to the single-form
-   pipeline, but full graph discovery and dependency-ordered batch conversion/compilation remain
-   open. The recent changes still need complete verification.
+2. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
+   `compile_from_manifest.py` now implement dependency-ordered batch conversion/compilation,
+   `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
+   `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
+   blocking child forms when a staged parent `.fmb` binary is present), and warning-only
+   `Created form/menu/library file` success handling (36 Python pipeline tests pass).
+   End-to-end verification of the warning-only and staged-parent unblocking fixes on a full
+   external batch remains open.
 3. **External database validation**: check connectivity and `TNS_ADMIN` from inside the Forms
    container and validate referenced objects/roles with the exact compiler account. No external
    database or container network was tested for this status update.
@@ -339,7 +344,7 @@ You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-workbench`)
 - **Database Testbed**: Podman container `oracle23ai-lite` is running with seeded schema tables (`ORDERS`, `CUSTOMERS`, `DEPARTMENTS`, `EMPLOYEES`, `CLAIMS`, `ITEMS`, `STOCK`, etc.).
 
 ### 3. Immediate Mission: Current open work
-Use `start-next.md` and the active roadmap to work on one of these remaining areas:
+Use this prompt and the active roadmap to work on one of these remaining areas:
 
 1. Track K golden trace capture and native-vs-Oracle comparison.
 2. Multi-module dependency graph discovery, staging, and ordered compilation.
@@ -350,6 +355,15 @@ The session API already exists at `/api/sessions`; do not recreate or describe i
 
 Let's review where we are, confirm git status, and proceed with the next milestone!
 ```
+
+---
+
+## Merged Open Tooling & Setup Backlog (from retired `start-next.md`)
+
+- **Preview in Oracle & `OFW_FORMS_PATH_EXTRA`:** Fix `frmcmp_batch` `userid=` quoting/logon in `run_form.py` / `compile_form.py` when `sqlplus -L` connects, and use `frmf2xml` (or direct `.fmb` compilation when unmodified) instead of lossy `(summary)` XML.
+- **Reports & conversions:** Confirm `test_conversions.py --only reports` and `convert_rpt.py` end-to-end on `.rdf` <-> XML; investigate PLD-to-PLL (blocked in `frmcmp_batch`/`Forms2XML`, `frmbld` GUI untried) and running Reports via `rwservlet`.
+- **Schema & XML editor:** Run `extract_forms_schema.py` once to verify 14c `SchemaGenerator`; wire 12c `forms.xsd` into `validate_forms_xml.py`; fix XML Source tab off-by-one start line in `crates/oracle-forms-xml`.
+- **Stack & repo housekeeping:** Run `apply_forms14c_config.sh` on a clean Oracle Home copy; remove literal password/obsolete `version: '3.8'` in `oracle-reference-stack/compose.yaml`; decide on Rust 1.100 manifest lint warnings (`homepage`, unused `tracing`); re-run `audit_skill.py` after skill edits.
 
 ---
 

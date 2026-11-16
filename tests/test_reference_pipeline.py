@@ -459,5 +459,27 @@ class ManifestCompile(unittest.TestCase):
         self.assertEqual(manifest_compiler._blocked_by(mod, failed, {}), ['BASEFRM'])
         self.assertEqual(manifest_compiler._blocked_by(mod, {('PLL', 'mylib')}, {('basefrm', '.fmb'): 'BASEFRM.fmb'}), ['MYLIB'])
 
+    def test_compile_module_treats_warning_only_created_output_as_success(self):
+        from types import SimpleNamespace
+        with TemporaryDirectory() as directory:
+            bdir = Path(directory)
+            (bdir / 'stage').mkdir()
+            (bdir / 'stage' / 'ORDERS.fmb').write_bytes(b'fmb')
+            out_dir = bdir / 'apps'
+            out_dir.mkdir()
+            (out_dir / 'ORDERS.fmx').write_bytes(b'fmx')
+            mod = {'name': 'ORDERS', 'artifactType': 'FMB', 'binaryFile': 'stage/ORDERS.fmb', 'executableFile': 'stage/ORDERS.fmx'}
+            warn_proc = SimpleNamespace(returncode=1, stdout='FRM-32093: warning\nCreated form file /work/apps/ORDERS.fmx\n')
+            fail_proc = SimpleNamespace(returncode=1, stdout='Form not created\n')
+            with patch.object(manifest_compiler.cf, 'resolve_workspace_root', return_value=bdir), \
+                 patch.object(manifest_compiler.cf, 'container_path', side_effect=lambda p, *_: str(p)):
+                with patch.object(manifest_compiler, '_container_run', return_value=warn_proc):
+                    ok, diag = manifest_compiler.compile_module(mod, bdir, None, True, out_dir)
+                self.assertTrue(ok)
+                self.assertIn('FRM-32093', diag)
+                with patch.object(manifest_compiler, '_container_run', return_value=fail_proc):
+                    ok2, _ = manifest_compiler.compile_module(mod, bdir, None, True, out_dir)
+                self.assertFalse(ok2)
+
 if __name__ == '__main__':
     unittest.main()

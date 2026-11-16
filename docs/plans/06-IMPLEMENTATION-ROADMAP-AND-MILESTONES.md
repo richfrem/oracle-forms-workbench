@@ -54,18 +54,23 @@ The current continuation items are:
 
 1. **Track K golden traces**: implement deterministic live Forms trace capture and comparison
    against native Rust sessions; exact end-to-end trace parity is not yet verified.
-2. **Multi-module dependency staging**: parent-form staging support exists in the reference
-   pipeline, but a complete dependency graph and ordered batch conversion/compilation flow are
-   still open.
-3. **External database validation**: verify network reachability, naming configuration, and
-   compiler-account object visibility from the Forms container. No external database was tested
-   for this status update.
+2. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
+   `compile_from_manifest.py` implement dependency-ordered batch conversion/compilation,
+   `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
+   `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
+   blocking child forms when a staged parent `.fmb` binary is present), and warning-only
+   `Created form/menu/library file` success handling (36 Python pipeline tests pass). Full
+   end-to-end verification of the latest warning-only and staged-parent fixes remains open.
+3. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`
+   preflight, batch compilation, and live JNLP/WebStart launch of an entry/login form through
+   to a protected main-module form (`otherparams`, `envFile`, and `<component-desc/>` JAR
+   extension) have been exercised in `forms-server-14c`. Track 2 (native Rust persistent
+   session pinning and multi-form transitions) remains unimplemented.
 4. **UI parity**: continue font persistence, native theme/zoom/DPI comparison, tab/overlay
    behavior, and runtime behavior checks. Compilation or session establishment alone is not
    visual or behavioral parity.
 
-Use the [current session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) and
-[start-next.md](../../start-next.md) for the active checklist. The completed
+Use the [current session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) for the active checklist. The completed
 [implementation plan](completed/IMPLEMENTATION-PLAN.md) is historical design material.
 
 ## 1.2 Proposed Phase H: dual-runtime session and parity harness

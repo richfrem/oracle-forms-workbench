@@ -29,7 +29,7 @@ The point of this repository's setup and tooling work is a written, executable, 
 | Module dependency waves & compile order | `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`[cite: 3, 4] |
 | Conversions, validation, compiling, running, parity, feature audits | The `SKILL.md`, `scripts/*.py`, and `references/` of `converting-oracle-artifacts`, `compiling-and-running-oracle-forms`, `testing-forms-parity`, and `comparing-forms-features`[cite: 4] |
 | **History: every attempt, change, error, fix, pivot, open item** | `setting-up-oracle-testbed/references/windows-wsl-change-log.md` (one table row each; this is where "what we tried and what happened" goes)[cite: 4] |
-| Open work for the next session | `start-next.md` (repo root)[cite: 4] |
+| Open work for the next session | `docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md`[cite: 4] |
 | Agent rules and orientation | `AGENTS.md`, `CLAUDE.md`, `.agent/rules/`; where things run and the repo map: `architecture.md`[cite: 4] |
 | Running the Rust app day to day, CLI | `HOW-TO-RUN.md` (repo root)[cite: 4] |
 | Dependencies: Rust toolchain and crates (root) / Oracle stack, installers, downloads (skill) | `DEPENDENCIES.md` (root) / `setting-up-oracle-testbed/references/dependencies.md`[cite: 4] |

@@ -225,7 +225,6 @@ The compiled form running in the Oracle Forms desktop client with queried employ
 ├── .agent/rules/             # Mandatory agent rules (read before working)
 │
 ├── start_testbed.py          # Start and confirm the containers and the Rust app: python3 start_testbed.py
-├── start-next.md             # Open work for the next session
 ├── README.md                 # This file
 ├── architecture.md           # Where Oracle Fusion Middleware and the Rust app run, how they fit together, repository map
 ├── AGENTS.md                 # Operational guidelines and constraints for AI agents

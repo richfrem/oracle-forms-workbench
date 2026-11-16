@@ -621,3 +621,11 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Merged unique open tooling/setup backlog items from `start-next.md` into `docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md`, updated references in `.agent/rules/document-every-step.md`, `AGENTS.md`, `architecture.md`, `README.md`, and `docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md`, and removed `start-next.md` (`git rm start-next.md`) so one open-work tracker remains. |
 | Verified | Link grep across tracked `.md` files (only historical `windows-wsl-change-log.md` rows and the retired-source label in `10-NEXT-PHASE-SESSION-PROMPT.md` mention `start-next.md`). |
 | Not verified | None. |
+
+### Added generalized `external-repository-integration.md` reference
+
+| Item | Detail |
+|---|---|
+| Change | Authored `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/external-repository-integration.md` documenting how external application repositories consume the workbench and container testbed. Details workspace isolation (`OFW_WORK_DIR` on ext4, `OFW_FORMS_PATH_EXTRA` read-only source intake, runtime segregation under `/oracle_home_14c/forms_apps/<app_name>/`), `start_testbed.py` lifecycle, and the 3-stage compilation pipeline using generic placeholders (`<external-app-repo>`, `<app_name>`) per `cross-project-isolation.md`. Linked in `SKILL.md` and `references/index.md`. |
+| Verified | Link checks in `SKILL.md` and `references/index.md`. Checked against `cross-project-isolation.md` to confirm zero proprietary project identifiers. |
+| Not verified | None. |

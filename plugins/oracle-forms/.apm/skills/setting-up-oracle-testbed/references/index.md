@@ -32,6 +32,7 @@ The one source of truth for setting up, running, and troubleshooting the Oracle 
 | [forms-and-reports-testing-guide.md](forms-and-reports-testing-guide.md) | Test the Forms server, FSAL, compiling, and Reports |
 | [forms-builder-gui.md](forms-builder-gui.md) | Open the Forms Builder (`frmbld`) from the container (macOS XQuartz, Windows WSLg) and run a live form with FSAL |
 | [module-dependencies-and-compile-order.md](module-dependencies-and-compile-order.md) | Why PLL to PLD fails silently without attached libraries, how dependencies are staged, compile order, silent-failure checklist |
+| [external-repository-integration.md](external-repository-integration.md) | How external application repositories consume the workbench, start services, and maintain isolation |
 | [reports-conversion.md](reports-conversion.md) | Oracle `rwconverter` and the native Rust Reports engine |
 | [troubleshooting.md](troubleshooting.md) | Symptom, cause, fix for installing, starting, using, converting |
 

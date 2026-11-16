@@ -92,6 +92,7 @@ To uphold clean repository boundaries:
 ## 4. Key File Pointers for AI Agents
 
 ### For Agents Operating in `oracle-forms-workbench`:
+- **External Integration Hub:** [`docs/external-integration/README.md`](../../../../../../docs/external-integration/README.md)
 - **Startup Orchestration:** `start_testbed.py`
 - **Batch Dependency Manifest Generator:** `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/build_dependency_manifest.py`
   - Scans external source directories, generates dependency DAG, and detects Linux case-sensitivity symlinks (`requiredSymlinks`).

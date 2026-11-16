@@ -22,7 +22,7 @@ Companion documents: [windows-podman-setup.md](windows-podman-setup.md) (step by
 |---|---|---|
 | Podman, Python 3.12, Java 21, Rust app | Ubuntu in WSL2 | `~/ofw-target` (Rust build output); `/run/user/<uid>` (Podman runtime, recreated after `wsl --shutdown`) |
 | Oracle Database Free (`oracle23ai-lite`) | container | the database's own storage in that container; holds the test schema and tables |
-| WebLogic and Forms (`forms-server-14c`) | container from `forms-converter-14c:latest` | **the mounted host folder** `oracle-reference-stack/oracle_home_14c/` (domain, hooks, libraries, `tnsnames.ora`) |
+| WebLogic and Forms (`forms-server-14c`) | container from `oracle-forms-14c:latest` | **the mounted host folder** `oracle-reference-stack/oracle_home_14c/` (domain, hooks, libraries, `tnsnames.ora`) |
 | Converters and compilers | throwaway `podman run --rm` containers from the same image | the same mounted Oracle Home and the repo at `/work` |
 | Forms Builder and FSAL windows | WSLg (not XQuartz): socket `/mnt/wslg/.X11-unix`, `DISPLAY=:0` | none |
 
@@ -61,7 +61,7 @@ The checked-in Windows branches in `oracle_preview.rs` and `run_form.py` remain,
 | `crates/oracle-forms-server/src/oracle_preview.rs` | `python_program()`, `wsl_distro()`, `podman_command()` (Windows through `wsl.exe`), `CREATE_NO_WINDOW` on Windows; non-Windows behavior unchanged; added `convert_to_xml()` dispatching `convert_fmb.py`, `convert_rpt.py`, and `convert_pll.py` |
 | `crates/oracle-forms-server/src/routes.rs`, `ui/app.js`, `ui/index.html`, `ui/styles.css` | XML Source tab loads the full XML for the open form, menu, library, or report (verified via `/api/module/DEMO_EMPLOYEES/xml`); selecting a tree node still shows that node's slice; removed the redundant inner **Triggers & Program Units** sidebar (`code-list-sidebar`) from PL/SQL Studio; fixed the **Browse & Open Artifact** modal upload button overflow, category filter pills (`cat-pill` / `data-bcat`), and workspace file row truncation; added `POST /api/artifacts/convert-to-xml` and **⚡ Convert via Oracle (XML/PLD)** button (`convertArtifactXmlBtn`) in `#xmlTab` (returns `outputPath` and `payload` so files outside `samples/` load immediately instead of 404ing on `/api/open-sample/`; added save-location note in `#openFileModal` and full `outputPath` in the conversion banner) |
 | `oracle-reference-stack/sql/seed_test_schema.sql` (renamed from `seed_forms_user.sql`) | Uses `&db_user` and `&db_password`; `test_items` has an `amount` column and five rows |
-| `oracle-reference-stack/Containerfile.14c` | Adds `libnsl2` (needed by `rwconverter`). Rebuilt as `localhost/forms-converter-14c:new` (`f46f911db007`), verified with `test_conversions.py` (12 PASS) and `health_check.py`, then retagged to `:latest` (`:backup-20261114` kept for rollback) |
+| `oracle-reference-stack/Containerfile.14c` | Adds `libnsl2` (needed by `rwconverter`). Rebuilt as `localhost/oracle-forms-14c:new` (`f46f911db007`), verified with `test_conversions.py` (12 PASS) and `health_check.py`, then retagged to `:latest` (`:backup-20261114` kept for rollback) |
 | `oracle-reference-stack/apply_forms14c_config.sh`, `oracle-reference-stack/forms14c-config/` | The reapply script and its templates; step 5b added for Reports `tools/admin/prefs.ora`, `guicommon/tk/admin/uiprint.txt`, `uiscreenprint.txt` |
 | `example.env`, `scripts/create_env.py`, `.gitignore` | Credentials live in the git-ignored `.env`; no usernames or passwords in docs, scripts, SQL, or tests |
 | `ORACLE-FORMS-BUILDER-GUI.md` | Windows section: `frmbld` works through WSLg; exact 14c command that fills the `frmbld.sh` template placeholders |
@@ -146,7 +146,7 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | 12c schemas: the owner will supply them | Created the drop folder `docs/schemas/12c/` with a placeholder `forms.xsd` (valid but empty) and a `README.md` (the owner has only the Forms 12c schema, so the `reports.xsd` placeholder first created was removed); deliberately outside `assets/` so the validator does not mistake a placeholder for a real schema. **Nothing pasted yet** |
 | `start_testbed.py` could report a stale "READY" or "RUNNING" log line from an earlier boot as current; database check was log-only; little output; idempotency unstated | Rewritten 2026-11-14: only log lines since the container's current start count (`podman logs --since`, falling back to the tail with a warning); database confirmed by running state, log line, and port 1521; Forms by running state, log line, and the servlet on 7001; Rust app by home page and the readiness API; elapsed-time output with progress lines; a summary table (OK, STARTED, SKIP, WARN, FAIL) and exit codes; skipped components are reported as SKIP with the reason; already-running components are left alone and said so. **Verified:** compiles, `--status` runs. **Not verified:** the new start path and `podman logs --since` / `inspect ... .State.StartedAt.Unix` (Podman was down) |
 | Owner did not know which of two WSL distros holds Podman and the containers (`wsl -l -v` shows `Ubuntu` running and `podman-machine-default` stopped) | Checked read-only 2026-11-14: Podman 4.9.3 in `Ubuntu` has `oracle23ai-lite` and `forms-server-14c`; Podman for Windows 5.7.0 (`podman.exe`) points at `podman-machine-default` (WSL provider, 14 CPUs, 2 GiB, 100 GiB disk, created and last up 11 months earlier, so before this project), which is stopped and unused. Documented in `AGENTS.md`, `architecture.md`, and `windows-podman-setup.md` section 1: use `podman` only in Ubuntu; never start the machine; removal (`podman machine rm`) is the owner's decision. Nothing was changed or removed |
-| Image state found with the owner's commands in Ubuntu, 2026-11-14 (storage `/home/<you>/.local/share/containers/storage`, rootless; `podman system df`: 20 images, 3.294 GB, 1.477 GB reclaimable; 2 containers, 5.017 GB; 1 unrelated volume `mcp_gateway_data`) | Two build chains: the original (24 hours old, ends at `69a2654631f0`, tagged `backup-20261114`, still the image of the running `forms-server-14c`, so not removable) and a rebuild (10 hours old, `f46f911db007`, tagged `latest`, unused by any container, about 1.5 GB of its own layers). **The agent did not build the rebuild; who did is unknown.** `podman run --rm localhost/forms-converter-14c:latest rpm -q libnsl2` printed `libnsl2-1.2.0-2.20180605git4a062cf.el8.x86_64`, so the new `latest` has `libnsl2`. The 18 untagged images are intermediate layers of those builds, not removable on their own; `podman image prune` would free almost nothing. **No cleanup done.** Removing the old chain needs `forms-server-14c` recreated on the new image first (its configuration lives in the mounted Oracle Home, so nothing would be lost, but it is the owner's call); removing the new chain loses an image not yet tested. The `podman info` warning `"/" is not a shared mount` appears in WSL; not investigated. **Next:** run the report conversion test against the new image |
+| Image state found with the owner's commands in Ubuntu, 2026-11-14 (storage `/home/<you>/.local/share/containers/storage`, rootless; `podman system df`: 20 images, 3.294 GB, 1.477 GB reclaimable; 2 containers, 5.017 GB; 1 unrelated volume `mcp_gateway_data`) | Two build chains: the original (24 hours old, ends at `69a2654631f0`, tagged `backup-20261114`, still the image of the running `forms-server-14c`, so not removable) and a rebuild (10 hours old, `f46f911db007`, tagged `latest`, unused by any container, about 1.5 GB of its own layers). **The agent did not build the rebuild; who did is unknown.** `podman run --rm localhost/oracle-forms-14c:latest rpm -q libnsl2` printed `libnsl2-1.2.0-2.20180605git4a062cf.el8.x86_64`, so the new `latest` has `libnsl2`. The 18 untagged images are intermediate layers of those builds, not removable on their own; `podman image prune` would free almost nothing. **No cleanup done.** Removing the old chain needs `forms-server-14c` recreated on the new image first (its configuration lives in the mounted Oracle Home, so nothing would be lost, but it is the owner's call); removing the new chain loses an image not yet tested. The `podman info` warning `"/" is not a shared mount` appears in WSL; not investigated. **Next:** run the report conversion test against the new image |
 | WebLogic boot is slow (the screen showed 640 s and still waiting at the time of writing); the owner: "a container doesn't take that long to start"; moving the Oracle Home to Ubuntu's disk and making sure it is reproducible, documented, and testable | Answer given: the container starts in about 3 s, WebLogic is the slow part, and the recorded cause is the Oracle Home on `/mnt/c` (earlier thread dump; not re-measured). **Added:** `oracle-reference-stack/provision_oracle_home.sh` (`--dry-run`, `--from-copy`, `--verify --against`, `--backup`, `--from-installers`; the header explains why and gives the protocol), `forms14c-config/fingerprint.sh`; `OFW_ORACLE_HOME` setting honored by `apply_forms14c_config.sh`, `converter_runtime.py` (so the converters and `test_conversions.py`), `compose.yaml` (3 mounts), and added to `example.env`; reference `references/oracle-home-location.md` (why, protocol, how to read each verification line, risks); links in the setup `SKILL.md`, `windows-podman-setup.md`, `docs/FORMS-AND-REPORTS-14C-TESTING-GUIDE.md`, `docs/PODMAN-CONVERTER-SETUP-AND-HISTORY.md` section 15, `architecture.md`, `AGENTS.md`, `start-next.md`. **Verified:** the three shell scripts pass `bash -n`, LF line endings, `--help` prints, `converter_runtime.py` compiles. **Not verified:** every mode (nothing has been run; the copy runs as container root and its ownership handling is the likeliest place to need a fix), the speed-up, that domain files contain no host paths, `test_parity.py` still hard-codes the repo path. **No image rebuild is needed; `forms-server-14c` must be recreated with the new mount (owner's decision; the script only prints this)** |
 | `apply_forms14c_config.sh` contained a step **5b** (Reports `prefs.ora` in `tools/admin`, printer files `uiprint.txt` and `uiscreenprint.txt` in `guicommon/tk/admin`, plus three checks) that the agent did not write; it appeared on disk between sessions (likely the owner or the `codex-cli` agent in the owner's WSL) | Left as found. Presumably the fix for an `rwconverter` startup error after `libnsl2`; **not verified**, who added it and what they tested is unknown |
 | The owner asked which `.env` was updated: only `example.env` (the committed template) had the new `OFW_ORACLE_HOME` setting; the real `.env` had none | Appended 4 comment lines and a **commented-out** example (`# OFW_ORACLE_HOME=/home/<you>/oracle_home_14c`) to the real `.env` (git-ignored, confirmed with `git check-ignore`); its values were not read or printed. **Deliberately not active:** if set before the folder exists, `converter_runtime.default_oracle_home()` returns nothing and the converters report "Oracle Home folder not found". Uncomment it only after `provision_oracle_home.sh --verify` reports VERIFIED |
@@ -162,7 +162,7 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Dry run of `provision_oracle_home.sh` (2026-11-14 09:17 to 09:21) | **Found a bug and fixed it:** the first dry run printed `find: command not found` and a bogus `files=0 bytes=0` fingerprint, because the slim Oracle Linux image has no `find` or `xargs` (it has `awk`, `sed`, `sort`, `du`, `ls`, `tar`, `sha256sum`). `forms14c-config/fingerprint.sh` and the timed walk now use `ls -lAR` and `awk`; checked against the host's own count on `samples/` (41 files, 729,890 bytes, identical). **Second dry run, real numbers:** source Oracle Home `files=46736 links=404 bytes=6141006831 tree=195b6e576a32f9fb`; free on Ubuntu's disk 737 GB; the fingerprint scan alone took **3 m 24 s** over the Windows drive. Nothing was copied; the dry run created only the empty folder `~/oracle_home_14c`. **Next:** the real copy, then `--verify --against` |
 | Installer response files: confirmed present in `oracle-reference-stack/installer-templates/` and identical to the ones in `installer/` (`INSTALL_TYPE` is `Fusion Middleware Infrastructure` and `Forms and Reports Deployment`; inventory in `/home/oracle/oraInventory`) | No fix needed |
 | `forms-server-14c` would not stop with `podman stop` (the container's main process stayed alive after `podman stop -t 60` and after `podman kill`) | Stopped it manually: `podman stop -t 60`, then `kill -9` on the wrapper and its two Java children; the container exited 137. Added `python3 start_testbed.py --stop-forms`: graceful stop with a 60-second wait, reports manual steps if it will not stop, never kills processes. Tested: container already stopped, exit 0 |
-| Recreated `forms-server-14c` on `~/oracle_home_14c` (2026-11-14) | After `.env` set `OFW_ORACLE_HOME=/home/<you>/oracle_home_14c`, `forms-server-14c` was still running (`Up 37 minutes`, `STARTING`, port 7001 down) and mounting the old repo folder. `--verify` passed all 10 required files and `frmweb` `ldd`, and measured the directory walk at **11s** (95,594 entries on Ubuntu ext4) vs **259s** (95,593 entries on `/mnt/c`); fingerprints differed (`46736` vs `46738` files) because `forms-server-14c` was still running on the original folder. With owner approval ("so let's remove"), force-stopped PID 1060, removed `forms-server-14c`, and recreated it with `podman create` mounting `~/oracle_home_14c:/oracle_home_14c:Z` (`localhost/forms-converter-14c:latest`, verified via `podman inspect`). **Next:** run `python3 start_testbed.py` to boot from `~/oracle_home_14c` and record boot time |
+| Recreated `forms-server-14c` on `~/oracle_home_14c` (2026-11-14) | After `.env` set `OFW_ORACLE_HOME=/home/<you>/oracle_home_14c`, `forms-server-14c` was still running (`Up 37 minutes`, `STARTING`, port 7001 down) and mounting the old repo folder. `--verify` passed all 10 required files and `frmweb` `ldd`, and measured the directory walk at **11s** (95,594 entries on Ubuntu ext4) vs **259s** (95,593 entries on `/mnt/c`); fingerprints differed (`46736` vs `46738` files) because `forms-server-14c` was still running on the original folder. With owner approval ("so let's remove"), force-stopped PID 1060, removed `forms-server-14c`, and recreated it with `podman create` mounting `~/oracle_home_14c:/oracle_home_14c:Z` (`localhost/oracle-forms-14c:latest`, verified via `podman inspect`). **Next:** run `python3 start_testbed.py` to boot from `~/oracle_home_14c` and record boot time |
 | `startWebLogic.sh` `Permission denied` on `~/oracle_home_14c` & `restore_oracle_home_attributes.sh` (2026-11-14) | `python3 start_testbed.py` failed to start `forms-server-14c` (`crun: open executable: Permission denied`): `startWebLogic.sh` in `~/oracle_home_14c` was `-rw-r--r--` from the earlier Windows Explorer copy. Ran `restore_oracle_home_attributes.sh --from oracle-reference-stack/oracle_home_14c --target ~/oracle_home_14c`: `rsync` restored `startWebLogic.sh` (`-rwxr-xr-x`) and permissions, then exited 23 at `instances/forms1` because `~/oracle_home_14c` had a directory (containing only a nested `forms1 -> ../forms1` symlink) where the original has a symlink `forms1 -> ../forms1`. Replaced that directory with the `../forms1` symlink and ran `podman unshare chown -R 1000:1000 ~/oracle_home_14c`. Re-ran `provision_oracle_home.sh --verify --target ~/oracle_home_14c`: **VERIFIED.** (`46738` files, `404` links, `95593` entries walked in **8s**, `frmweb` `ldd` OK) |
 | First boot of `forms-server-14c` from `~/oracle_home_14c` (2026-11-14) | Ran `python3 start_testbed.py`: `forms-server-14c` reached WebLogic `RUNNING` and `http://127.0.0.1:7001/forms/frmservlet` answered in **45s** (down from **15 to 44 minutes** on `/mnt/c`; total testbed start 1m 12s). Launched `ofw_demo_employees.fmx` via `launch_fsal.py` (`Forms Session ID is AdminServer.formsapp.3`, `Forms Applet version is 14.1.2.0`, Java `21.0.13.0.3`); hit `FRM-10221: Cannot read file OFW_EMP_MENU.mmx` because Ubuntu ext4 is case-sensitive and the compiled file is lowercase `ofw_emp_menu.mmx`. Added `OFW_EMP_MENU.mmx -> ofw_emp_menu.mmx` symlink in `~/oracle_home_14c/forms/` and scripted it in `apply_forms14c_config.sh`. Relaunched `launch_fsal.py ofw_demo_employees.fmx` (`AdminServer.formsapp.5`, started without error). Ran `health_check.py`: **All systems operational!** (Oracle DB 23ai RUNNING, Forms 14c RUNNING, Forms Listener Servlet port 7001 UP AND RUNNING, DB Query `test_items` SUCCESS) |
 | Cleaned up old repo Oracle Home and one-off repair script (2026-11-14) | With owner approval: deleted `oracle-reference-stack/oracle_home_14c/` (`podman unshare rm -rf`), removed `oracle-reference-stack/restore_oracle_home_attributes.sh` (`git rm`), and updated `oracle-home-location.md`, `oracle-reference-stack-map.md`, and `start-next.md`. Kept `apply_forms14c_config.sh` and `provision_oracle_home.sh` |
@@ -185,7 +185,7 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Route non-sample saves to `OFW_FORMS_PATH_EXTRA` by default (2026-11-14) | Owner requested non-sample conversions/saves default to `OFW_FORMS_PATH_EXTRA` (outside the repo) rather than `samples/` or the repo. Added `FormsService::resolve_save_destination` in [service.rs](../../../../../../crates/oracle-forms-server/src/service.rs) (saves non-sample forms to the matching or first `OFW_FORMS_PATH_EXTRA` directory when configured, falling back to `temp/saved/` only when `OFW_FORMS_PATH_EXTRA` is unset), updated [AGENTS.md](../../../../../../AGENTS.md) and `non_sample_or_stale_samples_path_never_saves_into_samples` |
 | Updated `start-next.md` with Preview in Oracle `ORA-12262` DNS blocker (2026-11-14) | Owner confirmed non-sample XML saved to `OFW_FORMS_PATH_EXTRA` and `sqlplus -L` diagnostic surfaced `ORA-12262` (container cannot resolve remote Easy Connect hostname `<db-host>`). Recorded current state and next step in [start-next.md](../../../../../../start-next.md) without internal hostnames |
 | Updated `start-next.md` with `frmcmp_batch` silent logon & `(summary)` XML blockers (2026-11-14) | After fixing target DB name, `sqlplus -L` connected (`exit 0`) while `frmcmp_batch` exited `0` with `Form not created` (verified via invalid-`userid` and `logon=no` tests: `frmcmp_batch` suppresses logon errors, has no `err=` flag, and `(summary)` XML omits `<AttachedLibrary>` and truncates PL/SQL even though `.pll`/`.olb` files exist in `temp/forms_extra/`). Updated [start-next.md](../../../../../../start-next.md) |
-| Synced WebLogic `AdminAccount` & verified `forms-server-14c` boot (2026-11-14) | `forms-server-14c` failed on boot with `BEA-090402` (`boot.properties` matched `.env` `WLS_ADMIN_PASSWORD`, while WebLogic's embedded LDAP `myrealm` still held the old password). Reset `DefaultAuthenticatorInit.ldift` via `weblogic.security.utils.AdminAccount` and moved `AdminServer/data/ldap` to `ldap.bak` in a throwaway `forms-converter-14c:latest` container. `python3 start_testbed.py` booted `forms-server-14c` to `RUNNING` and `http://127.0.0.1:7001/forms/frmservlet` in **36s**. Verified `WLS_ADMIN_USER`/`WLS_ADMIN_PASSWORD` (`200 OK` on WebLogic REST API) and `DB_USER`/`DB_PASSWORD` (`sqlplus` `exit=0`); `SYSTEM` with `ORACLE_PWD` failed (`exit=1`) |
+| Synced WebLogic `AdminAccount` & verified `forms-server-14c` boot (2026-11-14) | `forms-server-14c` failed on boot with `BEA-090402` (`boot.properties` matched `.env` `WLS_ADMIN_PASSWORD`, while WebLogic's embedded LDAP `myrealm` still held the old password). Reset `DefaultAuthenticatorInit.ldift` via `weblogic.security.utils.AdminAccount` and moved `AdminServer/data/ldap` to `ldap.bak` in a throwaway `oracle-forms-14c:latest` container. `python3 start_testbed.py` booted `forms-server-14c` to `RUNNING` and `http://127.0.0.1:7001/forms/frmservlet` in **36s**. Verified `WLS_ADMIN_USER`/`WLS_ADMIN_PASSWORD` (`200 OK` on WebLogic REST API) and `DB_USER`/`DB_PASSWORD` (`sqlplus` `exit=0`); `SYSTEM` with `ORACLE_PWD` failed (`exit=1`) |
 
 | Documentation patch application failed (2026-11-15) | An initial batched patch did not match the current rule-file context and made no changes. The affected files were reread; subsequent edits are being split into smaller, context-checked patches. |
 | Partial documentation patch due to stale AGENTS context (2026-11-15) | The rule-file rename succeeded, but the next AGENTS hunk did not match its current wording; later hunks were not attempted. The target files are being inspected before retrying only the unapplied edits. |
@@ -356,3 +356,252 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | `build_dependency_manifest.py`: `xml2forms_command` exports `FORMS_PATH=/work:<oracle home>/forms` so staged `.olb` and parent `.fmb` binaries resolve; `scan_xml` reads both `ParentFilename` and `ParentModule` (self-references ignored, as in `compile_form._parent_form_names`); `convert_one` finds the converted binary case-insensitively in `stage/` and updates `binaryFile`/`executableFile` in the manifest. `compile_from_manifest.py`: publishing `.mmx`/`.plx` also creates a case-variant symlink in `<oracle home>/forms/` when absent (avoids FRM-10221 / PDE-PLI018); `--build-dir` outside the Oracle Home or OFW_WORK_DIR is rejected before any credential prompt. |
 | Verified | `tests/test_reference_pipeline.py`: 21 tests OK (new: `ParentModule` detection, `FORMS_PATH` in the XML2Forms command, early build-dir rejection); `py_compile` of both scripts. |
 | Not verified | Live XML2Forms case resolution, the symlink creation in `forms-server-14c`, and a real compile; no container was touched. |
+
+
+## 2026-11-15 - Guided-workflow protocol and cycle reporting fix
+
+| Item | Detail |
+|---|---|
+| Change | Rule `document-every-step.md`: added "Proactive guided execution" (status summary then a direct authorization question after every step). Both batch skills and references now define the gated protocol (Gates 0 to 3). `build_dependency_manifest.py`: `cycles` now lists only real strongly connected loops (Tarjan) instead of every unordered module; heuristic edges of binary-only modules inside a loop are dropped with a stderr note. Found when a real 609-file source folder reported one giant false cycle (15 of 291 modules ordered); after the fix 291 are ordered, 0 cycles, 40 heuristic edges dropped (versioned copies of one library referencing each other). |
+| Verified | `tests/test_reference_pipeline.py` 21 OK; Stage 1 `--analyze-only` run in WSL on a real source copy: 291 modules ordered, 1 unresolved (a stray `.pld` copy with no `.pll`), 0 cycles; output written only under `OFW_WORK_DIR/build`. |
+| Not verified | Stage 2 conversion and Stage 3 compile on real data; a unit test for the loop-dropping path. |
+
+### Scanner: Module wrapper, self-references and renamed dependencies
+
+| Item | Detail |
+|---|---|
+| Change | uild_dependency_manifest.py: `scan_xml` now finds the module inside the Forms2XML `<Module>` wrapper (before this, every real XML export was skipped and only binaries were analyzed; unit fixtures without the wrapper hid it). Built-in menus `DEFAULT` and `DEFAULT&SMARTBAR` are not reported as missing files. A parent reference equal to the module's own internal `Name` is ignored, and parent forms resolve by internal module name as well as file name (a module name can differ from its file name, which caused false missing parents). Unresolved dependencies now carry `suggestions`: present modules of the same type with a shared prefix or close spelling, because a form may reference an old file name while the current file is named slightly differently. Schema gained `suggestions`. |
+| Verified | `tests/test_reference_pipeline.py` 23 OK. Stage 1 re-run in WSL on an external source copy: 306 modules; the three false missing parent forms are gone; `MYOBJS_WINDOWS` now reports `MYOBJS` as similar. |
+| Not verified | Whether a suggested name is a valid substitute (a person must confirm); Stage 2 and Stage 3 on real data. |
+
+### Needs-review list, usage hints and a decompile gate in the batch pipeline
+
+| Item | Detail |
+|---|---|
+| Change | `build_dependency_manifest.py`: manifest gains `needsReview` (modules with missing dependencies, similar present names, and which other source files mention them). New `--decompile-binaries` gate decompiles binary-only modules (`.pll` to `.pld`, others to XML) into `<build-dir>/decompiled/`, writes `<build-dir>/decompile-status.json` and merges a `decompiled` record per module into the manifest. Schema updated. Documented in `batch-dependency-conversion.md`. |
+| Verified | `tests/test_reference_pipeline.py` 24 OK (needs-review, similar names, decompile-status merge); skill audit passes. |
+| Not verified | `--decompile-binaries` end to end through the script (the decompile on a real source copy was run with `convert_fmb.py` directly and succeeded for 23 of 23 libraries); it runs `convert_file` with `stage=False` on copies so that nothing is written beside the originals. |
+
+### Decompile gate run on a real batch, out-of-scope modules removed
+
+| Item | Detail |
+|---|---|
+| Change | Out-of-scope modules (a different project's prefix) were deleted from the working folder only, never the originals; manifest re-analyzed. Binary-only libraries were decompiled through `--decompile-binaries` into `<build>/decompiled/out/` and recorded in `decompile-status.json` and the manifest. Only items with no existing server-side XML export are decompiled. |
+| Verified | 23 of 23 libraries decompiled, 0 failed; status recorded per module. |
+| Not verified | Stage 2 conversion and Stage 3 compile on this batch. |
+
+### Decompile gate: use the server export, decompile only the gap
+
+| Item | Detail |
+|---|---|
+| Change | `batch-dependency-conversion.md` and the converting skill now say: use the server export (XML and library text, often `.txt`) as is, rename library `.txt` to `.pld` first, decompile only binaries with no export, and keep one folder with the full text set. Cause: a real run decompiled every library, including ones already exported as `.txt`. |
+| Verified | Text edited. |
+| Not verified | Scanner does not yet detect `.txt` library exports itself; a manual rename is documented. |
+
+### Schema validation step after decompile
+
+| Item | Detail |
+|---|---|
+| Change | `build_dependency_manifest.py --validate-xml` validates module XML and `decompiled/out/` XML against the 14c schema (`validate_forms_xml.py`) and writes `<build-dir>/validation-status.json`; documented in `batch-dependency-conversion.md`. |
+| Verified | Manual run of the validator on a real batch: 265 passed, 1 failed (a malformed stray file). Script compiles; existing 24 tests still pass. |
+| Not verified | The new `--validate-xml` flag itself on real data; no unit test for it yet. |
+
+### One manifest JSON for the whole pipeline (supersedes the side-file entries above)
+
+| Item | Detail |
+|---|---|
+| Change | `build-manifest.json` is the only pipeline JSON. Per-module `decompiled`, `validated`, `converted` and `compiled` records (plus `status`) are written into it by their own stage, carried over when Stage 1 re-runs, and saved atomically (temp file + `os.replace`) by `build_dependency_manifest.py` and `compile_from_manifest.py`. `decompile-status.json` and `validation-status.json` no longer exist. The separate manifest schema file was removed; `assets/build-manifest.template.json` is the one reference shape. |
+| Verified | `tests/test_reference_pipeline.py` 24 OK (including the carry-over test); skill audit passes (size warnings only); template parses. A real Stage 1 plus `--validate-xml` run produced one manifest: 288 modules, 0 cycles, 263 modules validated, all pass. |
+| Not verified | `compile_from_manifest.py` writing the `compiled` record (no test, not run); `--decompile-binaries` after the refactor. |
+
+### Support for building .pll from .pld in Stage 2
+
+| Item | Detail |
+|---|---|
+| Change | `build_dependency_manifest.py`: `scan_source()` now treats `.pld` files as authoritative PLL sources (`requiresConversion: True`), extracting attached libraries from `.attach library` statements and removing the false `_unresolved_pld` blocker. In Stage 2 (`convert_one()`), `.pld` files are built into binary `.pll` files via `frmcmp_batch module=<name>.pld output_file=<name>.pll module_type=library parse=yes logon=no batch=yes` inside the converter container with `FORMS_PATH=/work:/oracle_home_14c/forms`, enabling headless library building before dependent menus/forms convert. Fixed variable scoping order for `stage` in `convert_one()`. Updated `batch-dependency-conversion.md` and added unit test in `tests/test_reference_pipeline.py`. |
+| Verified | `tests/test_reference_pipeline.py` 25 tests pass. |
+| Not verified | Full Stage 2 batch execution in WSL against live data. |
+
+### Formalized 3-stage lifecycle and architecture diagram
+
+| Item | Detail |
+|---|---|
+| Change | Formalized and aligned stage definitions across skills (`converting-oracle-artifacts` and `compiling-and-running-oracle-forms`): Stage 1 Decompiled (Text Source: XML, PLD) & Dependency Analysis, Stage 2 Built (Oracle 14c Native Source: OLB, PLL, MMB, FMB via XML2Forms and headless frmcmp_batch parse=yes logon=no), and Stage 3 Compiled (Runtime Executables: PLX, MMX, FMX via interactive authenticated compile_from_manifest.py published to `<Oracle Home>/forms/`). Created detailed visual architecture flowchart in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/references/batch-pipeline-stages.mmd` with scripts, container boundaries, file annotations, and ledger states. |
+| Verified | `batch-pipeline-stages.mmd` authored; references updated in `batch-manifest-compilation.md`, `batch-dependency-conversion.md`, and `SKILL.md`. |
+| Not verified | None. |
+
+### First full Stage 2 run on real data (no repo code changed)
+
+| Item | Detail |
+|---|---|
+| Change | Ran `convert_manifest()` directly on the existing `build-manifest.json` (no Stage 1 re-run) after a 3-module pilot (form, menu, library) that needed no `--normalize`. Binaries are written in place in `<build>/stage/`, overwriting the earlier copies; originals stay in `source/`. Logs: `<OFW_WORK_DIR>/logs/stage2-pilot.log` and `stage2-full.log`. |
+| Verified | 289 modules attempted: 288 `converted`, 1 `failed` (a temporary `- Copy` library the owner said is not required; no `.pll` produced). The binaries of the 288 exist on disk. |
+| Not verified | `converted` only means the output file exists; the binaries were not opened or checked as valid. Stage 3 compile has not been run. |
+
+### `--convert-only` flag for Stage 2
+
+| Item | Detail |
+|---|---|
+| Change | `build_dependency_manifest.py` gained `--convert-only`: runs Stage 2 from the existing `build-manifest.json` without re-running Stage 1 or re-staging. Before this, the only way in was the full run, which re-scans, re-stages (overwriting `stage/`) and fails closed on unresolved providers; the first real Stage 2 run called `convert_manifest()` directly instead. Documented in `converting-oracle-artifacts/SKILL.md` and `batch-dependency-conversion.md`. |
+| Verified | Dependency order in the real manifest: 1,108 provider links checked by dependency type, 0 ordered after their dependent. |
+| Not verified | `--convert-only` has not been run or unit tested yet. The external manifest's `unresolvedDependencies` (12) is stale until Stage 1 is re-run: `MYOBJS_WINDOWS` now exists as a copy. |
+
+### Stage 3 compiles straight into the Oracle Home `forms/` folder
+
+| Item | Detail |
+|---|---|
+| Change | `compile_from_manifest.py` now passes `output_file=<Oracle Home>/forms/<name>.<fmx|mmx|plx>` to `frmcmp_batch` (new optional `output_file` argument on `compile_form.build_compiler_command`), so there is no separate copy step. `--no-publish` compiles into `stage/` as before. The case-variant symlink for `.mmx`/`.plx` is kept (`add_case_variant`); the old `publish_outputs` wrapper was removed from this script (`compile_form.py` keeps its own). Docs updated: `compiling-and-running-oracle-forms/SKILL.md`, `batch-manifest-compilation.md`. New unit test for the command; 26 tests pass. |
+| Verified | Unit tests only (command string with and without `output_file`). |
+| Not verified | `frmcmp_batch output_file=` against the real container: `forms-server-14c` was not running, so a scratch compile could not be run. Stage 3 has not been run on real data. |
+
+### Stage 3 always prompts for the database login
+
+| Item | Detail |
+|---|---|
+| Change | `compile_from_manifest.py` `resolve_userid()` no longer uses `DB_USER`/`DB_PASSWORD` from `.env` when no `--userid` is given: it always prompts for user, alias (default `DB_SERVICE`) and password. Before this, a run with those two set in `.env` logged in silently with no prompt. Test updated to set both in the environment and still expect the prompts. |
+| Verified | 26 unit tests pass (see run after this entry). |
+| Not verified | The prompts in a real terminal. The user's run stopped at preflight because `forms-server-14c` was not running (`can only create exec sessions on running containers`). |
+
+### Stage 3 alias prompt has no default
+
+| Item | Detail |
+|---|---|
+| Change | `compile_from_manifest.py` no longer defaults the connect alias to `DB_SERVICE` or `FREEPDB1`; an empty alias is re-asked until one is entered, so a run can never silently target the local test database. |
+| Verified | 26 unit tests pass. |
+| Not verified | The prompt in a real terminal. |
+
+### Stage 3 is user-run only; `.env` login needs `--use-local-env`
+
+| Item | Detail |
+|---|---|
+| Change | `compile_from_manifest.py` gained `--use-local-env`; the repo `.env` login (local testbed) is used only with it, otherwise the script always prompts for user, alias and password. `compiling-and-running-oracle-forms/SKILL.md` and `references/batch-manifest-compilation.md` now state that the agent never runs Stage 3: it stops after Stage 2, confirms the manifest status and prints the command for the user to run in their own terminal. New unit test for the flag. |
+| Verified | Unit tests (see the run after this entry). |
+| Not verified | Stage 3 has not been run on real data, by design. |
+
+### Stage 3 verifies the Forms container is running first
+
+| Item | Detail |
+|---|---|
+| Change | `compile_from_manifest.py` now runs `container_running()` (`podman inspect`, state must be `running`) before any prompt. If `forms-server-14c` is not running it exits 2 with the real state and "start the stack first", instead of the misleading "Fix the logon first" after the prompts. Applies with `--offline` too. Documented in `references/batch-manifest-compilation.md` (Preflight). New unit test. |
+| Verified | 28 unit tests pass. At the time, `start_testbed.py --status` showed the container `Exited (0)`, so the new check would have stopped the run. |
+| Not verified | The check against a live running container. |
+
+### Removed the converter image backup tag
+
+| Item | Detail |
+|---|---|
+| Change | At the owner's request, ran `podman rmi localhost/oracle-forms-14c:backup-20261114` in the Ubuntu WSL distro. The `latest` tag (a different image) was not touched. |
+| Verified | `podman images` afterwards lists `oracle-forms-14c:latest` (f46f911db007), the Oracle Linux base and the database image; the backup is gone. |
+| Not verified | Nothing else was removed or rebuilt. |
+
+### Renamed the image `forms-converter-14c` to `oracle-forms-14c`
+
+| Item | Detail |
+|---|---|
+| Change | The image is used for converting, compiling and running the Forms server, so the name was misleading. At the owner's request: `podman tag` added `localhost/oracle-forms-14c:latest`, then `podman rmi localhost/forms-converter-14c:latest` untagged the old name (same image ID `f46f911db007`, nothing deleted). Updated every live reference: `compose.yaml`, `Containerfile.14c` (build-tag comment), `apply_forms14c_config.sh`, `provision_oracle_home.sh`, `converter_runtime.py` and the other skill scripts, `AGENTS.md`, `architecture.md`, and the skill references. Earlier dated entries in this log and in `windows-podman-status-log.md` were updated to the new name too, so they describe the same image under its current name (at the time it was called `forms-converter-14c`). The existing `forms-server-14c` container and a leftover container `boring_nash` (state Created, origin not known, not removed) still show the old image name in `podman ps -a`, because a container keeps the name it was created with. |
+| Verified | `podman images` lists `oracle-forms-14c:latest` and no `forms-converter-14c`. |
+| Not verified | That the existing `forms-server-14c` container (created under the old name) starts; no container was started. `OFW_CONVERTER_IMAGE` in the git-ignored `.env` was not read and may still hold the old name. |
+
+### Batch pipeline docs state what each phase needs running
+
+| Item | Detail |
+|---|---|
+| Change | Added `Before you start: start forms-server-14c once and keep it running` to `converting-oracle-artifacts/references/batch-dependency-conversion.md`: start it once before Stage 1 and leave it running through Stage 3; a table of what each phase does with Podman today (Stages 1 and 2 still use a temporary container per file; Stage 3 needs `forms-server-14c`); how to check and start it; the DB alias must be in the container's `tnsnames.ora` and reachable. Stating that running Stages 1 and 2 through `podman exec` into the one container is the intended design but not implemented. Added a short `Before you run Stage 3` pointer to `batch-manifest-compilation.md` and `compiling-and-running-oracle-forms/SKILL.md`. |
+| Verified | Wording matches the code: Stages 1 and 2 use `podman run --rm` (`build_dependency_manifest.py`, `convert_fmb.py`); Stage 3 uses `podman exec` into `forms-server-14c` and now checks it is running first. |
+| Not verified | That the container can reach the target database from inside Podman. |
+
+### One container for all phases; `compile_form.py` matches Stage 3
+
+| Item | Detail |
+|---|---|
+| Change | `converter_runtime.py`: added `server_running()`, `server_workdir()`, `exec_in_server()` (`podman exec -u oracle forms-server-14c`). `build_dependency_manifest.py` (`xml2forms_command`, `pld2pll_command`) and `convert_fmb.py` (`convert_file`, `build_container_script(..., workdir)`) now exec into the running `forms-server-14c` when it is running and the folder is under the Oracle Home mount; otherwise they fall back to the throwaway `oracle-forms-14c` container, and say which ran. `compile_form.py` now has the same container check (exit 2 before any prompt) and the same user/alias/hidden-password prompt as Stage 3 (`--use-local-env` is the only way to use `.env`); it no longer defaults to the local `.env` database. `compile_from_manifest.py` reuses those two functions instead of its own copies. Docs updated: `batch-dependency-conversion.md`, `compiling-and-running-oracle-forms/SKILL.md`. |
+| Verified | `py_compile` on the changed scripts; `tests/test_reference_pipeline.py` (new tests for exec vs fallback and the workdir script). |
+| Not verified | The exec path against the real container; that `-u oracle` can overwrite files in `stage/` that were written earlier as container root (permission denied is possible); container-to-database reachability; `compile_form.py` prompts against a real run. Stage 3 was not run. |
+
+### `compile_form.py` auto-detects module type from `.fmb`/`.mmb`/`.pll`
+
+| Item | Detail |
+|---|---|
+| Change | Compiling a `.pll` library without `-t library` defaulted to `module_type=form` and failed with `FRM-10043: Cannot open file`. Added `infer_module_type(module)` to `compile_form.py` and changed `--type` default to `None` so `.pll` -> `library`, `.mmb` -> `menu`, and `.fmb` -> `form` automatically while still allowing `-t`/`--type` overrides. Updated `compile_form.py` header metadata, `compiling-and-running-oracle-forms/SKILL.md`, and `tests/test_reference_pipeline.py`. |
+| Verified | `py_compile` on `compile_form.py` and `tests/test_reference_pipeline.py` unit tests. |
+| Not verified | Live container compile of a `.pll` without `-t library`. |
+
+### Tier-first ordering and `--types` / `--no-deps` / `--skip-compiled` filters for Stage 3
+
+| Item | Detail |
+|---|---|
+| Change | Fixed `_kahn()` tie-breaking in `build_dependency_manifest.py` so `TYPE_ORDER` (`OLB` -> `PLL` -> `MMB` -> `FMB`) takes precedence over alphabetical module name, preventing forms with undetected dependencies from sorting ahead of libraries. Added tier-first sorting (`PLL` -> `MMB` -> `FMB`) and optional `--types`, `--no-deps`, and `--skip-compiled` flags to `compile_from_manifest.py` (defaulting to publishing to `<Oracle Home>/forms/`). Updated `compile_from_manifest.py` header metadata, `compiling-and-running-oracle-forms/SKILL.md`, and `tests/test_reference_pipeline.py`. |
+| Verified | `py_compile` on both scripts and `tests/test_reference_pipeline.py` unit tests. |
+| Not verified | End-to-end Stage 3 batch run with `--types PLL` or `--skip-compiled` against a live database. |
+
+### Dedicated app deployment directory `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` outside `/oracle_home_14c/forms`
+
+| Item | Detail |
+|---|---|
+| Change | Refactored compiled binary deployment (`.plx`, `.mmx`, `.fmx`) out of `/oracle_home_14c/forms` into `<OFW_FORMS_APPS_DIR>/<app_name>/` (default `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`, container `/oracle_home_14c/forms_apps/<app_name>/`, default `default`; configurable via `--app-name`, `--output-dir`, `OFW_APP_NAME`, or `OFW_FORMS_APPS_DIR`), keeping `/oracle_home_14c/forms` strictly for Oracle product binaries (`webutil.*`, `frmsal.jar`, etc.). Updated `example.env`, `compile_form.py` (including both `AdminServer` and `WLS_FORMS` `default.env` paths), `compile_from_manifest.py`, `run_form.py`, `launch_fsal.py` (`--config` / `OFW_FORMS_CONFIG`), `oracle-reference-stack/apply_forms14c_config.sh`, `oracle-reference-stack/forms14c-config/setUserOverrides.sh`, and `crates/oracle-forms-server/src/oracle_preview.rs`. Compile-time and runtime `FORMS_PATH` (`default.env`) now prepend `<app_output_dir>` and `stage/` ahead of `/oracle_home_14c/forms`. Updated `SKILL.md`, `batch-manifest-compilation.md`, `forms-path-and-dependencies.md`, and `tests/test_reference_pipeline.py`. |
+| Verified | `py_compile` on all 4 Python scripts, `python3 -m unittest tests/test_reference_pipeline.py`, `cargo check`, and `cargo test`. |
+| Not verified | Live container compile/launch against `<OFW_WORK_DIR>/apps/<app_name>/` and live `default.env` update inside `forms-server-14c`. |
+
+### Added Linux case-sensitivity and symlink reference (`compiling-and-running-oracle-forms`)
+
+| Item | Detail |
+|---|---|
+| Change | Added `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/references/linux-case-sensitivity-and-symlinks.md` explaining why Windows-authored `.fmb`/`.pll`/`.mmb` references require uppercase symlinks on Linux (`MYLIB.plx -> mylib.plx`), how `compile_from_manifest.py` (`add_case_variant()`) and `apply_forms14c_config.sh` create them, and how to verify/detect broken symlinks (`find ... -xtype l`). Linked it from `compiling-and-running-oracle-forms/SKILL.md`. |
+| Verified | File created, `SKILL.md` index updated, and relative links checked. |
+| Not verified | None. |
+
+### Batch progress counters (`[N/M | #order]`) and summary line in `compile_from_manifest.py`
+
+| Item | Detail |
+|---|---|
+| Change | Updated `run_manifest()` in `compile_from_manifest.py` to pre-filter the selected modules (`OLB` excluded, `--types` and `--no-deps` applied) so each line prints `[N/total | #order] compile|skip <name>` and the run ends with `Summary: X compiled, Y skipped, Z failed (of total)`. |
+| Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py`. |
+| Not verified | Live batch run output formatting on the next `MMB`/`FMB` run. |
+
+### Type-scoped dependency blocker & mixed-case dependency symlinks in `compile_from_manifest.py`
+
+| Item | Detail |
+|---|---|
+| Change | Updated `_blocked_by()` and `run_manifest()` in `compile_from_manifest.py` to track `failed` by `(artifactType, name.casefold())` instead of bare `name.casefold()` so a failed `FMB` never falsely blocks dependents of a same-named `PLL` or `MMB`. Added `ensure_manifest_case_symlinks()` to auto-create exact-case symlinks in `stage/` and `app_dir` for mixed-case `parentModules` / `attachedLibraries` / `menus` / `objectLibraries` references on Linux. |
+| Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py`. |
+| Not verified | Live batch re-run of `FMB` modules with mixed-case `parentModules` and DB login. |
+
+### Documented mixed-case `FRM-18108` fix & verified live form compile with symlinks + DB login
+
+| Item | Detail |
+|---|---|
+| Change | Updated `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/references/linux-case-sensitivity-and-symlinks.md` with the mixed-case `parentModules` (`FRM-18108`) root cause, `ensure_manifest_case_symlinks()`, and the database-login requirement for forms referencing DB packages. |
+| Verified | Live WSL container compile of a form with mixed-case `parentModules` (`compile_form.py --app-name <app_name>` with DB login) succeeded after creating the mixed-case `stage/` symlinks and published `.fmx` to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`. |
+| Not verified | Full batch `FMB` re-run with `compile_from_manifest.py` and live DB login. |
+
+### Added `requiredSymlinks` to `build-manifest.template.json` and Stage 2 `build_dependency_manifest.py`
+
+| Item | Detail |
+|---|---|
+| Change | Added `requiredSymlinks` (`location`, `link`, `target`, `referencedBy`) to `plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/assets/build-manifest.template.json` and implemented `compute_required_symlinks()` in `build_dependency_manifest.py` so Stage 2 analysis records and reports Linux case symlinks needed in `stage/` and `app/` upfront. |
+| Verified | `py_compile` on `build_dependency_manifest.py`, valid JSON in `build-manifest.template.json`, and `python3 -m unittest tests/test_reference_pipeline.py`. |
+| Not verified | Live Stage 2 re-run against an external source folder. |
+
+### Updated `batch-manifest-compilation.md` and `batch-pipeline-stages.mmd` for `requiredSymlinks` & `forms_apps/<app_name>/`
+
+| Item | Detail |
+|---|---|
+| Change | Updated `batch-pipeline-stages.mmd` (`CHECKS` and `PUBLISH` nodes) and `batch-manifest-compilation.md` (`Compile` and `Publishing and early checks`) to reflect `requiredSymlinks`, `ensure_manifest_case_symlinks()`, typed `(artifactType, name)` dependency blocking, and `forms_apps/<app_name>/`. |
+| Verified | `audit_skill.py` on `compiling-and-running-oracle-forms`. |
+| Not verified | None. |
+
+### Added `--modules` wildcard filter to `compile_from_manifest.py`
+
+| Item | Detail |
+|---|---|
+| Change | Added `--modules` (comma-separated names or `*` wildcards, case-insensitive) to `compile_from_manifest.py` (`_parse_modules`, `_matches_modules`, `run_manifest`) so a targeted subset of modules can be compiled with one DB logon, preflight, `[N/total | #order]` progress, and manifest status update. |
+| Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py`. |
+| Not verified | Live batch run with `--modules`. |
+
+### Unblock child FMBs when a reference/parent `FMB` binary is staged (`compile_from_manifest.py`)
+
+| Item | Detail |
+|---|---|
+| Change | Updated `_blocked_by()` in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_from_manifest.py` so a failed `parentModules` `FMB` (such as a template/reference parent form whose `.fmb` does not compile to a standalone `.fmx`) does not block downstream child `FMB`s as long as its `.fmb` binary is present in `stage/`. Added unit test `test_failed_parent_fmb_does_not_block_when_fmb_staged` in `tests/test_reference_pipeline.py`. |
+| Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py` (35 passed, 0 failed). |
+| Not verified | Live batch re-run after this patch. |

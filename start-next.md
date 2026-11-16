@@ -59,7 +59,7 @@ Goal: every path for all five types works. One path is blocked (PLD to PLL); the
 
 ## 1. Reports: confirm XML to RDF and RDF to XML
 
-No rebuild is needed: the current `localhost/forms-converter-14c:latest` already has `libnsl2` (`rpm -q libnsl2` printed `libnsl2-1.2.0-2.20180605git4a062cf.el8.x86_64`; someone rebuilt it, not the agent). The old image is tagged `backup-20261114` and still backs the running `forms-server-14c`. To do:
+No rebuild is needed: the current `localhost/oracle-forms-14c:latest` already has `libnsl2` (`rpm -q libnsl2` printed `libnsl2-1.2.0-2.20180605git4a062cf.el8.x86_64`; someone rebuilt it, not the agent). The old backup image tag `backup-20261114` was removed at the owner's request. To do:
 1. Run `python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/test_conversions.py --only reports` and read the table (not just the last line). `apply_forms14c_config.sh` step 5b (Reports `prefs.ora` and printer files) was added by someone else and is the likely reason it passes; find out and record it.
 2. Run `convert_rpt.py` end to end on a real `.rdf` (the one the test produced), including the `.rdf` to XML direction, and record the result in the change log and `references/reports-conversion.md`.
 3. Do not remove or recreate `forms-server-14c` or `oracle23ai-lite` without the owner's approval (settings saved in the git-ignored `temp/image-backup/forms-server-14c.inspect.json`).

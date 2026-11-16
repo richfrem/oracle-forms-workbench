@@ -29,7 +29,7 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/ext
 python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/extract_forms_schema.py --update   # refresh both copies
 ```
 
-It runs in a throwaway `forms-converter-14c` container (Podman must be running; on Windows run it from the Ubuntu WSL shell), takes the schema from stdout or a `.xsd` file in `<work folder>/forms-schema/<version>/`, and reports IDENTICAL or DIFFERENT against the committed copy. Nothing is changed without `--update`.
+It runs in a throwaway `oracle-forms-14c` container (Podman must be running; on Windows run it from the Ubuntu WSL shell), takes the schema from stdout or a `.xsd` file in `<work folder>/forms-schema/<version>/`, and reports IDENTICAL or DIFFERENT against the committed copy. Nothing is changed without `--update`.
 
 **Status: not verified.** The script was written from the Oracle template and class names while the Podman runtime was down. The generator's command-line arguments were not checked, so the first run may need `--usage` and `--generator-args`. Do not describe the committed schema as "confirmed against this install" until the script has reported IDENTICAL.
 

@@ -184,7 +184,7 @@ After the install, the files inside belong to the mapped UID and are not readabl
 
 ```bash
 cd /mnt/c/Users/<you>/source/repos/oracle-forms-workbench/oracle-reference-stack
-podman build --platform linux/amd64 -t forms-converter-14c:latest -f Containerfile.14c .
+podman build --platform linux/amd64 -t oracle-forms-14c:latest -f Containerfile.14c .
 ```
 
 Verified: 798 MB image, Oracle Linux 8 slim, JDK 17.0.12.
@@ -200,7 +200,7 @@ Run from `oracle-reference-stack/` in Ubuntu. Replace `$PWD` paths with the abso
 podman run --rm --platform linux/amd64 \
   -v $PWD/installer:/installer:Z \
   -v $OH:/oracle_home_14c:Z \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   java -jar /installer/fmw_14.1.2.0.0_infrastructure.jar \
     -silent -ignoreSysPrereqs \
     -responseFile /installer/infra14c_silent.rsp \
@@ -210,7 +210,7 @@ podman run --rm --platform linux/amd64 \
 podman run --rm --platform linux/amd64 \
   -v $PWD/installer:/installer:Z \
   -v $OH:/oracle_home_14c:Z \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /installer/fmw_14.1.2.0.0_fr_linux64.bin \
     -silent -ignoreSysPrereqs \
     -responseFile /installer/forms14c_silent.rsp \
@@ -228,7 +228,7 @@ Verify the install from inside a container:
 ```bash
 podman run --rm --platform linux/amd64 \
   -v $OH:/oracle_home_14c:Z \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   ls -l /oracle_home_14c/forms/java/frmsal.jar /oracle_home_14c/bin/frmcmp_batch
 ```
 
@@ -297,7 +297,7 @@ Create the domain (throwaway container; the mounts match the Oracle Home and rep
 ```bash
 podman run --rm --platform linux/amd64 --network oracle-net --env-file ../.env \
   -v "$OH:/oracle_home_14c:Z" -v "$PWD/..:/work:Z" \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /oracle_home_14c/oracle_common/common/bin/wlst.sh \
   /work/plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/create_forms_domain.py
 ```
@@ -319,7 +319,7 @@ podman run -d --name forms-server-14c --platform linux/amd64 --network oracle-ne
   -p 7001:7001 -p 9001:9001 \
   -v "$OH:/oracle_home_14c:Z" -v "$PWD/..:/work:Z" \
   -e ORACLE_HOME=/oracle_home_14c -e JAVA_HOME=/usr/lib/jvm/jdk-17.0.12 \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /oracle_home_14c/user_projects/domains/base_domain/bin/startWebLogic.sh
 ```
 

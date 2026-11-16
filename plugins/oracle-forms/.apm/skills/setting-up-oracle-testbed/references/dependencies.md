@@ -35,7 +35,7 @@ What the Oracle reference stack needs: the host, the Podman images, the Oracle i
 
 ### 2.2 Container Images
 
-#### 1. Oracle Forms 14c Enterprise (`forms-converter-14c:latest`)
+#### 1. Oracle Forms 14c Enterprise (`oracle-forms-14c:latest`)
 Built via `oracle-reference-stack/Containerfile.14c`:
 
 | Component / Package | Version / Source | Architectural Role |
@@ -105,7 +105,7 @@ Sizes are from the verified Windows machine, 2026-11-14. Nothing in this table i
 | `jdk-17.0.12_linux-x64_bin.tar.gz` | 183 MB | Oracle JDK 17 archive (Linux x64) | `oracle-reference-stack/installer/`; copied into the image by `Containerfile.14c` |
 | Oracle Linux base image `container-registry.oracle.com/os/oraclelinux:8-slim` | 119 MB | Oracle Container Registry, pulled by `podman build` | Podman storage in WSL |
 | Oracle Database image `container-registry.oracle.com/database/free:latest-lite` | 1.82 GB | Oracle Container Registry (`podman run` pulls it) | Podman storage in WSL |
-| `forms-converter-14c:latest` (built locally, not downloaded) | 798 MB | Built from `Containerfile.14c`; packages come from the Oracle Linux repositories during the build | Podman storage in WSL |
+| `oracle-forms-14c:latest` (built locally, not downloaded) | 798 MB | Built from `Containerfile.14c`; packages come from the Oracle Linux repositories during the build | Podman storage in WSL |
 | Ubuntu 24.04 WSL distro and WSL update | not recorded | `wsl --install -d Ubuntu-24.04`, `wsl --update` | Windows |
 | Ubuntu packages: `podman` 4.9.3, `python3` 3.12.3, `build-essential` (gcc 13.3.0), `unzip`, `curl`, OpenJDK 21.0.9 | not recorded | Ubuntu apt repositories | Ubuntu WSL |
 | Rust toolchain via `rustup` (`rustc` and `cargo` 1.100.0) | `~/.rustup` 600 MB, `~/.cargo` 271 MB | `https://sh.rustup.rs` | Ubuntu home directory |
@@ -118,7 +118,7 @@ Total disk for this stack is roughly 20 GB. `plugins/oracle-forms/.apm/skills/se
 
 | Image | Tag | Status |
 | :--- | :--- | :--- |
-| `forms-converter-14c:latest` (built here) | Local build from `Containerfile.14c` | Built on Windows WSL (798 MB). Stage 1 and Stage 2 installs ran in containers from this image |
+| `oracle-forms-14c:latest` (built here) | Local build from `Containerfile.14c` | Built on Windows WSL (798 MB). Stage 1 and Stage 2 installs ran in containers from this image |
 | `container-registry.oracle.com/database/free` | `latest-lite` | Verified on Windows WSL (2026-11-13): starts, `$DB_USER` schema and sample queries work on port 1521. The banner says "Oracle AI Database 26ai Free", version `23.0.0.0.0`. The repo docs say 23ai. Needs `XDG_RUNTIME_DIR` and `containers/networks` (see windows-podman-status-log.md §3) |
 | `oracle-reference-stack/sql/seed_test_schema.sql` | Committed | Creates `$DB_USER` (dev password `$DB_PASSWORD`), tablespace `FORMS_DATA`, tables and sample rows |
 | `container-registry.oracle.com/os/oraclelinux` | `8-slim` | Base image for both Containerfiles |

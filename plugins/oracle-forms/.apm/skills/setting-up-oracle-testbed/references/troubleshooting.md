@@ -6,7 +6,7 @@ Symptom, cause, fix. Windows-only problems (WSL, `/mnt/c`, the Podman runtime di
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `The current user is root or has superuser privilege. The Oracle Universal Installer cannot continue.` | The installer refuses to run as root | The image runs as the non-root `oracle` user (UID 1000, group `oinstall`); use `forms-converter-14c:latest` as built from `Containerfile.14c` |
+| `The current user is root or has superuser privilege. The Oracle Universal Installer cannot continue.` | The installer refuses to run as root | The image runs as the non-root `oracle` user (UID 1000, group `oinstall`); use `oracle-forms-14c:latest` as built from `Containerfile.14c` |
 | `INST-07319: Validation of Oracle Home location failed. The location specified already exists and is a nonempty directory` | `oraInst.loc` put the central inventory inside the Oracle Home | `inventory_loc=/home/oracle/oraInventory` (outside the Oracle Home) |
 | `The OpenJDK JVM is not supported on this platform.` | The installer checks `java.vendor == "Oracle Corporation"` | Use Oracle JDK 17 (`jdk-17.0.12_linux-x64_bin.tar.gz`), as `Containerfile.14c` does |
 | `Error: parsing reference " ": invalid reference format` | A space after a line-continuation backslash | Put the command on one line, or remove the trailing spaces |

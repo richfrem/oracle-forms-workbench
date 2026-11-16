@@ -1,5 +1,7 @@
 FROM --platform=linux/amd64 container-registry.oracle.com/os/oraclelinux:8-slim
 
+# Build tag: oracle-forms-14c:latest (podman build --platform linux/amd64 -t oracle-forms-14c:latest -f Containerfile.14c .)
+
 # Oracle Fusion Middleware 14c requires Oracle JDK 17, X11/Motif libraries, libaio, and build tools for relinking.
 # libnsl2 provides libnsl.so.2, which the Oracle Reports converter (bin/rwconverter) needs to start.
 RUN microdnf install -y \

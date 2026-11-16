@@ -22,7 +22,7 @@
 #   --fix-perms     also run `podman unshare chmod -R a+rX` on the Oracle Home (slow; several minutes)
 #
 # Requires: the Oracle Home (default oracle-reference-stack/oracle_home_14c, or $OFW_ORACLE_HOME) with the domain created, the
-# forms-converter-14c image, and WLS_ADMIN_USER / WLS_ADMIN_PASSWORD in the environment (from .env).
+# oracle-forms-14c image, and WLS_ADMIN_USER / WLS_ADMIN_PASSWORD in the environment (from .env).
 # Nothing here starts, stops, or replaces a container. Library and compile steps use throwaway containers.
 #
 # STATUS: written from the steps verified by hand on Windows (WSL2). This script has NOT been run end to end
@@ -48,7 +48,7 @@ OH="${OFW_ORACLE_HOME:-$STACK/oracle_home_14c}"
 OH="${OH/#\~/$HOME}"
 DOMAIN="$OH/user_projects/domains/base_domain"
 CFG="$STACK/forms14c-config"
-IMAGE="${OFW_CONVERTER_IMAGE:-forms-converter-14c:latest}"
+IMAGE="${OFW_CONVERTER_IMAGE:-oracle-forms-14c:latest}"
 FORMS_COMP="$DOMAIN/config/fmwconfig/components/FORMS"
 
 if [ -d "/run/user/$(id -u)" ]; then export XDG_RUNTIME_DIR="/run/user/$(id -u)"; fi
@@ -119,32 +119,39 @@ in_container '
   fi
   ln -sfn libfrmjapi.so.0 /oracle_home_14c/lib/libfrmjapi.so'
 
-step "4c. Runtime FORMS_PATH in default.env"
+step "4c. Runtime FORMS_PATH in default.env (AdminServer & WLS_FORMS)"
 in_container '
-  DEFAULT_ENV=/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env
-  if [ -f "$DEFAULT_ENV" ]; then
-    CUR=$(grep "^FORMS_PATH=" "$DEFAULT_ENV" | head -n1 | cut -d= -f2-)
-    NEW="${CUR:-/oracle_home_14c/forms}"
-    case ":$NEW:" in
-      *:/oracle_home_14c/ofw-work/stage:*) ;;
-      *) NEW="$NEW:/oracle_home_14c/ofw-work/stage" ;;
-    esac
-    if [ "$NEW" != "$CUR" ]; then
-      sed -i "s|^FORMS_PATH=.*|FORMS_PATH=$NEW|" "$DEFAULT_ENV"
+  mkdir -p /oracle_home_14c/forms_apps/default /oracle_home_14c/ofw-work/stage
+  for srv in AdminServer WLS_FORMS; do
+    DEFAULT_ENV="/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/$srv/applications/formsapp_14.1.2/config/default.env"
+    if [ -f "$DEFAULT_ENV" ]; then
+      CUR=$(grep "^FORMS_PATH=" "$DEFAULT_ENV" | head -n1 | cut -d= -f2-)
+      NEW="${CUR:-/oracle_home_14c/forms}"
+      case ":$NEW:" in
+        *:/oracle_home_14c/ofw-work/stage:*) ;;
+        *) NEW="/oracle_home_14c/ofw-work/stage:$NEW" ;;
+      esac
+      case ":$NEW:" in
+        *:/oracle_home_14c/forms_apps/default:*) ;;
+        *) NEW="/oracle_home_14c/forms_apps/default:$NEW" ;;
+      esac
+      if [ "$NEW" != "$CUR" ]; then
+        sed -i "s|^FORMS_PATH=.*|FORMS_PATH=$NEW|" "$DEFAULT_ENV"
+      fi
     fi
-  fi'
+  done'
 
 if [ "$SKIP_SAMPLES" -eq 0 ]; then
-  step "5. Sample menu and form compiled into forms/ (.mmx, .fmx)"
+  step "5. Sample menu and form compiled into forms_apps/default/ (.mmx, .fmx)"
   in_container '
     export ORACLE_HOME=/oracle_home_14c LD_LIBRARY_PATH=/oracle_home_14c/lib:/oracle_home_14c/oracle_common/lib ORACLE_TERM=vt220 TERM=vt220
-    mkdir -p /tmp/job && cd /tmp/job
-    export FORMS_PATH=/tmp/job:/work/samples:/oracle_home_14c/forms
+    mkdir -p /tmp/job /oracle_home_14c/forms_apps/default && cd /tmp/job
+    export FORMS_PATH=/oracle_home_14c/forms_apps/default:/tmp/job:/work/samples:/oracle_home_14c/forms
     cp /work/samples/ofw_emp_menu.mmb /work/samples/ofw_demo_employees.fmb .
     /oracle_home_14c/bin/frmcmp_batch module=ofw_emp_menu.mmb module_type=menu logon=no compile_all=yes batch=yes
     /oracle_home_14c/bin/frmcmp_batch module=ofw_demo_employees.fmb module_type=form logon=no compile_all=yes batch=yes
-    cp ofw_emp_menu.mmx ofw_demo_employees.fmx /oracle_home_14c/forms/
-    ln -sfn ofw_emp_menu.mmx /oracle_home_14c/forms/OFW_EMP_MENU.mmx'
+    cp ofw_emp_menu.mmx ofw_demo_employees.fmx /oracle_home_14c/forms_apps/default/
+    ln -sfn ofw_emp_menu.mmx /oracle_home_14c/forms_apps/default/OFW_EMP_MENU.mmx'
 fi
 
 step "5b. Oracle Reports preference and printer config files (rwconverter)"

@@ -42,7 +42,7 @@ Only `14c` is included. The 12c schema is not; to add a version, extract the sch
 |---|---|---|
 | `xmllint` | `libxml2-utils` (Ubuntu: `sudo apt-get install -y libxml2-utils`; macOS has it) | Fastest. Verified on Windows (WSL) |
 | `lxml` | the Python package `lxml` | Not installed in the verified WSL |
-| `java` | Podman running and the `forms-converter-14c` image | Runs `scripts/ValidateXml.java` with the JDK 17 in a throwaway container. **Not verified** (the Podman runtime was down when this was written); only files inside the repo can be validated this way |
+| `java` | Podman running and the `oracle-forms-14c` image | Runs `scripts/ValidateXml.java` with the JDK 17 in a throwaway container. **Not verified** (the Podman runtime was down when this was written); only files inside the repo can be validated this way |
 
 Exit codes: `0` all valid, `1` some invalid or malformed, `2` no backend, no such schema version, or a usage error.
 

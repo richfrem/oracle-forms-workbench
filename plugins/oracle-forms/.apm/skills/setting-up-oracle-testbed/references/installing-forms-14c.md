@@ -22,7 +22,7 @@ Status: the procedure was first run on macOS (Apple Silicon, Rosetta 2) and then
 
 | Piece | What it is |
 |---|---|
-| Image `forms-converter-14c:latest` | Oracle Linux 8, Oracle JDK 17, X11/Motif and system libraries, build tools. **No Oracle software inside it** |
+| Image `oracle-forms-14c:latest` | Oracle Linux 8, Oracle JDK 17, X11/Motif and system libraries, build tools. **No Oracle software inside it** |
 | Oracle Home folder (`$OH`; on Windows on Ubuntu's disk; default `oracle-reference-stack/oracle_home_14c/` on a Mac; git-ignored, about 5.4 GB) | The installed Forms and Reports 14c, the WebLogic domain, and all configuration. Mounted into containers as `/oracle_home_14c`. Where it lives on disk is a setting: [oracle-home-location.md](oracle-home-location.md) |
 | Container `forms-server-14c` | WebLogic with the Forms servlet, ports 7001 and 9001 |
 | Short-lived containers (`--rm`) | The installers, conversions, compiles, domain creation: each starts, does one job, disappears. A container does not need to run all the time |
@@ -83,7 +83,7 @@ Keep these files LF-only; do not write them with PowerShell here-strings.
 
 ```bash
 cd oracle-reference-stack
-podman build --platform linux/amd64 -t forms-converter-14c:latest -f Containerfile.14c .
+podman build --platform linux/amd64 -t oracle-forms-14c:latest -f Containerfile.14c .
 cd ..
 ```
 
@@ -107,14 +107,14 @@ Why each part of `Containerfile.14c` is there:
 # Stage 1: FMW Infrastructure (about 25 minutes)
 podman run --rm --platform linux/amd64 \
   -v "$PWD/oracle-reference-stack/installer:/installer:Z" -v "$OH:/oracle_home_14c:Z" \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   java -jar /installer/fmw_14.1.2.0.0_infrastructure.jar -silent -ignoreSysPrereqs \
     -responseFile /installer/infra14c_silent.rsp -invPtrLoc /installer/oraInst.loc
 
 # Stage 2: Forms and Reports
 podman run --rm --platform linux/amd64 \
   -v "$PWD/oracle-reference-stack/installer:/installer:Z" -v "$OH:/oracle_home_14c:Z" \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /installer/fmw_14.1.2.0.0_fr_linux64.bin -silent -ignoreSysPrereqs \
     -responseFile /installer/forms14c_silent.rsp -invPtrLoc /installer/oraInst.loc
 ```
@@ -127,7 +127,7 @@ Inside a throwaway container (the folders may be owned by container-mapped user 
 
 ```bash
 podman run --rm --platform linux/amd64 -v "$OH:/oracle_home_14c:Z" \
-  forms-converter-14c:latest ls -l /oracle_home_14c/forms/java/frmsal.jar /oracle_home_14c/bin/frmcmp_batch /oracle_home_14c/bin/frmweb /oracle_home_14c/bin/rwconverter
+  oracle-forms-14c:latest ls -l /oracle_home_14c/forms/java/frmsal.jar /oracle_home_14c/bin/frmcmp_batch /oracle_home_14c/bin/frmweb /oracle_home_14c/bin/rwconverter
 ```
 
 The Oracle Home then holds `wlserver/`, `oracle_common/`, `bin/frmbld`, `frmcmp_batch`, `frmweb`, `rwconverter`, `forms/java/frmsal.jar`, and `jlib/frmxmltools.jar` (the Forms2XML and XML2Forms classes). **In 14c the `bin/*.sh` wrappers (for example `frmf2xml.sh`, `frmbld.sh`, `rwconverter.sh`) are unfilled templates with `%ORACLE_HOME%`-style placeholders,** so call the binaries and Java classes directly, as the skill scripts do.
@@ -139,7 +139,7 @@ Installing places the software on disk; WebLogic still needs a domain to listen 
 ```bash
 podman run --rm --platform linux/amd64 --network oracle-net --env-file .env \
   -v "$OH:/oracle_home_14c:Z" -v "$PWD:/work:Z" \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /oracle_home_14c/oracle_common/common/bin/wlst.sh /work/plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/create_forms_domain.py
 ```
 
@@ -161,7 +161,7 @@ podman run -d --name forms-server-14c --platform linux/amd64 --network oracle-ne
   -v "$OH:/oracle_home_14c:Z" -v "$PWD:/work:Z" \
   -e ORACLE_HOME=/oracle_home_14c -e JAVA_HOME=/usr/lib/jvm/jdk-17.0.12 \
   -e DOMAIN_HOME=/oracle_home_14c/user_projects/domains/base_domain \
-  forms-converter-14c:latest \
+  oracle-forms-14c:latest \
   /oracle_home_14c/user_projects/domains/base_domain/bin/startWebLogic.sh
 ```
 

@@ -51,7 +51,7 @@ Script Dependencies:
         * Python 3.8+ (sys, shutil, platform, subprocess, pathlib, argparse, typing)
         * Podman CLI (or Docker) installed and active on host system
         * Rosetta 2 binary translation active on macOS Apple Silicon
-    - Container Image (forms-converter-14c:latest; OFW_CONVERTER_IMAGE overrides):
+    - Container Image (oracle-forms-14c:latest; OFW_CONVERTER_IMAGE overrides):
         * Base OS: Oracle Linux 8 Slim (linux/amd64)
         * Required environment variables: ORACLE_HOME, ORACLE_TERM=vt220, LD_LIBRARY_PATH
 

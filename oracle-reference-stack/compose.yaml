@@ -33,7 +33,7 @@ services:
 
   # 14c Stage 1: Install FMW Infrastructure 14.1.2 into oracle_home_14c
   infra-install-14c:
-    image: forms-converter-14c:latest
+    image: oracle-forms-14c:latest
     platform: linux/amd64
     volumes:
       - ./installer:/installer:Z
@@ -49,7 +49,7 @@ services:
 
   # 14c Stage 2: Install Forms and Reports 14.1.2 into oracle_home_14c
   forms-install-14c:
-    image: forms-converter-14c:latest
+    image: oracle-forms-14c:latest
     platform: linux/amd64
     volumes:
       - ./installer:/installer:Z
@@ -65,7 +65,7 @@ services:
 
   # Forms 14c Server (WebLogic AdminServer & WLS_FORMS)
   forms-server-14c:
-    image: forms-converter-14c:latest
+    image: oracle-forms-14c:latest
     platform: linux/amd64
     container_name: forms-server-14c
     ports:

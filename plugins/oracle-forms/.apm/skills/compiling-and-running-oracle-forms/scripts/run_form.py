@@ -259,7 +259,7 @@ def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
 
 
 # Compiles an .fmb module into an executable .fmx via frmcmp_batch inside the container.
-def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bool) -> Path:
+def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bool, app_name: Optional[str] = None) -> Path:
     """Compile a binary .fmb module into an executable .fmx using container frmcmp_batch.
 
     Args:
@@ -267,6 +267,7 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
         repo_root: Path to the repository root.
         userid: Database connection string.
         offline: If True, compile without database logon (logon=no).
+        app_name: Optional dedicated app folder name under <OFW_WORK_DIR>/apps/<app_name>/.
 
     Returns:
         Path to the compiled .fmx file.
@@ -274,19 +275,21 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
     Raises:
         RuntimeError: If compilation fails.
     """
-    container_fmb = _compile_form().container_path(fmb_path, repo_root)
+    cf = _compile_form()
+    container_fmb = cf.container_path(fmb_path, repo_root)
     fmx_path = fmb_path.resolve().with_suffix(".fmx")
     err_path = fmb_path.resolve().with_suffix(".err")
-    resolve_extra_forms_path = _compile_form().resolve_extra_forms_path
-    format_userid = _compile_form().format_userid
-    logon_param = "logon=no" if offline else "userid=" + shlex.quote(format_userid(userid))
-    extra_forms_path = resolve_extra_forms_path(repo_root)
-    stage_folder = _compile_form().stage_folder(repo_root)
-    stage_path = _compile_form().container_path(stage_folder, repo_root)
-    forms_path = f"/oracle_home_14c/forms:{stage_path}:{container_fmb.rsplit('/', 1)[0]}"
-    if extra_forms_path:
-        if extra_forms_path not in forms_path.split(":"):
-            forms_path = f"{forms_path}:{extra_forms_path}"
+    logon_param = "logon=no" if offline else "userid=" + shlex.quote(cf.format_userid(userid))
+    extra_forms_path = cf.resolve_extra_forms_path(repo_root)
+    stage_path = cf.container_path(cf.stage_folder(repo_root), repo_root)
+    dest_dir = cf.ensure_dir_writable(cf.app_output_dir(repo_root, app_name))
+    app_cpath = cf.container_path(dest_dir, repo_root)
+    raw_entries = [app_cpath, stage_path, container_fmb.rsplit('/', 1)[0], *(extra_forms_path.split(":") if extra_forms_path else []), "/oracle_home_14c/forms"]
+    deduped = []
+    for entry in raw_entries:
+        if entry and entry not in deduped:
+            deduped.append(entry)
+    forms_path = ":".join(deduped)
 
     print(f"[2/3] Compiling {fmb_path.name} to executable FMX (logon={'no' if offline else 'yes'})...")
     cmd = (
@@ -308,7 +311,7 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
                          input=cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     err_details = err_path.read_text(errors="replace").strip() if err_path.is_file() else ""
     if not offline and userid:
-        for secret in {userid, format_userid(userid)}:
+        for secret in {userid, cf.format_userid(userid)}:
             res.stdout = res.stdout.replace(secret, "<redacted>")
             err_details = err_details.replace(secret, "<redacted>")
     combined = "\n".join(part for part in [res.stdout.strip(), err_details] if part)
@@ -333,16 +336,16 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
                 "Verify the connected schema has the referenced objects and privileges." if not offline and "must be declared" in combined else "")
         raise RuntimeError(f"Compilation failed: {hint}\n{combined}")
 
-    # Ensure the compiled form is mirrored into container forms deployment directory
-    copy_cmd = f"cp {container_fmb.rsplit('.', 1)[0]}.fmx /oracle_home_14c/forms/{fmx_path.name}"
-    subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", copy_cmd]), check=True)
+    # Publish compiled .fmx into dedicated app folder and ensure default.env FORMS_PATH includes it
+    cf.publish_outputs(fmx_path, repo_root, dest_dir)
 
     print(f"  - Successfully compiled: {fmx_path.name}")
     return fmx_path
 
 
 # Launches the compiled form in the host desktop Forms Standalone Launcher client.
-def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool, params: Optional[List[str]] = None) -> int:
+def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool,
+                        params: Optional[List[str]] = None, config: Optional[str] = None) -> int:
     """Run Forms Standalone Launcher (frmsal.jar) natively on host OS.
 
     Args:
@@ -352,6 +355,7 @@ def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str,
         userid: Database logon string.
         interactive: If True, prompt for logon in GUI.
         params: Optional NAME=VALUE module parameters.
+        config: Optional formsweb.cfg config section name (default: OFW_FORMS_CONFIG or 'standaloneapp').
 
     Returns:
         Process exit code from frmsal.jar.
@@ -368,11 +372,12 @@ def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str,
         sys.path.insert(0, scripts_dir)
     from launch_fsal import build_fsal_url
     form_name = fmx_path.name
-    url = build_fsal_url(fmx_path.name, port, userid, interactive, params)
+    url = build_fsal_url(fmx_path.name, port, userid, interactive, params, config)
+    cfg_label = (config or os.environ.get("OFW_FORMS_CONFIG") or "standaloneapp").strip() or "standaloneapp"
 
     print(f"[3/3] Launching live form in Forms Standalone Launcher (FSAL)...")
     print(f"  Target Form: {form_name}")
-    print(f"  Server URL:  http://localhost:{port}/forms/frmservlet?config=standaloneapp&form={form_name}")
+    print(f"  Server URL:  http://localhost:{port}/forms/frmservlet?config={cfg_label}&form={form_name}")
     print(f"  Credentials: {'Interactive GUI Prompt' if interactive else 'Pre-authenticated via SQL*Net'}")
 
     cmd = ["java", "-jar", str(frmsal_jar), "-url", url]
@@ -413,6 +418,8 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--compile-from-env", action="store_true", help="Read compile logon from OFW_PREVIEW_DB_LOGON (FSAL remains interactive)")
     parser.add_argument("--offline", action="store_true", help="Compile without database connection (logon=no)")
     parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="URL-encoded Forms module parameter (repeatable)")
+    parser.add_argument("--app-name", default=None, help="Dedicated app directory name under <OFW_ORACLE_HOME>/forms_apps/<app_name>/ (default: OFW_APP_NAME or 'default')")
+    parser.add_argument("--config", default=None, help="formsweb.cfg config section name (default: OFW_FORMS_CONFIG or 'standaloneapp')")
     args = parser.parse_args(argv)
     if args.userid is None:
         args.userid = _default_userid()
@@ -453,19 +460,19 @@ def main() -> int:
             input_file = _compile_form().stage_module(input_file, repo_root)
         if suffix == ".xml":
             fmb_file = convert_xml_to_fmb(input_file, repo_root)
-            fmx_file = compile_fmb_to_fmx(fmb_file, repo_root, args.userid, args.offline)
+            fmx_file = compile_fmb_to_fmx(fmb_file, repo_root, args.userid, args.offline, args.app_name)
         elif suffix == ".fmb":
-            fmx_file = compile_fmb_to_fmx(input_file, repo_root, args.userid, args.offline)
+            fmx_file = compile_fmb_to_fmx(input_file, repo_root, args.userid, args.offline, args.app_name)
         elif suffix == ".fmx":
             fmx_file = input_file
-            # Copy into container forms path to guarantee availability
-            cmd = f"cp {_compile_form().container_path(fmx_file, repo_root)} /oracle_home_14c/forms/{fmx_file.name}"
-            subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", cmd]), check=True)
+            cf = _compile_form()
+            dest_dir = cf.app_output_dir(repo_root, args.app_name)
+            cf.publish_outputs(fmx_file, repo_root, dest_dir)
         else:
             print(f"Error: Unsupported file format '{suffix}'. Expected .xml, .fmb, or .fmx", file=sys.stderr)
             return 1
 
-        return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive, args.param)
+        return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive, args.param, args.config)
     except Exception as err:
         print(f"\nExecution error: {err}", file=sys.stderr)
         return 1

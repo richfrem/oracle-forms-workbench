@@ -61,6 +61,7 @@ The point of this repository's setup and tooling work is a written, executable, 
 
 - Answer yes/no questions with yes or no first, then explain[cite: 4].
 - When the owner has already specified what to do, execute it directly without offering extra options or asking for confirmation[cite: 4].
+- **Proactive guided execution.** When running a multi-step skill workflow (for example batch conversion and compilation), never leave the owner guessing what comes next. After every completed step, give a short status summary (counts, failures, anything unresolved) and immediately ask a direct authorization question for the next step, including any choices it needs, preferably with the interactive question tool. Follow the skill's "Interactive guided workflow" gates. Authorization gates cover steps that start containers, convert, compile or delete; read-only analysis the owner already asked for does not need a second confirmation. Never ask for passwords in chat: give the owner the exact command so they type the password at the `getpass` prompt.
 - Work one step at a time when requested; keep status updates concise and factual[cite: 4].
 - Before any destructive or image-level action (removing/recreating containers, rebuilding images, deleting files), state what will happen first[cite: 4]. Never remove or replace the owner's containers or images on your own initiative[cite: 4].
 - Never commit, push, or open a pull request until the owner says the work is done[cite: 4].

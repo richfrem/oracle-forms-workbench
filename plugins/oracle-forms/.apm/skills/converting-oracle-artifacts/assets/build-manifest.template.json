@@ -14,6 +14,7 @@
       "executableFile": "stage/UTIL_LIB.plx",
       "requiresConversion": false,
       "dependencies": {"objectLibraries": [], "attachedLibraries": [], "menus": [], "parentModules": []},
+      "decompiled": {"status": "done", "output": "decompiled/out/UTIL_LIB.pld"},
       "status": "pending"
     },
     {
@@ -25,10 +26,23 @@
       "binaryFile": "stage/DEPT.fmb",
       "executableFile": "stage/DEPT.fmx",
       "requiresConversion": true,
-      "dependencies": {"objectLibraries": [], "attachedLibraries": ["UTIL_LIB"], "menus": [], "parentModules": []},
-      "status": "pending"
+      "dependencies": {"objectLibraries": ["OBJ_LIB"], "attachedLibraries": ["UTIL_LIB"], "menus": ["MAIN_MENU"], "parentModules": ["ParentForm"]},
+      "validated": {"status": "pass", "file": "<source>/DEPT_fmb.xml"},
+      "converted": {"status": "done", "note": ""},
+      "compiled": {"status": "done", "diagnostics": ""},
+      "status": "compiled"
     }
   ],
-  "unresolvedDependencies": [],
-  "cycles": []
+  "unresolvedDependencies": [
+    {"module": "DEPT", "dependency": "UTIL_LIB2", "kind": "AttachedLibrary", "reason": "not found", "suggestions": ["UTIL_LIB"]}
+  ],
+  "requiredSymlinks": [
+    {"location": "stage", "link": "ParentForm.fmb", "target": "parentform.fmb", "referencedBy": ["DEPT"]},
+    {"location": "stage", "link": "Util_Lib.pll", "target": "util_lib.pll", "referencedBy": ["DEPT"]},
+    {"location": "app", "link": "UTIL_LIB.plx", "target": "util_lib.plx", "referencedBy": ["DEPT"]}
+  ],
+  "cycles": [],
+  "needsReview": [
+    {"module": "DEPT", "missing": [{"dependency": "UTIL_LIB2", "kind": "AttachedLibrary"}], "mentionedBy": ["MENU_fmb.xml"]}
+  ]
 }

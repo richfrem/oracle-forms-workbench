@@ -10,7 +10,7 @@ Purpose:
       - the readiness check behind `--check`.
 
 Settings:
-    OFW_CONVERTER_IMAGE   Container image to run (default: forms-converter-14c:latest). Set it to
+    OFW_CONVERTER_IMAGE   Container image to run (default: oracle-forms-14c:latest). Set it to
                           forms-converter:latest to use the older 12c image; the Oracle Home path inside the
                           container then becomes /oracle_home instead of /oracle_home_14c.
     OFW_WSL_DISTRO        WSL distribution that runs Podman when a script is started from Windows PowerShell
@@ -24,7 +24,7 @@ Platforms:
     Windows PowerShell: the call goes through `wsl -d <distro>` and host paths are converted with `wslpath`.
 
 Input Dependencies:
-    - Podman (inside WSL on Windows) and the forms-converter-14c image; the Oracle Home folder (OFW_ORACLE_HOME)
+    - Podman (inside WSL on Windows) and the oracle-forms-14c image; the Oracle Home folder (OFW_ORACLE_HOME)
     - Optional git-ignored .env at the repo root (OFW_ORACLE_HOME, OFW_WORK_DIR, OFW_FORMS_PATH_EXTRA)
 
 Key Functions:
@@ -32,6 +32,8 @@ Key Functions:
     - podman_cmd(args: List[str]) -> List[str]; host_path(path: Path) -> str; check_readiness() -> int
     - find_dependencies(module: Path, search_dirs: List[Path]) -> List[Path]  (name-match heuristic for binaries)
     - stage_for_conversion(input_path: Path) -> Path  (single-module staging into <work dir>/convert-stage)
+    - server_running() -> bool; server_workdir(folder: Path) -> Optional[str]; exec_in_server(script: str) -> List[str]
+      (run in the long-lived forms-server-14c with `podman exec -u oracle`; throwaway `run --rm` is only the fallback)
 
 Consumed by:
     - convert_fmb.py, convert_pll.py, convert_rpt.py, test_conversions.py, build_dependency_manifest.py
@@ -46,7 +48,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-IMAGE = os.environ.get("OFW_CONVERTER_IMAGE", "forms-converter-14c:latest")
+IMAGE = os.environ.get("OFW_CONVERTER_IMAGE", "oracle-forms-14c:latest")
 IS_14C = "14c" in IMAGE
 # Oracle Home path inside the container.
 HOME = "/oracle_home_14c" if IS_14C else "/oracle_home"
@@ -117,6 +119,45 @@ def host_path(path: Path) -> str:
         if converted.returncode == 0 and converted.stdout.strip():
             return converted.stdout.strip()
     return path.as_posix()
+
+
+# The one long-lived Forms server container. Start it once before Stage 1 and leave it running through Stage 3;
+# Stages 1 and 2 run their tools in it with `podman exec`. A throwaway `podman run --rm` container is only the
+# fallback for when it is not running.
+SERVER_CONTAINER = "forms-server-14c"
+EXEC_USER = "oracle"
+
+
+def server_running() -> bool:
+    """True when the forms-server-14c container exists and its state is `running` (checked on every call, so a
+    container that stops mid-run makes the next file fall back to a throwaway container)."""
+    res = subprocess.run(podman_cmd(["inspect", "-f", "{{.State.Status}}", SERVER_CONTAINER]),
+                         capture_output=True, text=True)
+    return res.returncode == 0 and res.stdout.strip() == "running"
+
+
+def server_path(path: Path) -> Optional[str]:
+    """Path of a host file or folder as forms-server-14c sees it (the Oracle Home is mounted at HOME there), or
+    None when it is outside the Oracle Home folder and so not visible in that container."""
+    oracle_home = default_oracle_home()
+    if not oracle_home:
+        return None
+    try:
+        relative = path.resolve().relative_to(oracle_home.resolve())
+    except ValueError:
+        return None
+    return f"{HOME}/{relative.as_posix()}".rstrip("/")
+
+
+def exec_in_server(script: str) -> List[str]:
+    """Command that runs a bash script inside the running forms-server-14c container as the oracle user."""
+    return podman_cmd(["exec", "-u", EXEC_USER, SERVER_CONTAINER, "bash", "-c", script])
+
+
+def server_workdir(folder: Path) -> Optional[str]:
+    """Container path of `folder` when the tools should run in forms-server-14c (it is running and the folder is
+    under the Oracle Home mount), else None, meaning: use a throwaway container with the folder mounted at /work."""
+    return server_path(folder) if server_running() else None
 
 
 def check_readiness() -> int:

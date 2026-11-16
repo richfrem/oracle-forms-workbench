@@ -14,7 +14,8 @@ Layer: Tooling / Skill Script (compiling-and-running-oracle-forms)
 Usage Examples:
     python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/test_db.fmb
     python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/simple_module.fmb --offline
-    python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/mainmenu.mmb --type menu
+    python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/mainmenu.mmb
+    python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/utils.pll -t library
 
 Supported Object Types:
     - .fmb (Oracle Forms binary form module) -> .fmx
@@ -23,9 +24,12 @@ Supported Object Types:
 
 CLI Arguments:
     module                : Path to input .fmb, .mmb, or .pll file.
-    -t, --type <str>      : Module type (form, menu, library; default: form).
+    -t, --type <str>      : Module type (form, menu, library; auto-detected from extension if omitted).
     --offline             : Compile offline without database logon (logon=no).
-    -u, --userid <str>    : Database logon connection string (default: DB_USER/DB_PASSWORD/DB_SERVICE from .env).
+    -u, --userid <str>    : user@db (password prompted) or user/password@db. Without it the script prompts for user,
+                            alias and a hidden password (same as compile_from_manifest.py).
+    --use-local-env       : Use DB_USER/DB_PASSWORD/DB_SERVICE from .env (local testbed) instead of prompting.
+    The script exits with code 2 before any prompt when forms-server-14c is not running.
 
 Input Files:
     - Target source module (.fmb, .mmb, or .pll)
@@ -34,12 +38,15 @@ Input Files:
 
 Output:
     - Compiled file (.fmx, .mmx, or .plx) written in the work folder (OFW_WORK_DIR, default <Oracle Home>/ofw-work/stage)
-      and copied to <Oracle Home>/forms/ unless --no-publish is given. Nothing is written inside the repository.
+      and published to <OFW_ORACLE_HOME>/forms_apps/<app_name>/ (default app: 'default'; override with OFW_APP_NAME, --app-name, or --output-dir)
+      unless --no-publish is given. Nothing is written inside the repository.
 
 Key Functions:
     - resolve_workspace_root() -> Path
+    - app_output_dir(repo_root: Path, app_name: Optional[str] = None, output_dir: Optional[str] = None) -> Path
+    - infer_module_type(module: Path) -> str
     - find_parent_forms(module: Path, search_dirs: List[Path]) -> List[Path]
-    - build_compiler_command(container_path: str, mod_type: str, logon_param: str) -> str
+    - build_compiler_command(container_path: str, mod_type: str, logon_param: str, ...) -> str
     - execute_compilation(cmd: str) -> int
     - parse_cli_args(argv: List[str]) -> argparse.Namespace
     - main() -> int
@@ -57,6 +64,7 @@ Consumed by:
 import sys
 import os
 import argparse
+import getpass
 import platform
 import re
 import shlex
@@ -64,7 +72,9 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Set
+from typing import List, Optional, Set, Tuple
+
+SERVER_CONTAINER = "forms-server-14c"
 
 
 # Resolves the absolute path to the repository root directory.
@@ -95,6 +105,35 @@ def _env(name: str, default: str = "") -> str:
 def _default_userid() -> str:
     """DB_USER/DB_PASSWORD@DB_SERVICE, from the environment or .env."""
     return f"{_env('DB_USER')}/{_env('DB_PASSWORD')}@{_env('DB_SERVICE', 'FREEPDB1')}"
+
+def resolve_userid(userid: Optional[str], offline: bool, use_local_env: bool = False) -> Optional[str]:
+    """Logon string for the compiler, or None when offline. Always prompts (input/getpass) for what is not on the
+    command line, so a password never has to be typed on the command line or stored in a file. The repository's
+    .env holds local testbed credentials, so they are used only when --use-local-env is passed explicitly."""
+    if offline:
+        return None
+    if userid and "/" in userid:
+        return userid
+    if userid:
+        user, _, target = userid.partition("@")
+    elif use_local_env and _env("DB_USER") and _env("DB_PASSWORD"):
+        return _default_userid()
+    else:
+        user = input("Database user: ").strip()
+        target = input("Connect alias: ").strip()
+        while not target:
+            target = input("Connect alias (required): ").strip()
+    password = getpass.getpass(f"Password for {user}@{target}: ")
+    return f"{user}/{password}@{target}"
+
+
+def container_running() -> Tuple[bool, str]:
+    """Verify the Forms container is running. Returns (ok, its state or the podman error)."""
+    res = subprocess.run(podman_cmd(["inspect", "-f", "{{.State.Status}}", SERVER_CONTAINER]),
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    state = res.stdout.strip()
+    return res.returncode == 0 and state == "running", state
+
 
 def format_userid(userid: str) -> str:
     """Make a user/password@target logon safe for frmcmp_batch.
@@ -309,10 +348,51 @@ def stage_module(module: Path, repo_root: Path) -> Path:
     return staged
 
 
-def publish_outputs(compiled: Path, repo_root: Path) -> None:
-    """Copy a compiled .fmx, .mmx or .plx into the Oracle Home forms folder that the Forms server loads from."""
-    cmd = f"cp {shlex.quote(container_path(compiled, repo_root))} {_CONTAINER_HOME}/forms/{compiled.name}"
+def sanitize_app_name(name: str) -> str:
+    """Normalize an application name for <OFW_ORACLE_HOME>/forms_apps/<app_name>/."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-_")
+    return cleaned.lower() or "default"
+
+
+def ensure_dir_writable(folder: Path) -> Path:
+    """Create a folder writable by host and container users (via podman unshare if needed on WSL/Linux)."""
+    if folder.is_dir() and os.access(folder, os.W_OK):
+        return folder
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        folder.chmod(0o777)
+    except OSError:
+        if platform.system() == "Windows":
+            raise RuntimeError(f"Cannot create folder {folder}. Run this script from WSL.")
+        script = f"mkdir -p {shlex.quote(str(folder))} && chown 0:0 {shlex.quote(str(folder))} && chmod 777 {shlex.quote(str(folder))}"
+        res = subprocess.run(podman_cmd(["unshare", "sh", "-c", script]), stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"Cannot create folder {folder}:\n{res.stdout}")
+    return folder
+
+
+def app_output_dir(repo_root: Path, app_name: Optional[str] = None, output_dir: Optional[str] = None) -> Path:
+    """Resolve the dedicated application output folder under <OFW_FORMS_APPS_DIR>/<app_name>/ (default: <OFW_ORACLE_HOME>/forms_apps/<app_name>/)."""
+    if output_dir and output_dir.strip():
+        return Path(os.path.expanduser(output_dir.strip())).resolve()
+    raw_name = (app_name or _env("OFW_APP_NAME")).strip() or "default"
+    apps_base_raw = _env("OFW_FORMS_APPS_DIR").strip()
+    apps_base = Path(os.path.expanduser(apps_base_raw)).resolve() if apps_base_raw else oracle_home_host(repo_root) / "forms_apps"
+    return apps_base / sanitize_app_name(raw_name)
+
+
+def publish_outputs(compiled: Path, repo_root: Path, dest_dir: Optional[Path] = None) -> Path:
+    """Copy a compiled .fmx, .mmx or .plx into the dedicated app folder (<OFW_ORACLE_HOME>/forms_apps/<app_name>/) and register it in default.env."""
+    target_dir = ensure_dir_writable(dest_dir or app_output_dir(repo_root))
+    dest_cpath = container_path(target_dir, repo_root)
+    cmd = (
+        f"mkdir -p {shlex.quote(dest_cpath)} && "
+        f"cp {shlex.quote(container_path(compiled, repo_root))} {shlex.quote(dest_cpath)}/{shlex.quote(compiled.name)}"
+    )
     subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", cmd]), check=True)
+    _ensure_runtime_forms_path([dest_cpath])
+    return target_dir / compiled.name
 
 
 def resolve_extra_forms_path(repo_root: Path) -> str:
@@ -329,54 +409,62 @@ def resolve_extra_forms_path(repo_root: Path) -> str:
     return cpath
 
 
-_DEFAULT_ENV_CONTAINER = (
-    "/oracle_home_14c/user_projects/domains/base_domain/config/"
-    "fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env"
+_RUNTIME_ENV_FILES = (
+    "/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env",
+    "/oracle_home_14c/user_projects/domains/base_domain/config/fmwconfig/servers/WLS_FORMS/applications/formsapp_14.1.2/config/default.env",
 )
 
 
 def _ensure_runtime_forms_path(extra_dirs: List[str]) -> None:
-    """Append extra container paths to FORMS_PATH in default.env inside forms-server-14c (idempotent)."""
-    check = subprocess.run(
-        podman_cmd(["exec", "-u", "oracle", "forms-server-14c", "grep", "^FORMS_PATH=", _DEFAULT_ENV_CONTAINER]),
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-    )
-    if check.returncode != 0 or "=" not in check.stdout:
-        return
-    current = check.stdout.splitlines()[0].split("=", 1)[1].strip()
-    parts = [p for p in current.split(":") if p]
-    missing = [d for d in extra_dirs if d not in parts]
-    if not missing:
-        return
-    updated = ":".join(parts + missing)
-    subprocess.run(
-        podman_cmd([
-            "exec", "-u", "oracle", "forms-server-14c",
-            "sed", "-i", f"s|^FORMS_PATH=.*|FORMS_PATH={updated}|", _DEFAULT_ENV_CONTAINER,
-        ]),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    """Prepend extra container paths ahead of /oracle_home_14c/forms in default.env inside forms-server-14c (idempotent)."""
+    for env_file in _RUNTIME_ENV_FILES:
+        check = subprocess.run(
+            podman_cmd(["exec", "-u", "oracle", "forms-server-14c", "grep", "^FORMS_PATH=", env_file]),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        if check.returncode != 0 or "=" not in check.stdout:
+            continue
+        current = check.stdout.splitlines()[0].split("=", 1)[1].strip()
+        parts = [p for p in current.split(":") if p]
+        missing = [d for d in extra_dirs if d and d not in parts]
+        if not missing:
+            continue
+        updated = ":".join(missing + parts)
+        subprocess.run(
+            podman_cmd([
+                "exec", "-u", "oracle", "forms-server-14c",
+                "sed", "-i", f"s|^FORMS_PATH=.*|FORMS_PATH={updated}|", env_file,
+            ]),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
 
 
 # Constructs the shell command executed inside the Forms 14c container for frmcmp_batch.
-def build_compiler_command(container_path: str, mod_type: str, logon_param: str, extra_forms_path: str = "") -> str:
+def build_compiler_command(container_path: str, mod_type: str, logon_param: str, extra_forms_path: str = "",
+                           output_file: str = "", app_output_path: str = "") -> str:
     """Build the environment exports and frmcmp_batch invocation string.
 
     Args:
         container_path: Path to module inside /work mount.
         mod_type: Module type (form, menu, library).
         logon_param: Database logon argument string.
-        extra_forms_path: Optional colon-separated container paths from OFW_FORMS_PATH_EXTRA.
+        extra_forms_path: Optional colon-separated container paths (stage / OFW_FORMS_PATH_EXTRA).
+        output_file: Optional container path for the compiled .fmx/.mmx/.plx (default: beside the module).
+        app_output_path: Optional container path for the dedicated app output dir (placed first on FORMS_PATH).
 
     Returns:
         Complete bash shell command string.
     """
-    forms_path = f"/oracle_home_14c/forms:{container_path.rsplit('/', 1)[0]}"
-    if extra_forms_path:
-        forms_path = f"{forms_path}:{extra_forms_path}"
+    module_dir = container_path.rsplit("/", 1)[0]
+    raw_entries = [app_output_path, *(extra_forms_path.split(":") if extra_forms_path else []), module_dir, "/oracle_home_14c/forms"]
+    deduped = []
+    for entry in raw_entries:
+        if entry and entry not in deduped:
+            deduped.append(entry)
+    forms_path = ":".join(deduped)
     return (
         # frmcmp_batch also re-saves a library into its working directory, so run in the module's own folder.
-        f"cd {container_path.rsplit('/', 1)[0]}; "
+        f"cd {module_dir}; "
         f"export ORACLE_HOME=/oracle_home_14c; "
         f"export LD_LIBRARY_PATH=/oracle_home_14c/lib; "
         f"export ORACLE_TERM=vt220; "
@@ -387,7 +475,8 @@ def build_compiler_command(container_path: str, mod_type: str, logon_param: str,
         f"module={container_path} "
         f"module_type={mod_type} "
         f"{logon_param} "
-        f"compile_all=yes"
+        + (f"output_file={output_file} " if output_file else "")
+        + "compile_all=yes"
     )
 
 
@@ -445,6 +534,24 @@ def execute_compilation(cmd: str) -> int:
         return 1
 
 
+# Infers frmcmp_batch module_type from file extension when --type is omitted.
+def infer_module_type(module: Path) -> str:
+    """Infer frmcmp_batch module_type from the file extension when --type is omitted.
+
+    Args:
+        module: Input module path (.fmb, .mmb, or .pll).
+
+    Returns:
+        Module type string ('library', 'menu', or 'form').
+    """
+    ext = module.suffix.lower()
+    if ext == ".pll":
+        return "library"
+    if ext == ".mmb":
+        return "menu"
+    return "form"
+
+
 # Parses CLI arguments for compile_form.
 def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     """Parse command-line arguments for the form compiler.
@@ -457,14 +564,14 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="Headless Oracle Forms Batch Compiler")
     parser.add_argument("module", help="Path to input .fmb, .mmb, or .pll file")
-    parser.add_argument("-t", "--type", default="form", choices=["form", "menu", "library"], help="Module type (default: form)")
+    parser.add_argument("-t", "--type", default=None, choices=["form", "menu", "library"], help="Module type (auto-detected from .fmb/.mmb/.pll if omitted)")
     parser.add_argument("--offline", action="store_true", help="Compile offline without database logon (logon=no)")
-    parser.add_argument("--no-publish", action="store_true", help="Leave the compiled file in the work folder; do not copy it to the Oracle Home forms folder")
-    parser.add_argument("-u", "--userid", default=None, help="Database logon connection string")
-    args = parser.parse_args(argv)
-    if args.userid is None:
-        args.userid = _default_userid()
-    return args
+    parser.add_argument("--no-publish", action="store_true", help="Leave the compiled file in the work folder; do not copy it to the app output folder")
+    parser.add_argument("--app-name", default=None, help="Dedicated app folder name under <OFW_ORACLE_HOME>/forms_apps/<app_name>/ (default: OFW_APP_NAME or 'default')")
+    parser.add_argument("--output-dir", default=None, help="Explicit host output directory for compiled binaries (overrides --app-name)")
+    parser.add_argument("-u", "--userid", default=None, help="user@db (password is prompted) or user/password@db; prompted for when omitted")
+    parser.add_argument("--use-local-env", action="store_true", help="Use DB_USER/DB_PASSWORD/DB_SERVICE from the repo .env (local testbed) instead of prompting")
+    return parser.parse_args(argv)
 
 
 # Main execution entry point for compile_form.py.
@@ -497,15 +604,29 @@ def main() -> int:
         return 1
     print(f"Staged in: {staged.parent}")
 
-    logon_param = "logon=no" if args.offline else "userid=" + shlex.quote(format_userid(args.userid))
+    running, state = container_running()
+    if not running:
+        print(f"Error: {SERVER_CONTAINER} is not running (state: {state or 'not found'}). Nothing was compiled and no "
+              "login was attempted. Start the stack first: python3 start_testbed.py", file=sys.stderr)
+        return 2
+    userid = resolve_userid(args.userid, args.offline, args.use_local_env)
+    logon_param = "logon=no" if args.offline else "userid=" + shlex.quote(format_userid(userid))
     extra_forms_path = resolve_extra_forms_path(repo_root)
-    print(f"Compiling {input_path.name} ({args.type}) via container frmcmp_batch...")
-    cmd = build_compiler_command(container_module_path, args.type, logon_param, extra_forms_path)
+    dest_dir = app_output_dir(repo_root, args.app_name, args.output_dir)
+    app_cpath = container_path(dest_dir, repo_root) if dest_dir.exists() else ""
+    if not app_cpath:
+        try:
+            app_cpath = container_path(ensure_dir_writable(dest_dir), repo_root)
+        except RuntimeError:
+            app_cpath = ""
+    mod_type = args.type or infer_module_type(input_path)
+    print(f"Compiling {input_path.name} ({mod_type}) via container frmcmp_batch...")
+    cmd = build_compiler_command(container_module_path, mod_type, logon_param, extra_forms_path, app_output_path=app_cpath)
     code = execute_compilation(cmd)
-    output = staged.with_suffix({"form": ".fmx", "menu": ".mmx", "library": ".plx"}[args.type])
+    output = staged.with_suffix({"form": ".fmx", "menu": ".mmx", "library": ".plx"}[mod_type])
     if code == 0 and output.is_file() and not args.no_publish:
-        publish_outputs(output, repo_root)
-        print(f"Published {output.name} to the Oracle Home forms folder.")
+        published = publish_outputs(output, repo_root, dest_dir)
+        print(f"Published {published.name} to {dest_dir}.")
     elif code == 0 and not output.is_file():
         print(f"Warning: no {output.name} was written.", file=sys.stderr)
     return code

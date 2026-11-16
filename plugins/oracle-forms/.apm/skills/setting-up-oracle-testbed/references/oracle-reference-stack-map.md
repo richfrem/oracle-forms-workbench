@@ -12,7 +12,7 @@ What every file and folder in the repo's `oracle-reference-stack/` is for, and w
 
 | Entry | What it is | Used by |
 |---|---|---|
-| `Containerfile.14c` | Recipe for the Forms 14c image `forms-converter-14c`: Oracle Linux 8, Oracle JDK 17, X11/Motif, `libnsl`/`libnsl2`/`libaio`, build tools, the non-root `oracle` user. **No Oracle software inside** | [installing-forms-14c.md](installing-forms-14c.md) step 4 |
+| `Containerfile.14c` | Recipe for the Forms 14c image `oracle-forms-14c`: Oracle Linux 8, Oracle JDK 17, X11/Motif, `libnsl`/`libnsl2`/`libaio`, build tools, the non-root `oracle` user. **No Oracle software inside** | [installing-forms-14c.md](installing-forms-14c.md) step 4 |
 | `Containerfile` | The same for the legacy 12c image `forms-converter` (OpenJDK 8) | [legacy-12c.md](legacy-12c.md) |
 | `installer-templates/` | The three committed response files `oraInst.loc`, `infra14c_silent.rsp`, `forms14c_silent.rsp`, copied into `installer/` | [installing-forms-14c.md](installing-forms-14c.md) step 3 |
 | `installer/` | Where you stage the downloaded Oracle installers and the copied response files. Git-ignored | [installing-forms-14c.md](installing-forms-14c.md) steps 2 and 5 |

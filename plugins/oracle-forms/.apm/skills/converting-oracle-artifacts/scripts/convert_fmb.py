@@ -43,7 +43,7 @@ Output:
 
 Key Functions:
     - check_podman_readiness() -> int
-    - build_container_script(file_name: str, stem: str) -> str
+    - build_container_script(file_name: str, stem: str, workdir: str = "/work") -> str
     - resolve_oracle_home(custom_oracle_home: Optional[str]) -> Optional[Path]
     - copy_to_custom_output(source_xml: Path, output_path_str: Optional[str]) -> None
     - convert_file(input_path_str: str, output_path_str: Optional[str], custom_oracle_home: Optional[str]) -> int
@@ -115,12 +115,14 @@ def resolve_oracle_home(custom_oracle_home: Optional[str]) -> Optional[Path]:
 # -----------------------------------------------------------------------------
 # Container Bash Command Builder
 # -----------------------------------------------------------------------------
-def build_container_script(file_name: str, stem: str) -> str:
+def build_container_script(file_name: str, stem: str, workdir: str = "/work") -> str:
     """Generates the headless bash script string to be executed inside the container.
 
     Args:
         file_name: Base file name including extension.
         stem: File name without extension.
+        workdir: Folder holding the file as the container sees it: /work in a throwaway container, or the
+            Oracle Home path of the folder when running in forms-server-14c.
 
     Returns:
         str: Multi-line bash command for testing tools and running conversion.
@@ -132,13 +134,13 @@ def build_container_script(file_name: str, stem: str) -> str:
         f"export TERM=vt220; "
         f"export LD_LIBRARY_PATH={home}/lib:{home}/oracle_common/lib:$LD_LIBRARY_PATH; "
         f"export FORMS_API_TK_BYPASS=TRUE; "
-        f"export FORMS_PATH=/work:/work/shared:$FORMS_PATH; "
+        f"export FORMS_PATH={workdir}:{workdir}/shared:$FORMS_PATH; "
     )
     if file_name.lower().endswith(".pll"):
         # Forms 14c needs batch=yes for the PL/SQL library export (without it: PDE-PER001).
         batch = " batch=yes" if rt.IS_14C else ""
         return env + (
-            f"cd /work; "
+            f"cd {workdir}; "
             f"echo 'Executing Oracle native frmcmp_batch utility to export PL/SQL library to .pld...'; "
             f"{home}/bin/frmcmp_batch module={file_name} module_type=library script=yes logon=no{batch}; "
         )
@@ -148,20 +150,20 @@ def build_container_script(file_name: str, stem: str) -> str:
         f"if [ -f {home}/bin/frmf2xml.sh ]; then "
         f"  echo 'Executing Oracle native frmf2xml.sh utility...'; "
         f"  chmod +x {home}/bin/frmf2xml.sh 2>/dev/null || true; "
-        f"  {home}/bin/frmf2xml.sh OVERWRITE=YES /work/{file_name}; "
+        f"  {home}/bin/frmf2xml.sh OVERWRITE=YES {workdir}/{file_name}; "
         f"  echo 'Conversion complete.'; "
         f"elif [ -f {home}/jlib/frmxmltools.jar ]; then "
         f"  echo 'Executing the Forms2XML Java utility (Forms 14c ships it as a class; frmf2xml.sh is only a template)...'; "
         f"  java -Djava.library.path={home}/lib -classpath {classpath} "
-        f"       oracle.forms.util.xmltools.Forms2XML OVERWRITE=YES /work/{file_name}; "
+        f"       oracle.forms.util.xmltools.Forms2XML OVERWRITE=YES {workdir}/{file_name}; "
         f"  echo 'Conversion complete.'; "
         f"elif [ -f {home}/forms/java/frmxmltools.jar ]; then "
         f"  echo 'Executing Java Forms2XML directly with bundled JARs...'; "
         f"  java -cp {home}/forms/java/frmxmltools.jar:{home}/forms/java/frmjdapi.jar "
-        f"       oracle.forms.util.xmltools.Forms2XML OVERWRITE=YES /work/{file_name}; "
+        f"       oracle.forms.util.xmltools.Forms2XML OVERWRITE=YES {workdir}/{file_name}; "
         f"  echo 'Conversion complete.'; "
         f"else "
-        f"  echo 'Notice: /work/{file_name} mounted successfully inside container.'; "
+        f"  echo 'Notice: {workdir}/{file_name} mounted successfully inside container.'; "
         f"  echo 'Oracle runtime binaries not yet found in {home}.'; "
         f"  echo 'To enable native conversion, point --oracle-home at an Oracle Forms Linux install'; "
         f"  echo '(oracle-reference-stack/oracle_home_14c).'; "
@@ -250,13 +252,19 @@ def convert_file(
     else:
         expected_output = target_dir / f"{input_path.stem}_fmb.xml"
 
-    container_cmd = build_container_script(file_name, input_path.stem)
-    cmd = rt.podman_cmd([
-        "run", "--rm", "--platform", "linux/amd64",
-        "-v", f"{rt.host_path(target_dir)}:/work:Z",
-        *extra_mount,
-        rt.IMAGE, "bash", "-c", container_cmd,
-    ])
+    server_dir = None if custom_oracle_home else rt.server_workdir(target_dir)
+    container_cmd = build_container_script(file_name, input_path.stem, server_dir or "/work")
+    if server_dir:
+        print(f" Runs in:        {rt.SERVER_CONTAINER} (podman exec, user {rt.EXEC_USER}), folder {server_dir}")
+        cmd = rt.exec_in_server(container_cmd)
+    else:
+        print(f" Runs in:        throwaway {rt.IMAGE} container ({rt.SERVER_CONTAINER} not running, or folder outside the Oracle Home)")
+        cmd = rt.podman_cmd([
+            "run", "--rm", "--platform", "linux/amd64",
+            "-v", f"{rt.host_path(target_dir)}:/work:Z",
+            *extra_mount,
+            rt.IMAGE, "bash", "-c", container_cmd,
+        ])
 
     try:
         res = subprocess.run(cmd)

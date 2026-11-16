@@ -38,7 +38,7 @@ flowchart LR
         X["X display: XQuartz (macOS) or WSLg (Windows)"]
         WS["Repo: samples/, temp/"]
     end
-    subgraph Container["Throwaway Podman container (forms-converter-14c:latest)"]
+    subgraph Container["Throwaway Podman container (oracle-forms-14c:latest)"]
         OH["Oracle Home 14c: /oracle_home_14c<br/>(host folder oracle-reference-stack/oracle_home_14c)"]
         FRMBLD["Forms Builder: forms/templates/scripts/frmbld.sh, filled in"]
     end
@@ -83,7 +83,7 @@ podman run --rm --name frmbld --platform linux/amd64 \
   -e FORMS_PATH=/work/samples:/oracle_home_14c/forms \
   -v /mnt/wslg/.X11-unix:/tmp/.X11-unix \
   -v "$OH:/oracle_home_14c:Z" -v "$PWD:/work:Z" \
-  forms-converter-14c:latest sh -c '
+  oracle-forms-14c:latest sh -c '
     D=/oracle_home_14c/user_projects/domains/base_domain
     sed -e "s#%ORACLE_HOME%#/oracle_home_14c#g" \
         -e "s#%CT_JAVA_HOME%#/usr/lib/jvm/jdk-17.0.12#g" \

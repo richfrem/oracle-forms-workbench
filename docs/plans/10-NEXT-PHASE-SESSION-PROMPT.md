@@ -20,16 +20,20 @@ official Oracle tooling, and visual parity claims distinct.
 1. **Track K golden traces**: build deterministic Oracle trace capture and compare traces with
    native runtime sessions. Full golden-trace parity remains unverified.
 2. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
-   `compile_from_manifest.py` now implement dependency-ordered batch conversion/compilation,
+   `compile_from_manifest.py` implement dependency-ordered batch conversion/compilation,
    `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
    `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
    blocking child forms when a staged parent `.fmb` binary is present), and warning-only
    `Created form/menu/library file` success handling (36 Python pipeline tests pass).
-   End-to-end verification of the warning-only and staged-parent unblocking fixes on a full
-   external batch remains open.
-3. **External database validation**: check connectivity and `TNS_ADMIN` from inside the Forms
-   container and validate referenced objects/roles with the exact compiler account. No external
-   database or container network was tested for this status update.
+   Exercised end-to-end on a large external 12c-to-14c corpus (`23/23` libraries, `3/3` menus,
+   and `244/258` forms compiled into `forms_apps/<app_name>/`, including `<AttachedLibrary>`
+   recovery from source `.fmb` binaries when 12c XML exports omitted them); remaining edge
+   cases (missing canvases, DB schema/link drift, and empty property-class triggers) stay open.
+3. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`
+   preflight, DB-connected batch compilation, and live JNLP/WebStart launch of an entry/login
+   form through to a protected main-module form (`otherparams`, `envFile`, and
+   `<component-desc/>` custom JAR extension) were exercised in `forms-server-14c`. Track 2
+   (native Rust persistent session pinning and multi-form transitions) remains unimplemented.
 4. **UI parity**: continue font persistence, theme/zoom/DPI comparison, tab/overlay cases, and
    runtime behavior verification. Do not equate successful compilation with visual or behavioral
    parity.

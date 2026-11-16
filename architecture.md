@@ -95,7 +95,7 @@ Everything below is the same on all hosts:
 
 | Piece | Defined in | What it is |
 |---|---|---|
-| Image `forms-converter-14c:latest` | `oracle-reference-stack/Containerfile.14c` | Oracle Linux 8 slim, Oracle JDK 17, X11/Motif, `libnsl`/`libnsl2`/`libaio`, build tools. **No Oracle software inside it.** User `oracle` (UID 1000) |
+| Image `oracle-forms-14c:latest` | `oracle-reference-stack/Containerfile.14c` | Oracle Linux 8 slim, Oracle JDK 17, X11/Motif, `libnsl`/`libnsl2`/`libaio`, build tools. **No Oracle software inside it.** User `oracle` (UID 1000) |
 | Container `forms-server-14c` | `oracle-reference-stack/compose.yaml` | Runs `startWebLogic.sh`; ports 7001 (AdminServer, Forms servlet) and 9001; network `oracle-net` |
 | Container `oracle23ai-lite` | `compose.yaml` | Oracle Database Free; port 1521; network alias `oracle-db-23ai` |
 | Throwaway `podman run --rm` containers | the skill scripts | Conversions (Forms2XML, XML2Forms, `rwconverter`), compiles (`frmcmp_batch`), domain creation, installs; they use the same image and mounts |
@@ -120,7 +120,7 @@ Everything below is the same on all hosts:
 
 ### How each part is installed and run, by platform
 
-**Oracle Fusion Middleware (App 2).** The procedure is the same on every host: put the Linux x86-64 installers in `oracle-reference-stack/installer/`; build `forms-converter-14c` from `Containerfile.14c`; run the two silent installs (Infrastructure, then Forms and Reports) in throwaway containers into `oracle_home_14c/`; create the WebLogic domain with `create_forms_domain.py` (run through `wlst.sh` in a container); apply the post-install configuration (`apply_forms14c_config.sh`); start `forms-server-14c`. Only the Podman setup differs:
+**Oracle Fusion Middleware (App 2).** The procedure is the same on every host: put the Linux x86-64 installers in `oracle-reference-stack/installer/`; build `oracle-forms-14c` from `Containerfile.14c`; run the two silent installs (Infrastructure, then Forms and Reports) in throwaway containers into `oracle_home_14c/`; create the WebLogic domain with `create_forms_domain.py` (run through `wlst.sh` in a container); apply the post-install configuration (`apply_forms14c_config.sh`); start `forms-server-14c`. Only the Podman setup differs:
 
 | | macOS (Apple Silicon) | Windows 11 |
 |---|---|---|

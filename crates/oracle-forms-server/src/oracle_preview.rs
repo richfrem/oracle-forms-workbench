@@ -129,6 +129,12 @@ pub fn start(
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     command.arg("-u").arg(script).arg(staged_xml).args(["--interactive", "--userid", "none"]);
+    if let Some(app_name) = setting(&root, "OFW_APP_NAME") {
+        command.args(["--app-name", &app_name]);
+    }
+    if let Some(forms_config) = setting(&root, "OFW_FORMS_CONFIG") {
+        command.args(["--config", &forms_config]);
+    }
     if let Some((username, password)) = credentials {
         let target = compile_target.unwrap_or_else(|| "FREEPDB1".into());
         command.arg("--compile-from-env").env("OFW_PREVIEW_DB_LOGON", format!("{}/{}@{}", username, password, target));

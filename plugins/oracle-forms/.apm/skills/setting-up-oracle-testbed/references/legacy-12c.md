@@ -4,7 +4,7 @@ The original container used Oracle Forms 12.2.1.4 "Standalone Forms Builder". It
 
 | | 12c Standalone | 14c (current) |
 |---|---|---|
-| Image / Containerfile | `forms-converter:latest` / `oracle-reference-stack/Containerfile` | `forms-converter-14c:latest` / `Containerfile.14c` |
+| Image / Containerfile | `forms-converter:latest` / `oracle-reference-stack/Containerfile` | `oracle-forms-14c:latest` / `Containerfile.14c` |
 | Java | OpenJDK 8 (`java-1.8.0-openjdk-headless`) | Oracle JDK 17 (the installer rejects OpenJDK) |
 | Installer | `V983392-01_1of2.zip` (2.4 GB) and `V983392-01_2of2.zip` (630 MB), Oracle Forms 12.2.1.4.0, Linux x86-64 | `V1045135-01.zip` and `V1045121-01.zip` |
 | Response file | `forms_silent.rsp`: `ORACLE_HOME=/oracle_home`, `INSTALL_TYPE=Standalone Forms Builder` | two files in `installer-templates/` |

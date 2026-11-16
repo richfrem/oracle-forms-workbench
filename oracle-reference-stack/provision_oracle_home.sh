@@ -45,7 +45,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STACK="$REPO/oracle-reference-stack"
-IMAGE="${OFW_CONVERTER_IMAGE:-forms-converter-14c:latest}"
+IMAGE="${OFW_CONVERTER_IMAGE:-oracle-forms-14c:latest}"
 [ -d "/run/user/$(id -u)" ] && export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 
 TARGET="${OFW_ORACLE_HOME:-$STACK/oracle_home_14c}"

@@ -21,7 +21,7 @@ Usage Examples:
 How it works:
     Oracle 14c has no getformsxmlschema.sh. Its schema generator is the Java class
     oracle.forms.util.xmltools.SchemaGenerator in jlib/frmxmltools.jar (the template forms/templates/scripts/
-    frmxmlsg.sh just wraps it). This script runs that class in a throwaway forms-converter-14c container, using the
+    frmxmlsg.sh just wraps it). This script runs that class in a throwaway oracle-forms-14c container, using the
     same classpath as Forms2XML. It accepts the schema either printed to stdout or written as a .xsd file in the
     work folder (<OFW_WORK_DIR>/forms-schema/<version>/, outside the repository).
 

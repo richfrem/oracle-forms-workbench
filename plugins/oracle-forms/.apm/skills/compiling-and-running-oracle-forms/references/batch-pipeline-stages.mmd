@@ -1,0 +1,85 @@
+flowchart TD
+    subgraph S0["Stage 0: Intake & Staging (Read-Only)"]
+        direction TB
+        SRC["Source Directory: OFW_WORK_DIR/source/"]
+        SRC_XML["Forms XML Exports: *_fmb.xml, *_mmb.xml, *_olb.xml"]
+        SRC_PLD["PL/SQL Library Text: *.pld"]
+        SRC_BIN["Optional Fallback Binaries: *.pll, *.olb, *.fmb"]
+        SRC --> SRC_XML & SRC_PLD & SRC_BIN
+        STAGE_DIR["Build Stage Directory: OFW_WORK_DIR/build/stage/"]
+        SRC_XML & SRC_PLD & SRC_BIN -->|shutil.copy2| STAGE_DIR
+    end
+
+    subgraph S1["Stage 1: Decompile & Dependency Analysis (Headless / Offline)"]
+        direction TB
+        S1_SCRIPT["Script: build_dependency_manifest.py --analyze-only"]
+        STAGE_DIR --> S1_SCRIPT
+        KAHN["Kahn Algorithm Topological Sort\n(Providers precede Consumers)"]
+        S1_SCRIPT --> KAHN
+        CHECKS["Dependency Integrity Checks:\n- unresolvedDependencies + suggestions\n- requiredSymlinks (Linux case variants)\n- cycles (Tarjan SCC loops)\n- needsReview + mentionedBy"]
+        KAHN --> CHECKS
+        MANIFEST[("Unified State Ledger:\nbuild-manifest.json\n(modules, orders, dependencies, statuses)")]
+        CHECKS -->|write_manifest| MANIFEST
+    end
+
+    subgraph S2["Stage 2: Build Native 14c Source Binaries (Headless / logon=no)"]
+        direction TB
+        S2_SCRIPT["Script: build_dependency_manifest.py --normalize"]
+        CONTAINER_CONV["Container: oracle-forms-14c:latest\n(Throwaway: podman run --rm)\nFORMS_PATH=/work:/oracle_home_14c/forms"]
+        MANIFEST -.->|Module Order 1..N| S2_SCRIPT
+        S2_SCRIPT --> CONTAINER_CONV
+
+        BUILD_XML["XML Sources (*.xml)\nvia XML2Forms"]
+        BUILD_PLD["PL/SQL Scripts (*.pld)\nvia frmcmp_batch module_type=library parse=yes logon=no batch=yes"]
+        CONTAINER_CONV --> BUILD_XML & BUILD_PLD
+
+        BUILT_OLB["Built Object Library: *.olb"]
+        BUILT_PLL["Built Library Binary: *.pll"]
+        BUILT_MMB["Built Menu Binary: *.mmb"]
+        BUILT_FMB["Built Form Binary: *.fmb"]
+
+        BUILD_XML --> BUILT_OLB & BUILT_MMB & BUILT_FMB
+        BUILD_PLD --> BUILT_PLL
+
+        BUILT_OLB & BUILT_PLL & BUILT_MMB & BUILT_FMB -->|Saved in stage/| STAGE_BINARIES["14c Native Binaries: stage/*.olb, *.pll, *.mmb, *.fmb"]
+        STAGE_BINARIES -->|Update module status: converted| MANIFEST
+    end
+
+    subgraph S3["Stage 3: Compile Runtime Executables (Interactive / Authenticated)"]
+        direction TB
+        S3_SCRIPT["Script: compile_from_manifest.py --build-dir ..."]
+        AUTH["Interactive User Terminal:\ngetpass logon: user/password@alias"]
+        CONTAINER_SRV["Container: forms-server-14c (Running)\n(Execution: podman exec -i -u oracle)"]
+        PREFLIGHT["Container sqlplus Preflight:\nVerifies account roles & object counts"]
+
+        S3_SCRIPT --> AUTH
+        AUTH --> PREFLIGHT
+        PREFLIGHT --> CONTAINER_SRV
+
+        MANIFEST -.->|Topological Order 1..N| S3_SCRIPT
+        STAGE_BINARIES -.->|Input Binaries| CONTAINER_SRV
+
+        CMP_PLL["Compile .pll -> .plx\n(module_type=library compile_all=yes logon=user/pw@alias)"]
+        CMP_MMB["Compile .mmb -> .mmx\n(module_type=menu compile_all=yes logon=user/pw@alias)"]
+        CMP_FMB["Compile .fmb -> .fmx\n(module_type=form compile_all=yes logon=user/pw@alias)"]
+        CMP_OLB["Object Libraries (.olb)\n(Skipped: build-only, no executable)"]
+
+        CONTAINER_SRV --> CMP_PLL & CMP_MMB & CMP_FMB & CMP_OLB
+
+        EXEC_PLX["Executable Library: *.plx"]
+        EXEC_MMX["Executable Menu: *.mmx"]
+        EXEC_FMX["Executable Form: *.fmx"]
+
+        CMP_PLL --> EXEC_PLX
+        CMP_MMB --> EXEC_MMX
+        CMP_FMB --> EXEC_FMX
+
+        PUBLISH["Publish to Forms App Dir:\nOFW_ORACLE_HOME/forms_apps/app_name/\n(with case-variant symlinks in stage & app)"]
+        EXEC_PLX & EXEC_MMX & EXEC_FMX -->|shutil.copy2 + symlinks| PUBLISH
+
+        PUBLISH -->|Update module status: compiled| MANIFEST
+    end
+
+    S0 --> S1
+    S1 --> S2
+    S2 --> S3

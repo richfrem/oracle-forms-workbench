@@ -14,7 +14,7 @@ The Podman recipe, installer templates, configuration and provisioning scripts, 
 
 | Entry | What it is |
 |---|---|
-| `Containerfile.14c`, `Containerfile` | Image recipes: Forms 14c (`forms-converter-14c`) and the legacy 12c image. No Oracle software inside either |
+| `Containerfile.14c`, `Containerfile` | Image recipes: Forms 14c (`oracle-forms-14c`) and the legacy 12c image. No Oracle software inside either |
 | `installer-templates/` | The committed response files for the silent installs |
 | `installer/`, `oracle_home_14c/`, `oracle_home/` | **Git-ignored, never commit:** the downloaded installers, the installed Oracle Home (5+ GB, holds the WebLogic domain and all configuration; its location is the setting `OFW_ORACLE_HOME`; on Windows set it to Ubuntu's disk before installing and never install here), and the 12c Oracle Home |
 | `apply_forms14c_config.sh`, `forms14c-config/` | Apply every post-install adjustment to the Oracle Home |

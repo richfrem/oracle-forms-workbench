@@ -38,7 +38,7 @@ Versions (--version):
 
 Backends (--backend auto picks the first available):
     xmllint (host)  -> lxml (host, Python package) -> java (a throwaway container with the JDK 17 in the
-    forms-converter-14c image; needs Podman running). Install xmllint: Ubuntu `sudo apt-get install -y
+    oracle-forms-14c image; needs Podman running). Install xmllint: Ubuntu `sudo apt-get install -y
     libxml2-utils`; macOS includes it.
 
 Output / exit codes:
@@ -72,7 +72,7 @@ REPO = Path(__file__).resolve().parents[6]
 REPORTS_DTD = ASSETS / "reports.dtd"
 FORMS_NS = "http://xmlns.oracle.com/Forms"
 DEFAULT_VERSION = "14c"
-IMAGE = os.environ.get("OFW_CONVERTER_IMAGE", "forms-converter-14c:latest")
+IMAGE = os.environ.get("OFW_CONVERTER_IMAGE", "oracle-forms-14c:latest")
 IS_WSL = platform.system() == "Linux" and "microsoft" in platform.uname().release.lower()
 MAX_SHOWN = 10
 

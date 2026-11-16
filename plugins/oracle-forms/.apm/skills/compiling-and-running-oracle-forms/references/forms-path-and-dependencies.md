@@ -14,13 +14,13 @@ Set `OFW_FORMS_PATH_EXTRA` to one or more read-only source directories (colon-se
 - Parent `.fmb` candidates are found recursively in the input directory and extra source directories and copied with their original filename case. XML references use `ParentFilename` and `ParentModule`; binary FMB references are matched heuristically against candidate filenames, so a candidate may be staged if its name also appears elsewhere in the binary.
 - Source files are read, not modified. The scripts do not copy all unrelated FMB files.
 
-Compile-time `FORMS_PATH` includes `/oracle_home_14c/forms`, the staged folder, and the folder containing the compiled module. This makes staged parents available when `run_form.py` compiles an XML conversion produced in a subfolder. XML2Forms parent resolution itself has not been verified; keep the original binaries and check conversion results.
+Compile-time `FORMS_PATH` orders the dedicated app output folder (`<OFW_ORACLE_HOME>/forms_apps/<app_name>/`), the staged folder (`stage/`), the module folder, and `/oracle_home_14c/forms` (last, for Oracle product libraries such as `webutil.pll`). This makes custom `.pll`/`.olb` dependencies resolve before Oracle system defaults. XML2Forms parent resolution itself has not been verified; keep the original binaries and check conversion results.
 
-Compiled `.fmx`, `.mmx`, and `.plx` outputs are published to `<OFW_ORACLE_HOME>/forms/` unless publication is explicitly disabled. The Forms server's runtime `FORMS_PATH` is read from:
+Compiled `.fmx`, `.mmx`, and `.plx` outputs are published to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` (default app: `default`, or `--app-name` / `OFW_APP_NAME`) unless publication is explicitly disabled (`--no-publish`). Keep `/oracle_home_14c/forms` strictly for Oracle product binaries (`webutil.*`, `frmsal.jar`, etc.). The Forms server's runtime `FORMS_PATH` is read from:
 
 `<OFW_ORACLE_HOME>/user_projects/domains/base_domain/config/fmwconfig/servers/AdminServer/applications/formsapp_14.1.2/config/default.env`
 
-The usual container value is `FORMS_PATH=/oracle_home_14c/forms`. Do not add repository or external source directories to this runtime setting; publish runtime executables into the Oracle Home forms directory instead.
+The container `FORMS_PATH` places `<OFW_ORACLE_HOME>/forms_apps/<app_name>` and `<OFW_WORK_DIR>/stage` ahead of `/oracle_home_14c/forms`. Do not add repository or external source directories to this runtime setting; publish runtime executables into the dedicated app directory instead.
 
 ## Check database reachability from the Forms container
 

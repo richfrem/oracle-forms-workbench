@@ -92,8 +92,9 @@ def default_userid() -> str:
     return f"{user}/{password}@FREEPDB1" if user and password else "none"
 
 
-def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, params: Optional[List[str]] = None) -> str:
-    """Construct the HTTP URL for the standaloneapp configuration.
+def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, params: Optional[List[str]] = None,
+                   config: Optional[str] = None) -> str:
+    """Construct the HTTP URL for the FSAL configuration (default: standaloneapp).
 
     Args:
         form_name: File name of the .fmx module.
@@ -101,11 +102,13 @@ def build_fsal_url(form_name: str, port: int, userid: str, interactive: bool, pa
         userid: Database logon credential string.
         interactive: If True, omit credentials so Forms displays the GUI logon box.
         params: Optional NAME=VALUE form parameters appended to the URL.
+        config: Optional formsweb.cfg section name (default: OFW_FORMS_CONFIG or 'standaloneapp').
 
     Returns:
         Formatted and URL-encoded query string.
     """
-    query = [("config", "standaloneapp"), ("form", form_name)]
+    cfg = (config or os.environ.get("OFW_FORMS_CONFIG") or "standaloneapp").strip() or "standaloneapp"
+    query = [("config", cfg), ("form", form_name)]
     for item in params or []:
         name, separator, value = item.partition("=")
         if not separator or not name:
@@ -157,6 +160,7 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("-u", "--userid", default=default_userid(), help="Database logon string (default: DB_USER/DB_PASSWORD from .env; if unset, the FSAL client prompts)")
     parser.add_argument("--interactive", action="store_true", help="Omit credentials and show native GUI Logon dialog")
     parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="Form parameter added to the launch URL (repeatable)")
+    parser.add_argument("--config", default=None, help="formsweb.cfg config section name (default: OFW_FORMS_CONFIG or 'standaloneapp')")
     parser.add_argument("--frmsal-jar", default=None, help="Custom path to frmsal.jar (optional)")
     return parser.parse_args(argv)
 
@@ -189,7 +193,7 @@ def main() -> int:
         return 1
 
     try:
-        url = build_fsal_url(form_name, args.port, args.userid, args.interactive, args.param)
+        url = build_fsal_url(form_name, args.port, args.userid, args.interactive, args.param, args.config)
     except ValueError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1

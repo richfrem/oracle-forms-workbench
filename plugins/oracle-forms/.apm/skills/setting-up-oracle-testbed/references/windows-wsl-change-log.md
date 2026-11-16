@@ -613,3 +613,11 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Updated `compile_module()` in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_from_manifest.py` to match `compile_form.py`: when `produced.is_file()` and `Created form file` / `Created menu file` / `Created library file` is in the output (even if `frmcmp_batch` exited non-zero on non-fatal layout warnings such as `FRM-32093`/`FRM-30410`/`FRM-30457`), mark the module `compiled` while preserving the warning diagnostics. Added `test_compile_module_treats_warning_only_created_output_as_success` in `tests/test_reference_pipeline.py`. |
 | Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py` (36 passed, 0 failed). |
 | Not verified | Live batch run after this patch. |
+
+### Merge `start-next.md` into `docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md`
+
+| Item | Detail |
+|---|---|
+| Change | Merged unique open tooling/setup backlog items from `start-next.md` into `docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md`, updated references in `.agent/rules/document-every-step.md`, `AGENTS.md`, `architecture.md`, `README.md`, and `docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md`, and removed `start-next.md` (`git rm start-next.md`) so one open-work tracker remains. |
+| Verified | Link grep across tracked `.md` files (only historical `windows-wsl-change-log.md` rows and the retired-source label in `10-NEXT-PHASE-SESSION-PROMPT.md` mention `start-next.md`). |
+| Not verified | None. |

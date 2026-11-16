@@ -1,6 +1,6 @@
 # 11: Dual-Runtime Legacy Application Parity & Dynamic Session Harness
 
-> **Status:** Proposed post-G architecture. The milestones below are not implemented or verified.
+> **Status:** Proposed post-G architecture. Track 1's dependency-ordered batch pipeline and live JNLP/WebStart entry-to-main-form launch have been exercised in `forms-server-14c`; Track 2 (native Rust session pinning and multi-form transitions) and cross-engine parity remain unimplemented.
 
 ## 1. Vision and goal
 
@@ -39,11 +39,13 @@ application context, parameter values, and initialization outcome without record
 1. Resolve the configured `<dev-db>` connection from inside `forms-server-14c`; verify
    `TNS_ADMIN` or Easy Connect resolution in that same container environment.
 2. Discover and stage the required `.olb`, `.pll`, `.mmb`, and parent `.fmb` dependencies,
-   convert or compile them in dependency order, and publish executable modules to
-   `<OFW_ORACLE_HOME>/forms/`.
-3. Start the application's login or entry form and run its established authentication,
-   role-provisioning, context, and global-initialization sequence before navigating to the
-   target form.
+   convert or compile them in dependency order (with Linux case-sensitivity symlinks), and
+   publish executable modules to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` (keeping
+   `<OFW_ORACLE_HOME>/forms/` clean for Oracle 14c product binaries).
+3. Start the application's login or entry form (for example via WebStart/JNLP with `otherparams`,
+   `envFile`, and a `<component-desc/>` extension JNLP for custom client JARs) and run its
+   established authentication, role-provisioning, context, and global-initialization sequence
+   before navigating to the target form.
 4. Record effective database identity, enabled roles, and relevant context using approved,
    non-secret diagnostics. A successful compile or servlet response alone is not a pass.
 

@@ -54,7 +54,7 @@ The Track 1 stack has been validated on two hosts. On macOS, Podman runs in a ma
 | `oracle-reference-stack/` | App 2: `Containerfile.14c`, `compose.yaml`, `sql/seed_test_schema.sql`, `apply_forms14c_config.sh` and `forms14c-config/`, `installer-templates/`; git-ignored: `installer/`, `oracle_home_14c/` |
 | `plugins/oracle-forms/.apm/skills/` | The agent skills that drive App 2: `setting-up-oracle-testbed`, `converting-oracle-artifacts` (`convert_fmb.py`, `convert_pll.py`, `convert_rpt.py`, `converter_runtime.py`, `test_conversions.py`), `compiling-and-running-oracle-forms` (`compile_form.py`, `run_form.py`, `launch_fsal.py`), `testing-forms-parity`, `comparing-forms-features` **Setup how-to for a clean clone, both platforms: `setting-up-oracle-testbed/references/` (index: `index.md`; start: `clean-clone-checklist.md`).** |
 | `docs/` | `plans/` (roadmap, the continuation status `10-NEXT-PHASE-SESSION-PROMPT.md`, `UI-REVIEW-BACKLOG.md`) and `screenshots/`. Setup how-to is not here: it lives in the setup skill's `references/` |
-| `start_testbed.py`, `start-next.md` | Starts the containers and the app; the next-session task list |
+| `start_testbed.py` | Starts the containers and the app |
 | `.agent/rules/` | Mandatory agent rules (see `AGENTS.md`) |
 | `temp/`, `context/` | Git-ignored scratch space and session context; never commit |
 

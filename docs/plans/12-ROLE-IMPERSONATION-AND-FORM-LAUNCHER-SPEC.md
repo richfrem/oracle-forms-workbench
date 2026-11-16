@@ -47,8 +47,13 @@ hook is absent, rejected, or unauthorized.
 
 ### Dynamic form selector
 
-- Populate a selector or LOV from an explicitly configured forms directory
-  (`OFW_FORMS_PATH_EXTRA`) or an approved session catalog.
+- Populate a searchable/filterable selector or LOV from an explicitly configured forms directory
+  (`OFW_FORMS_PATH_EXTRA`), `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`, or an approved session
+  catalog so QA can jump directly to any of 200+ modules across ~100 roles without clicking
+  through nested application menus.
+- Support launch-time module parameters (equivalent to `formsweb.cfg` `otherparams` and
+  JNLP `serverURL` query parameters) so entry forms and target forms take the same branch they
+  take in production.
 - Treat discovered external form files as read-only. Stage conversions and compile outputs in
   the configured `OFW_WORK_DIR`; do not write external project artifacts into the repository.
 - Launch a selected module with optional parameters through `CALL_FORM` or `OPEN_FORM`.
@@ -74,6 +79,27 @@ Author a standard, Forms 14c-schema-valid XML module at
 Validate the XML against the repository's Forms 14c schema, convert and compile it through
 `compile_form.py`, and run it through FSAL. Keep generated binaries in the designated build
 output unless a reviewed fixture policy explicitly requires tracking them.
+
+### Operational lessons from 14c multi-module testing
+
+Exercising a 250+ module legacy corpus in `forms-server-14c` surfaced four practical
+requirements that the launcher and container runtime must account for:
+
+1. **Per-app runtime isolation:** Publish compiled `.plx`, `.mmx`, and `.fmx` binaries into
+   `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` (prepended ahead of `<OFW_ORACLE_HOME>/forms/`
+   in `envFile` `FORMS_PATH`), keeping `<OFW_ORACLE_HOME>/forms/` clean for Oracle 14c
+   product binaries.
+2. **Client JAR signing separation:** Legacy custom/third-party JARs must not overwrite 14c
+   `frmall.jar` or `frmwebutil.jar` and often have different signing certificates; load custom
+   JARs via a separate `<component-desc/>` JNLP extension (`webstart=enabled`,
+   `allowStaticHTML=true`, `webstartRequest=true`, `ifsessid=`).
+3. **Shared helper forms and runtime assets:** Protected forms frequently `CALL_FORM` shared
+   dialog/message modules or load `.bmp` icons from server directories; missing or stale
+   helper `.fmx`s or missing image directories surface as blank dialogs or `FRM-47109` at
+   launch time.
+4. **Linux case sensitivity:** On Linux containers, mixed-case `CALL_FORM`, `AttachedLibrary`,
+   and `ParentModule` references fail unless exact-case symlinks exist in both `stage/` and
+   `forms_apps/<app_name>/`.
 
 ### Native Rust runtime support
 

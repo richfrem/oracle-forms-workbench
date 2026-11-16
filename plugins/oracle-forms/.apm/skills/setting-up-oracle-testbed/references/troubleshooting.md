@@ -43,6 +43,7 @@ Symptom, cause, fix. Windows-only problems (WSL, `/mnt/c`, the Podman runtime di
 | `FRM-30174: Checked and Unchecked check box values must be distinct` | A check box item has no `CheckedValue` and `UncheckedValue` | Set them in the XML (for example `CheckedValue="Y" UncheckedValue="N"`), regenerate the `.fmb` with XML2Forms, recompile |
 | `FRM-10039: Unable to start up the Form Builder` | The bare `bin/frmbld` was run; its environment script is an unfilled template | Use the filled command in `forms-builder-gui.md` |
 | `must be declared AMOUNT` while compiling | The `test_items` table lacks the `amount` column | Re-run the seed script ([database-23ai.md](database-23ai.md)) |
+| Form canvas renders with solid black background (`#000000`) and black text becomes invisible | The `.fmb` or an attached `.olb` was regenerated from XML via headless `XML2Forms` on Linux where named colors (such as `BackColor="gray"`) failed to resolve against the system colormap and defaulted to palette index `0` (black). Explicit canvas properties override global `lookAndFeel` or `colorScheme` parameters in `formsweb.cfg` and `.jnlp`. | Compile `.fmx` directly from original `.fmb`/`.olb` source binaries authored with a native palette, rather than `XML2Forms` round-trips; or edit the XML to use explicit RGB values (e.g., `r212g208b200`) or remove `BackColor` before regenerating. |
 
 ## Converting
 

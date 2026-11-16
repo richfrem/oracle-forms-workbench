@@ -629,3 +629,11 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Authored `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/external-repository-integration.md` documenting how external application repositories consume the workbench and container testbed. Details workspace isolation (`OFW_WORK_DIR` on ext4, `OFW_FORMS_PATH_EXTRA` read-only source intake, runtime segregation under `/oracle_home_14c/forms_apps/<app_name>/`), `start_testbed.py` lifecycle, and the 3-stage compilation pipeline using generic placeholders (`<external-app-repo>`, `<app_name>`) per `cross-project-isolation.md`. Linked in `SKILL.md` and `references/index.md`. |
 | Verified | Link checks in `SKILL.md` and `references/index.md`. Checked against `cross-project-isolation.md` to confirm zero proprietary project identifiers. |
 | Not verified | None. |
+
+### Headless XML2Forms named color palette corruption and black canvas resolution
+
+| Item | Detail |
+|---|---|
+| Change | Investigated runtime rendering issue where form canvases appeared solid black (`#000000`), obscuring black text prompts. Diagnosed that changing `lookAndFeel` (`Generic` vs `Oracle`) or `colorScheme` in `formsweb.cfg` or JNLP does not resolve the issue because explicit canvas background properties override global look-and-feel themes. Traced root cause to headless `XML2Forms` on Linux: named colors such as `BackColor="gray"` in XML/OLB fail to resolve without an active X11 colormap and default to palette index `0` (black). Compiling the `.fmx` directly from original source `.fmb`/`.olb` binaries authored with a native color palette completely resolves the issue, restoring proper light gray canvas rendering. Updated `troubleshooting.md` and `conversion-notes.md`. |
+| Verified | Confirmed live runtime fix in Forms 14c WebStart client: canvas renders native light gray (`Grey75`) with high-contrast text labels. Checked documentation updates for zero proprietary project identifiers per `cross-project-isolation.md`. |
+| Not verified | None. |

@@ -19,9 +19,14 @@ official Oracle tooling, and visual parity claims distinct.
 
 1. **Track K golden traces**: build deterministic Oracle trace capture and compare traces with
    native runtime sessions. Full golden-trace parity remains unverified.
-2. **Multi-module dependency staging**: parent `.fmb` staging has been added to the single-form
-   pipeline, but full graph discovery and dependency-ordered batch conversion/compilation remain
-   open. The recent changes still need complete verification.
+2. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
+   `compile_from_manifest.py` now implement dependency-ordered batch conversion/compilation,
+   `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
+   `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
+   blocking child forms when a staged parent `.fmb` binary is present), and warning-only
+   `Created form/menu/library file` success handling (36 Python pipeline tests pass).
+   End-to-end verification of the warning-only and staged-parent unblocking fixes on a full
+   external batch remains open.
 3. **External database validation**: check connectivity and `TNS_ADMIN` from inside the Forms
    container and validate referenced objects/roles with the exact compiler account. No external
    database or container network was tested for this status update.

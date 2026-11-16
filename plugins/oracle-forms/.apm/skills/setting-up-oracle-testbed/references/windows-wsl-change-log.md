@@ -605,3 +605,11 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Updated `_blocked_by()` in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_from_manifest.py` so a failed `parentModules` `FMB` (such as a template/reference parent form whose `.fmb` does not compile to a standalone `.fmx`) does not block downstream child `FMB`s as long as its `.fmb` binary is present in `stage/`. Added unit test `test_failed_parent_fmb_does_not_block_when_fmb_staged` in `tests/test_reference_pipeline.py`. |
 | Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py` (35 passed, 0 failed). |
 | Not verified | Live batch re-run after this patch. |
+
+### Treat warning-only `frmcmp_batch` output (`Created form/menu/library file`) as compiled in `compile_from_manifest.py`
+
+| Item | Detail |
+|---|---|
+| Change | Updated `compile_module()` in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_from_manifest.py` to match `compile_form.py`: when `produced.is_file()` and `Created form file` / `Created menu file` / `Created library file` is in the output (even if `frmcmp_batch` exited non-zero on non-fatal layout warnings such as `FRM-32093`/`FRM-30410`/`FRM-30457`), mark the module `compiled` while preserving the warning diagnostics. Added `test_compile_module_treats_warning_only_created_output_as_success` in `tests/test_reference_pipeline.py`. |
+| Verified | `py_compile` on `compile_from_manifest.py` and `python3 -m unittest tests/test_reference_pipeline.py` (36 passed, 0 failed). |
+| Not verified | Live batch run after this patch. |

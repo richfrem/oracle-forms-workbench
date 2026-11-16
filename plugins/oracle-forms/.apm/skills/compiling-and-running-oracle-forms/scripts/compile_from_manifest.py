@@ -137,7 +137,13 @@ def compile_module(module: Dict, build_dir: Path, userid: Optional[str], publish
     err_file = binary.with_suffix(".err")
     detail = res.stdout + (err_file.read_text(errors="replace") if err_file.is_file() else "")
     produced = (dest_dir / exe_name) if publish else build_dir / module["executableFile"]
-    return produced.is_file() and res.returncode == 0, _redact(detail, userid).strip()
+    created = (
+        res.returncode == 0
+        or "Created form file" in detail
+        or "Created menu file" in detail
+        or "Created library file" in detail
+    )
+    return produced.is_file() and created, _redact(detail, userid).strip()
 
 
 def add_case_variant(exe_name: str, dest_cpath: str) -> None:

@@ -637,3 +637,51 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Investigated runtime rendering issue where form canvases appeared solid black (`#000000`), obscuring black text prompts. Diagnosed that changing `lookAndFeel` (`Generic` vs `Oracle`) or `colorScheme` in `formsweb.cfg` or JNLP does not resolve the issue because explicit canvas background properties override global look-and-feel themes. Traced root cause to headless `XML2Forms` on Linux: named colors such as `BackColor="gray"` in XML/OLB fail to resolve without an active X11 colormap and default to palette index `0` (black). Compiling the `.fmx` directly from original source `.fmb`/`.olb` binaries authored with a native color palette completely resolves the issue, restoring proper light gray canvas rendering. Updated `troubleshooting.md` and `conversion-notes.md`. |
 | Verified | Confirmed live runtime fix in Forms 14c WebStart client: canvas renders native light gray (`Grey75`) with high-contrast text labels. Checked documentation updates for zero proprietary project identifiers per `cross-project-isolation.md`. |
 | Not verified | None. |
+
+### Support launching pre-compiled `.fmx` modules directly from Preview in Oracle
+
+| Item | Detail |
+|---|---|
+| Change | Added `precompiled` launch mode (`launch_precompiled`, `find_deployed_fmx`, `normalize_fmx_name` in `crates/oracle-forms-server/src/oracle_preview.rs`, wired through `SaveFormRequest` / `start_oracle_preview` in `routes.rs`, plus `Already compiled — launch deployed .fmx directly` option and optional `Forms config` input in `ui/index.html` and `ui/app.js`). Resolves deployed `.fmx` from `<Oracle Home>/forms_apps/<OFW_APP_NAME>/` or `<Oracle Home>/forms/` and launches `launch_fsal.py` directly without forcing `XML2Forms`, `frmcmp_batch`, or compile credentials. Also removed hardcoded `FREEPDB1 — ` prefix from the database driver selector in `ui/index.html`. |
+| Verified | `cargo check` and `cargo test` in WSL2 (`oracle-forms-server`: 39 passed, 0 failed; including `normalize_fmx_name_accepts_stem_or_fmx_and_rejects_paths`). Live UI click-through verified by owner: `Already compiled — launch deployed .fmx directly` skipped `XML2Forms`/compile with no compile credentials and launched the pre-compiled `.fmx` directly in FSAL, opening the native form login dialog. |
+| Not verified | None. |
+
+### Split Oracle 14c toolbar into `Launch in 14c` (precompiled) and `Build & Compile (14c)`
+
+| Item | Detail |
+|---|---|
+| Change | Separated `🚀 Launch in 14c` and `🔨 Build & Compile (14c)` into two independent `<dialog>` modals in `ui/index.html`, `ui/styles.css`, and `ui/app.js`: `#oracleLaunchDialog` (pre-compiled `.fmx` launch from `OFW_FORMS_APPS_DIR` / `OFW_APP_NAME` / `OFW_ORACLE_HOME/forms`, with `.fmx` dropdown, `Browse .fmx...`, `Forms config section`, `Launch parameters`, `.env` path note, and its own diagnostics) vs `#oracleReferenceDialog` (3-step XML -> FMB -> FMX build/compile against local/target DB). |
+| Verified | `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`), `cargo check`, and `cargo test` in WSL2 (`oracle-forms-server`: `40 passed, 0 failed`, including `parse_launch_params_validates_key_value_pairs` and `normalize_fmx_name_accepts_stem_or_fmx_and_rejects_paths`). |
+| Not verified | Live UI screenshot / click-through on the restarted Rust server (`--restart-rust` succeeded on port 7070). |
+
+### Reorganized header/context bars and refactored `Build & Compile (14c)` modal
+
+| Item | Detail |
+|---|---|
+| Change | Reorganized `ui/index.html`, `ui/styles.css`, and `ui/app.js` into a 2-row workbench header (`header.top-bar` with artifact picker + global `🚀 Launch in 14c` / `🔨 Build & Compile (14c)` / `View & panels ▾`; `div.module-context-bar` with context-aware `Form Designer` / `Report Preview` tab, `PL/SQL Studio`, `XML Source`, `Form Diff` + inline `Layout` / `Wizard` / `Save Form` / `Menu` / `Alert` / `↺` / `💾 Export XML`, removing the `More form tools ▾` dropdown and filtering actions per active tab and module type via `syncContextActionsUi`), leaving `.canvas-bar` as a slim single-row canvas/zoom bar. Refactored `#oracleReferenceDialog` (`Build & Compile (14c)`) with live step highlighting (`oracleStep1..3`) and `#oracleDeployTargetNote` displaying the WebLogic deploy folder. Hid `⚡ Convert via Oracle (XML/PLD)` in `xmlTab` when XML is already loaded, unified `Reports Engine` into the context-aware first tab (`setPrimaryPreviewMode`), hid form-only `.context-actions` when a report is open, fixed `loadSample`/`convertArtifactXmlBtn` for `.rdf`/`.xml` reports, fixed `convertArtifactXmlBtn` post-conversion reload (`loadSample(data.outputFile)` + routing `.pld` to `codeTab`), auto-loaded the first program unit / trigger (or `.pll` convert notice) in `renderCodeUnitsList` for `PL/SQL Studio`, and added `selectObject` scroll-to-unit in `.pld` `XML Source` + `scrollTop = 0` on `loadCode`. |
+| Verified | `node --test tests/ui_*.test.cjs` in WSL2 (`25 passed, 0 failed`), `cargo build -p oracle-forms-server` (`exit 0`), and `--restart-rust` live on port 7070 (`task-1873`). |
+| Not verified | Live UI screenshot on the restarted Rust server. |
+
+### Clarified Rust Preview vs Oracle 14c Launch and moved run/build buttons above the form
+
+| Item | Detail |
+|---|---|
+| Change | Moved `🚀 Launch in 14c` and `🔨 Build & Compile (14c)` out of `.header-right` into `.module-context-bar` right after `Form Diff`, and added `🦀 Preview in Rust` (`#previewRustBtn`, hidden on non-Form modules). Added `#toolbarLaunch14cBtn` (`🚀 14c`) beside `#runFormBtn` (renamed `▶ Run` to `▶ Rust Preview`) inside `#dbControls` in the emulated form toolbar so both modals are directly accessible from the form toolbar as well. Added `#rustPreviewNoticeDialog` (`openRustPreviewOrNotice()`), explaining Rust runtime limitations (no `.pll` libraries, no `CALL_FORM`/`OPEN_FORM`/`NEW_FORM`, incomplete built-ins such as `CLEAR_LIST`/`LOGON`/`SHOW_LOV`/`EXEC_SQL`) with `🚀 Launch in 14c instead`, `▶ Continue with Rust Preview`, and a per-session opt-out checkbox. Enhanced `#oracleLaunchDialog` with `#oracleLaunchMatchNotice` (explicitly indicating whether the open source module from `samples/` or `OFW_FORMS_PATH_EXTRA` has a matching deployed `.fmx` in `forms_apps/` / `forms/` or needs compilation first) and `#launchSwitchToCompileBtn` (`🔨 Build & Compile Open Form in 14c`). |
+| Verified | `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`) and `cargo check` in WSL2. |
+| Not verified | Live browser click-through of `#rustPreviewNoticeDialog` and `#oracleLaunchMatchNotice` on the restarted server. |
+
+### Aligned `README.md`, `architecture.md`, and `AGENTS.md` with current UI & test counts
+
+| Item | Detail |
+|---|---|
+| Change | Updated `README.md`, `architecture.md`, and `AGENTS.md` to document `Launch in 14c` (`launch_fsal.py` / `/api/forms/oracle-preview/compiled` on deployed `.fmx` in `OFW_FORMS_APPS_DIR` / `forms_apps/<OFW_APP_NAME>/` / `forms/`), `Build & Compile (14c)` (`run_form.py`), `Preview in Rust` / `▶ Rust Preview` (standalone single-form preview + limitations modal), `OFW_FORMS_PATH_EXTRA` read-only source intake, and current WSL verification status. |
+| Verified | `cargo test` in WSL2 (`128 passed, 0 failed`) and `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`). |
+| Not verified | `tests/test_reference_pipeline.py` was not re-run in this session. |
+
+### UI polish: live `Launch in 14c` notice, transparent `Frame`, `_fmb.xml` tip, and open-file badges
+
+| Item | Detail |
+|---|---|
+| Change | Updated `ui/index.html`, `ui/styles.css`, and `ui/app.js`: (1) `updateOracleLaunchMatchNotice()` now updates `#oracleLaunchMatchNotice` when `#oraclePrecompiledFmx` changes or via file browse; (2) added `#sourceFileBadge` in the header, `#sourceLocationReadout` in the canvas bar, and `#sampleSelect` sync for files opened via `Browse / Open...` so the active file extension and source folder stay visible; (3) added an `_fmb.xml` vs `.fmb` tip in `#openFileModal`; (4) changed SVG `Frame` graphics fill to `none` so frames with unmodeled `FillPattern="transparent"` do not render as solid colored boxes. |
+| Verified | `cargo test` (`128 passed, 0 failed`), `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`), and `git diff --check` in WSL2. |
+| Not verified | Remaining static-preview gaps (`FillPattern` on non-`Frame` `Rectangle` graphics, `ItemsDisplay` on buttons in multi-row blocks, `.olb` property inheritance, and `&#10;` prompt decoding). |

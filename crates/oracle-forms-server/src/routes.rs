@@ -34,6 +34,7 @@ pub fn app_router_with_security(service: FormsService, security_cfg: SecurityCon
         .route("/api/artifacts/convert-to-xml", post(convert_artifact_to_xml))
         .route("/api/forms/save", post(save_form_file))
         .route("/api/forms/oracle-preview", post(start_oracle_preview))
+        .route("/api/forms/oracle-preview/compiled", get(list_oracle_compiled_forms))
         .route("/api/forms/oracle-preview/{id}", get(oracle_preview_status))
         .route("/api/forms/oracle-preview/readiness", get(oracle_preview_readiness))
         .route("/api/forms/diff", post(diff_forms))
@@ -467,6 +468,10 @@ struct SaveFormRequest {
     database: Option<String>,
     #[serde(default)]
     offline: bool,
+    #[serde(default)]
+    precompiled: bool,
+    forms_config: Option<String>,
+    launch_params: Option<String>,
 }
 
 async fn save_form_file(State(service): State<FormsService>, Json(req): Json<SaveFormRequest>) -> Response {
@@ -479,6 +484,17 @@ async fn save_form_file(State(service): State<FormsService>, Json(req): Json<Sav
 }
 
 async fn start_oracle_preview(State(service): State<FormsService>, Json(req): Json<SaveFormRequest>) -> Response {
+    if req.precompiled {
+        return match crate::oracle_preview::launch_precompiled(&req.module_name, req.forms_config.as_deref(), req.launch_params.as_deref()) {
+            Ok((id, fmx_name)) => Json(serde_json::json!({
+                "jobId": id,
+                "fileName": fmx_name,
+                "path": fmx_name,
+                "mode": "precompiled"
+            })).into_response(),
+            Err(error) => session_error(400, error),
+        };
+    }
     let credentials = if req.offline { None } else {
         match req.username.zip(req.password).filter(|(u, p)| !u.trim().is_empty() && !p.is_empty()) {
             Some(credentials) => Some(credentials),
@@ -492,6 +508,10 @@ async fn start_oracle_preview(State(service): State<FormsService>, Json(req): Js
         },
         Err(error) => session_error(400, error.to_string()),
     }
+}
+
+async fn list_oracle_compiled_forms() -> impl IntoResponse {
+    Json(crate::oracle_preview::list_deployed_fmx())
 }
 
 async fn oracle_preview_readiness() -> impl IntoResponse {

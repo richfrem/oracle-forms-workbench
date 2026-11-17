@@ -2906,7 +2906,11 @@
   }
 
   function resolveAutoLayout(visualItems) {
-    const zeroCoords = visualItems.filter(v => (v.item.xPosition || 0) === 0 && (v.item.yPosition || 0) === 0);
+    const hasPositionedRadioButtons = (item) =>
+      (item.itemType || '').toLowerCase().includes('radio')
+      && (item.radioButtons || []).some(rb => (rb.xPosition || 0) > 0 || (rb.yPosition || 0) > 0);
+    const zeroCoords = visualItems.filter(v =>
+      (v.item.xPosition || 0) === 0 && (v.item.yPosition || 0) === 0 && !hasPositionedRadioButtons(v.item));
     const needsAutoFlow = zeroCoords.length > 1;
 
     const resolvedPositions = new Map();
@@ -3157,7 +3161,10 @@
       if (gTypeLower === 'frame' || gType === '8') {
         const title = g.frameTitle || '';
         const maskBg = normalizeOracleColor(g.frameTitleBackColor) || (fillCol !== 'none' ? fillCol : surfaceBg);
-        const titleColor = normalizeOracleColor(g.frameTitleForeColor) || '#000000';
+        let titleColor = normalizeOracleColor(g.frameTitleForeColor) || '#000000';
+        if (!g.frameTitleBackColor && /^#f{3,6}$/i.test(titleColor)) {
+          titleColor = '#000000';
+        }
         const titleFont = g.frameTitleFontName || 'Segoe UI, Tahoma, sans-serif';
         const titleSize = normalizeOracleFontSize(g.frameTitleFontSize, 11);
         const titleWeight = g.frameTitleFontWeight || 'bold';
@@ -3244,10 +3251,13 @@
       const itemType = (item.itemType || '').toLowerCase();
       const nameUpper = (item.name || '').toUpperCase();
       const propUpper = (item.propertyClass || '').toUpperCase();
-      const isButton = itemType.includes('button') || nameUpper.startsWith('BTN') || nameUpper.includes('BUTTON') || propUpper.includes('BUTTON') || (item.label && !item.prompt);
-      const isCheckOrRadio = itemType.includes('check') || itemType.includes('radio') || nameUpper.startsWith('CHK') || nameUpper.startsWith('RAD');
+      const hasExplicitType = Boolean(itemType);
+      const isCheckOrRadio = itemType.includes('check') || itemType.includes('radio')
+        || (!hasExplicitType && (nameUpper.startsWith('CHK') || nameUpper.startsWith('RAD') || propUpper.includes('CHECK') || propUpper.includes('RADIO')));
+      const isButton = itemType.includes('button')
+        || (!hasExplicitType && !isCheckOrRadio && (nameUpper.startsWith('BTN') || nameUpper.includes('BUTTON') || propUpper.includes('BUTTON') || (item.label && !item.prompt)));
       const isHidden = item.visible === false;
-      const isHeaderLabel = item.name === 'MIN_NAME' || (!item.columnName && !item.prompt && (item.bevel === 'None' || (!item.itemType && item.label)));
+      const isHeaderLabel = item.name === 'MIN_NAME' || (!item.columnName && !item.prompt && !isButton && !isCheckOrRadio && (item.bevel === 'None' || (!item.itemType && item.label)));
 
       const recordsToDisplay = Math.max(1, block.recordsDisplayed || 1);
       const isMultiRow = recordsToDisplay > 1 && item.itemsDisplay !== 1 && (!isButton || (item.itemsDisplay || 0) > 1);
@@ -3300,7 +3310,8 @@
             <title>${escapeHtml(fullItemName)} | Type: ${escapeHtml(isButton ? 'Push Button' : (item.itemType || 'Text Item'))}${isHidden ? ' [Conditionally Hidden]' : ''} | Column: ${escapeHtml(item.columnName || 'N/A')}</title>
         `;
 
-        if (previewEnabled && !isHeaderLabel) {
+        const isRadioWithButtons = itemType.includes('radio') && (item.radioButtons || []).length > 0;
+        if (previewEnabled && !isHeaderLabel && !isRadioWithButtons) {
           svgHtml += `<foreignObject x="${x}" y="${rowY}" width="${w}" height="${Math.max(h, 20)}"
             data-preview-block="${escapeHtml(block.name)}" data-preview-item="${escapeHtml(item.name)}" data-preview-row="${r + rowOffset}"></foreignObject>`;
         } else if (isHeaderLabel) {

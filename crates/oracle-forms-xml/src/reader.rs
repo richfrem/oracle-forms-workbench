@@ -483,16 +483,16 @@ impl FormsXmlParser {
                     let parent_upper = parent_name.to_ascii_uppercase();
 
                     let resolved_type = raw_type.or_else(|| {
-                        if name_upper.starts_with("BTN")
-                            || name_upper.contains("BUTTON")
-                            || parent_upper.contains("BUTTON")
-                            || (label.is_some() && prompt.is_none())
-                        {
-                            Some("Push Button".to_string())
-                        } else if name_upper.starts_with("CHK") || parent_upper.contains("CHECK") {
+                        if name_upper.starts_with("CHK") || parent_upper.contains("CHECK") {
                             Some("Check Box".to_string())
                         } else if name_upper.starts_with("RAD") || parent_upper.contains("RADIO") {
-                            Some("Radio Button".to_string())
+                            Some("Radio Group".to_string())
+                        } else if name_upper.starts_with("BTN")
+                            || name_upper.contains("BUTTON")
+                            || parent_upper.contains("BUTTON")
+                            || (parent_upper.is_empty() && label.is_some() && prompt.is_none())
+                        {
+                            Some("Push Button".to_string())
                         } else {
                             None
                         }

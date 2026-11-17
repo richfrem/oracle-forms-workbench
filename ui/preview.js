@@ -121,9 +121,11 @@ window.FormsPreview = class FormsPreview {
     const normColor = (c) => {
       if (!c) return null;
       const s = String(c).trim();
+      const lower = s.toLowerCase();
+      if (!s || ['automatic', 'default', 'transparent', 'none'].includes(lower)) return null;
       const m = /^r(\d+)g(\d+)b(\d+)$/i.exec(s);
       if (m) {
-        const scale = (Number(m[1]) <= 100 && Number(m[2]) <= 100 && Number(m[3]) <= 100 && s === s.toLowerCase()) ? 2.55 : 1;
+        const scale = (Number(m[1]) <= 100 && Number(m[2]) <= 100 && Number(m[3]) <= 100 && s === lower) ? 2.55 : 1;
         return `rgb(${Math.round(Number(m[1]) * scale)}, ${Math.round(Number(m[2]) * scale)}, ${Math.round(Number(m[3]) * scale)})`;
       }
       return s;
@@ -133,7 +135,10 @@ window.FormsPreview = class FormsPreview {
     if (bg) control.style.background = bg;
     if (fg) control.style.color = fg;
     if (item.fontName) control.style.fontFamily = item.fontName;
-    if (item.fontSize) control.style.fontSize = `${item.fontSize}px`;
+    if (item.fontSize && item.fontSize > 0) {
+      const pxSize = item.fontSize >= 100 ? Math.max(8, Math.round((item.fontSize / 100) * 1.25)) : item.fontSize;
+      control.style.fontSize = `${pxSize}px`;
+    }
     if (item.fontWeight) control.style.fontWeight = item.fontWeight.toLowerCase();
     if (item.fontStyle) control.style.fontStyle = item.fontStyle.toLowerCase();
     if (item.justification) {

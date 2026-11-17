@@ -434,3 +434,112 @@ test('EWT bevels, PromptAlign/PromptAttachmentOffset, RadioGroup buttons, and Fr
   assert.match(svg, />Customer<\/text>/);
   assert.doesNotMatch(svg, />Hidden<\/text>/);
 });
+
+test('Live UI preview scales 1/100pt button fonts, renders RadioGroup buttons, and classifies CheckBox vs PushButton', () => {
+  // 1. FormsPreview scales fontSize=900 to ~11px instead of 900px on ofw_demo_employees buttons
+  const previewSrc = fs.readFileSync('ui/preview.js', 'utf8');
+  function makeEl(tag) {
+    return {
+      tagName: tag.toUpperCase(),
+      style: {},
+      dataset: {},
+      attributes: {},
+      children: [],
+      textContent: '',
+      setAttribute(k, v) { this.attributes[k] = v; },
+      addEventListener() {},
+      append(...nodes) { this.children.push(...nodes); },
+    };
+  }
+  const pCtx = vm.createContext({
+    window: {},
+    document: { createElement: makeEl },
+  });
+  vm.runInContext(previewSrc, pCtx);
+  const preview = new pCtx.window.FormsPreview();
+  const btnCtrl = preview.control(
+    { name: 'CONTROL' },
+    { name: 'BTN_SEARCH', itemType: 'Push Button', label: 'Search', fontName: 'Segoe UI', fontSize: 900 }
+  );
+  const btnEl = btnCtrl.children[0];
+  assert.equal(btnEl.textContent, 'Search');
+  assert.equal(btnEl.style.fontSize, '11px');
+
+  // 2. previewEnabled=true renders RadioButtons even when RadioGroup x/y=0, CheckBox is not PushButton, and white FrameTitle contrasts
+  const mod = {
+    key: { name: 'ORDERS' },
+    coordinate: { coordinateSystem: 'Real', realUnit: 'Point' },
+    canvases: [{ name: 'CV_MAIN', canvasType: 'Content', windowName: 'WIN0', width: 500, height: 300, tabPages: [] }],
+    graphics: [
+      {
+        name: 'FRM_HDR',
+        canvasName: 'CV_MAIN',
+        graphicsType: 'Frame',
+        frameTitle: 'Search Criteria',
+        frameTitleForeColor: 'white',
+        fillPattern: 'none',
+        xPosition: 10,
+        yPosition: 10,
+        width: 240,
+        height: 120,
+      },
+    ],
+    blocks: [
+      {
+        name: 'ORDERS',
+        recordsDisplayed: 1,
+        items: [
+          {
+            name: 'RB_MODE',
+            canvasName: 'CV_MAIN',
+            itemType: 'Radio Group',
+            xPosition: 0,
+            yPosition: 0,
+            width: 80,
+            height: 20,
+            radioButtons: [
+              { name: 'RB_ALL', label: 'All Orders', xPosition: 25, yPosition: 35, visible: true },
+              { name: 'RB_OPEN', label: 'Open Only', xPosition: 25, yPosition: 55, visible: true },
+            ],
+          },
+          {
+            name: 'CHK_ALL',
+            canvasName: 'CV_MAIN',
+            itemType: 'Check Box',
+            label: 'Show all counts',
+            xPosition: 150,
+            yPosition: 35,
+            width: 120,
+            height: 20,
+          },
+          {
+            name: 'HDR_DOC',
+            canvasName: 'CV_MAIN',
+            itemType: 'Display Item',
+            label: 'Doc. Ref.',
+            bevel: 'None',
+            xPosition: 150,
+            yPosition: 70,
+            width: 80,
+            height: 20,
+          },
+        ],
+      },
+    ],
+  };
+  const ctx = createUiContext(mod);
+  ctx.previewEnabled = true;
+  ctx.getActiveBlockName = () => 'ORDERS';
+  ctx.formsSvg.querySelectorAll = () => [];
+  ctx.runtime = { active: false };
+  ctx.oracleStatusMsg = {};
+  vm.runInContext('renderCanvasSvg()', ctx);
+  const svg = ctx.formsSvg.innerHTML;
+  assert.match(svg, />Search Criteria<\/text>/);
+  assert.match(svg, /fill="#000000">Search Criteria<\/text>/);
+  assert.match(svg, />All Orders<\/text>/);
+  assert.match(svg, />Open Only<\/text>/);
+  assert.match(svg, /data-preview-item="CHK_ALL"/);
+  assert.match(svg, />Doc\. Ref\.<\/text>/);
+  assert.doesNotMatch(svg, /data-preview-item="HDR_DOC"/);
+});

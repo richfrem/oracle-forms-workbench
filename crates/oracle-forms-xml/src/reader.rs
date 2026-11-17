@@ -55,10 +55,26 @@ struct ItemBuilder {
     prompt_attachment_edge: String,
     prompt_attachment_offset: i32,
     prompt_align: String,
+    prompt_align_offset: i32,
+    prompt_edge_set: bool,
+    prompt_offset_set: bool,
+    prompt_align_set: bool,
     items_display: i32,
     distance_between_records: i32,
     back_color: Option<String>,
     fore_color: Option<String>,
+    fill_pattern: Option<String>,
+    bevel: Option<String>,
+    font_name: Option<String>,
+    font_size: Option<i32>,
+    font_weight: Option<String>,
+    font_style: Option<String>,
+    visual_attribute: Option<String>,
+    prompt_fore_color: Option<String>,
+    prompt_font_name: Option<String>,
+    prompt_font_size: Option<i32>,
+    prompt_font_weight: Option<String>,
+    radio_buttons: Vec<RadioButtonInfo>,
     enabled: bool,
     canvas_visible: bool,
     trigger_names: Vec<String>,
@@ -76,7 +92,11 @@ struct CanvasBuilder {
     viewport_height: Option<i32>,
     viewport_x_position: i32,
     viewport_y_position: i32,
+    viewport_x_position_on_canvas: Option<i32>,
+    viewport_y_position_on_canvas: Option<i32>,
     back_color: Option<String>,
+    visual_attribute: Option<String>,
+    inherited: Option<InheritanceRef>,
     tab_pages: Vec<TabPageInfo>,
 }
 
@@ -117,6 +137,7 @@ impl FormsXmlParser {
         let mut alerts: Vec<AlertInfo> = Vec::new();
         let mut parameters: Vec<ParameterInfo> = Vec::new();
         let mut visual_attributes: Vec<String> = Vec::new();
+        let mut visual_attribute_details: Vec<VisualAttributeInfo> = Vec::new();
         let mut property_classes: Vec<String> = Vec::new();
         let mut property_class_details: Vec<PropertyClassInfo> = Vec::new();
         let mut editors: Vec<String> = Vec::new();
@@ -175,6 +196,7 @@ impl FormsXmlParser {
                         &mut alerts,
                         &mut parameters,
                         &mut visual_attributes,
+                        &mut visual_attribute_details,
                         &mut property_classes,
                         &mut property_class_details,
                         &mut editors,
@@ -206,6 +228,7 @@ impl FormsXmlParser {
                         &mut alerts,
                         &mut parameters,
                         &mut visual_attributes,
+                        &mut visual_attribute_details,
                         &mut property_classes,
                         &mut property_class_details,
                         &mut editors,
@@ -310,6 +333,7 @@ impl FormsXmlParser {
             alerts,
             parameters,
             visual_attributes,
+            visual_attribute_details,
             property_classes,
             property_class_details: classed_details,
             editors,
@@ -342,6 +366,7 @@ impl FormsXmlParser {
         alerts: &mut Vec<AlertInfo>,
         parameters: &mut Vec<ParameterInfo>,
         visual_attributes: &mut Vec<String>,
+        visual_attribute_details: &mut Vec<VisualAttributeInfo>,
         property_classes: &mut Vec<String>,
         property_class_details: &mut Vec<PropertyClassInfo>,
         editors: &mut Vec<String>,
@@ -390,7 +415,7 @@ impl FormsXmlParser {
                 };
             }
             "Block" => {
-                if parent_element.as_deref() == Some("FormModule") {
+                if matches!(parent_element.as_deref(), Some("FormModule") | Some("ObjectLibraryTab")) {
                     let source = get_attr(e, "QueryDataSourceName").map(|s| decode_double_escaped(&s));
                     let records_disp = get_int_attr(e, "RecordsDisplayCount")
                         .or_else(|| get_int_attr(e, "RecordsDisplayed"))
@@ -446,33 +471,54 @@ impl FormsXmlParser {
                     let enabled = get_bool_attr(e, "Enabled").unwrap_or(true);
                     let block_records = current_block.as_ref().map(|b| b.records_displayed).unwrap_or(1);
                     let block_dist = current_block.as_ref().map(|b| b.distance_between_records).unwrap_or(0);
-                    let items_disp = get_int_attr(e, "ItemsDisplay").unwrap_or(block_records);
+                    let raw_items_disp = get_int_attr(e, "ItemsDisplay")
+                        .or_else(|| get_int_attr(e, "ItemsDisplayed"));
                     let dist = get_int_attr(e, "DistanceBetweenRecords").unwrap_or(block_dist);
 
                     let raw_type = get_attr(e, "ItemType");
                     let parent_name = get_attr(e, "ParentName").unwrap_or_default();
-                    let label = get_attr(e, "Label");
-                    let prompt = get_attr(e, "Prompt");
+                    let label = get_attr(e, "Label").map(|s| decode_double_escaped(&s).text);
+                    let prompt = get_attr(e, "Prompt").map(|s| decode_double_escaped(&s).text);
                     let name_upper = name.as_deref().unwrap_or("").to_ascii_uppercase();
                     let parent_upper = parent_name.to_ascii_uppercase();
 
                     let resolved_type = raw_type.or_else(|| {
-                        if name_upper.starts_with("BTN")
-                            || name_upper.contains("BUTTON")
-                            || parent_upper.contains("BUTTON")
-                            || (label.is_some() && prompt.is_none())
-                        {
-                            Some("Push Button".to_string())
-                        } else if name_upper.starts_with("CHK") || parent_upper.contains("CHECK") {
+                        if name_upper.starts_with("CHK") || parent_upper.contains("CHECK") {
                             Some("Check Box".to_string())
                         } else if name_upper.starts_with("RAD") || parent_upper.contains("RADIO") {
-                            Some("Radio Button".to_string())
+                            Some("Radio Group".to_string())
+                        } else if name_upper.starts_with("BTN")
+                            || name_upper.contains("BUTTON")
+                            || parent_upper.contains("BUTTON")
+                            || (parent_upper.is_empty() && label.is_some() && prompt.is_none())
+                        {
+                            Some("Push Button".to_string())
                         } else {
                             None
                         }
                     });
 
+                    let is_push_button = resolved_type
+                        .as_deref()
+                        .map(|t| t.eq_ignore_ascii_case("Push Button"))
+                        .unwrap_or(false);
+                    let items_disp = if is_push_button {
+                        match raw_items_disp {
+                            Some(n) if n > 1 => n,
+                            _ => 1,
+                        }
+                    } else {
+                        match raw_items_disp {
+                            Some(n) if n > 0 => n,
+                            _ => block_records,
+                        }
+                    };
+
                     let raw_canvas = get_attr(e, "CanvasName").filter(|s| !s.trim().is_empty());
+
+                    let raw_prompt_edge = get_attr(e, "PromptAttachmentEdge");
+                    let raw_prompt_offset = get_int_attr(e, "PromptAttachmentOffset");
+                    let raw_prompt_align = get_attr(e, "PromptAlign");
 
                     *current_item = Some(ItemBuilder {
                         name: name.clone().unwrap_or_default(),
@@ -493,17 +539,53 @@ impl FormsXmlParser {
                         y_position: get_int_attr(e, "YPosition").unwrap_or(0),
                         tab_page_name: get_attr(e, "TabPageName").filter(|s| !s.trim().is_empty()),
                         label,
-                        prompt_attachment_edge: get_attr(e, "PromptAttachmentEdge").unwrap_or_else(|| "Start".to_string()),
-                        prompt_attachment_offset: get_int_attr(e, "PromptAttachmentOffset").unwrap_or(5),
-                        prompt_align: get_attr(e, "PromptAlign").unwrap_or_else(|| "Start".to_string()),
+                        prompt_edge_set: raw_prompt_edge.is_some(),
+                        prompt_offset_set: raw_prompt_offset.is_some(),
+                        prompt_align_set: raw_prompt_align.is_some(),
+                        prompt_attachment_edge: raw_prompt_edge.unwrap_or_else(|| "Start".to_string()),
+                        prompt_attachment_offset: raw_prompt_offset.unwrap_or(5),
+                        prompt_align: raw_prompt_align.unwrap_or_else(|| "Start".to_string()),
+                        prompt_align_offset: get_int_attr(e, "PromptAlignOffset").unwrap_or(0),
                         items_display: items_disp,
                         distance_between_records: dist,
                         back_color: get_attr(e, "BackColor"),
-                        fore_color: get_attr(e, "ForeColor"),
+                        fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+                        fill_pattern: get_attr(e, "FillPattern"),
+                        bevel: get_attr(e, "Bevel"),
+                        font_name: get_attr(e, "FontName"),
+                        font_size: get_int_attr(e, "FontSize"),
+                        font_weight: get_attr(e, "FontWeight"),
+                        font_style: get_attr(e, "FontStyle"),
+                        visual_attribute: get_attr(e, "VisualAttributeName"),
+                        prompt_fore_color: get_attr(e, "PromptForegroundColor"),
+                        prompt_font_name: get_attr(e, "PromptFontName"),
+                        prompt_font_size: get_int_attr(e, "PromptFontSize"),
+                        prompt_font_weight: get_attr(e, "PromptFontWeight"),
+                        radio_buttons: Vec::new(),
                         enabled,
                         canvas_visible: vis,
                         trigger_names: Vec::new(),
                     });
+                }
+            }
+            "RadioButton" => {
+                if parent_element.as_deref() == Some("Item") {
+                    if let Some(it) = current_item.as_mut() {
+                        it.radio_buttons.push(RadioButtonInfo {
+                            name: name.clone().unwrap_or_default(),
+                            label: get_attr(e, "Label").map(|s| decode_double_escaped(&s).text),
+                            value: get_attr(e, "RadioButtonValue"),
+                            x_position: get_int_attr(e, "XPosition").unwrap_or(0),
+                            y_position: get_int_attr(e, "YPosition").unwrap_or(0),
+                            width: get_int_attr(e, "Width"),
+                            height: get_int_attr(e, "Height"),
+                            visible: get_bool_attr(e, "Visible").unwrap_or(true),
+                            back_color: get_attr(e, "BackColor"),
+                            fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+                            font_name: get_attr(e, "FontName"),
+                            font_size: get_int_attr(e, "FontSize"),
+                        });
+                    }
                 }
             }
             "Canvas" => {
@@ -519,18 +601,25 @@ impl FormsXmlParser {
                     viewport_height: get_int_attr(e, "ViewportHeight"),
                     viewport_x_position: get_int_attr(e, "ViewportXPosition").unwrap_or(0),
                     viewport_y_position: get_int_attr(e, "ViewportYPosition").unwrap_or(0),
+                    viewport_x_position_on_canvas: get_int_attr(e, "ViewportXPositionOnCanvas"),
+                    viewport_y_position_on_canvas: get_int_attr(e, "ViewportYPositionOnCanvas"),
                     back_color: get_attr(e, "BackColor"),
+                    visual_attribute: get_attr(e, "VisualAttributeName"),
+                    inherited,
                     tab_pages: Vec::new(),
                 });
             }
             "TabPage" => {
                 let page_name = name.clone().unwrap_or_default();
-                let page_label = get_attr(e, "Label");
+                let page_label = get_attr(e, "Label").map(|s| decode_double_escaped(&s).text);
                 *current_tab_page_name = Some(page_name.clone());
                 if let Some(c) = current_canvas.as_mut() {
                     c.tab_pages.push(TabPageInfo {
                         name: page_name,
                         label: page_label,
+                        back_color: get_attr(e, "BackColor"),
+                        fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+                        associated_canvases: Vec::new(),
                     });
                 }
             }
@@ -538,8 +627,10 @@ impl FormsXmlParser {
                 let g_type = get_attr(e, "GraphicsType").unwrap_or_else(|| "Rectangle".to_string());
                 let g_text = get_attr(e, "GraphicsText")
                     .map(|s| decode_double_escaped(&s).text)
-                    .or_else(|| get_attr(e, "Text"));
-                let f_title = get_attr(e, "FrameTitle").or_else(|| get_attr(e, "Title"));
+                    .or_else(|| get_attr(e, "Text").map(|s| decode_double_escaped(&s).text));
+                let f_title = get_attr(e, "FrameTitle")
+                    .or_else(|| get_attr(e, "Title"))
+                    .map(|s| decode_double_escaped(&s).text);
 
                 graphics.push(GraphicInfo {
                     name: name.clone().unwrap_or_else(|| format!("GRAPHIC_{}", graphics.len() + 1)),
@@ -554,6 +645,24 @@ impl FormsXmlParser {
                     height: get_int_attr(e, "Height").unwrap_or(0),
                     bevel: get_attr(e, "Bevel"),
                     back_color: get_attr(e, "BackColor"),
+                    fore_color: get_attr(e, "ForegroundColor")
+                        .or_else(|| get_attr(e, "ForeColor"))
+                        .or_else(|| get_attr(e, "GraphicsFontColor")),
+                    edge_foreground_color: get_attr(e, "EdgeForegroundColor"),
+                    edge_back_color: get_attr(e, "EdgeBackColor"),
+                    fill_pattern: get_attr(e, "FillPattern"),
+                    line_width: get_int_attr(e, "InternalLineWidth").or_else(|| get_int_attr(e, "LineWidth")),
+                    font_name: get_attr(e, "GraphicsFontName").or_else(|| get_attr(e, "FontName")),
+                    font_size: get_int_attr(e, "GraphicsFontSize").or_else(|| get_int_attr(e, "FontSize")),
+                    font_weight: get_attr(e, "GraphicsFontWeight").or_else(|| get_attr(e, "FontWeight")),
+                    visual_attribute: get_attr(e, "VisualAttributeName"),
+                    frame_title_fore_color: get_attr(e, "FrameTitleForegroundColor"),
+                    frame_title_back_color: get_attr(e, "FrameTitleBackColor"),
+                    frame_title_font_name: get_attr(e, "FrameTitleFontName"),
+                    frame_title_font_size: get_int_attr(e, "FrameTitleFontSize"),
+                    frame_title_font_weight: get_attr(e, "FrameTitleFontWeight"),
+                    frame_title_visual_attribute: get_attr(e, "FrameTitleVisualAttributeName"),
+                    inherited,
                 });
             }
             "Trigger" => {
@@ -707,10 +816,25 @@ impl FormsXmlParser {
                 });
             }
             "VisualAttribute" => {
-                if current_tab.is_none() {
-                    if let Some(ref n) = name {
+                if let Some(ref n) = name {
+                    if current_tab.is_none() {
                         visual_attributes.push(n.clone());
                     }
+                    visual_attribute_details.push(VisualAttributeInfo {
+                        name: n.clone(),
+                        back_color: get_attr(e, "BackColor"),
+                        fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+                        fill_pattern: get_attr(e, "FillPattern"),
+                        font_name: get_attr(e, "FontName"),
+                        font_size: get_int_attr(e, "FontSize"),
+                        font_weight: get_attr(e, "FontWeight"),
+                        font_style: get_attr(e, "FontStyle"),
+                        prompt_fore_color: get_attr(e, "PromptForegroundColor"),
+                        prompt_font_name: get_attr(e, "PromptFontName"),
+                        prompt_font_size: get_int_attr(e, "PromptFontSize"),
+                        prompt_font_weight: get_attr(e, "PromptFontWeight"),
+                        inherited,
+                    });
                 }
             }
             "PropertyClass" => {
@@ -723,6 +847,15 @@ impl FormsXmlParser {
                         geometry: item_geometry(e),
                         property_class: local_parent_name(e, module_name),
                         inherited,
+                        style: visual_style(e),
+                        item_type: get_attr(e, "ItemType"),
+                        prompt: get_attr(e, "Prompt").map(|s| decode_double_escaped(&s).text),
+                        label: get_attr(e, "Label").map(|s| decode_double_escaped(&s).text),
+                        prompt_attachment_edge: get_attr(e, "PromptAttachmentEdge"),
+                        prompt_attachment_offset: get_int_attr(e, "PromptAttachmentOffset"),
+                        prompt_align: get_attr(e, "PromptAlign"),
+                        items_display: get_int_attr(e, "ItemsDisplay").or_else(|| get_int_attr(e, "ItemsDisplayed")),
+                        distance_between_records: get_int_attr(e, "DistanceBetweenRecords"),
                     });
                 }
             }
@@ -885,10 +1018,26 @@ impl FormsXmlParser {
                             prompt_attachment_edge: i.prompt_attachment_edge,
                             prompt_attachment_offset: i.prompt_attachment_offset,
                             prompt_align: i.prompt_align,
+                            prompt_align_offset: i.prompt_align_offset,
+                            prompt_edge_set: i.prompt_edge_set,
+                            prompt_offset_set: i.prompt_offset_set,
+                            prompt_align_set: i.prompt_align_set,
                             items_display: i.items_display,
                             distance_between_records: i.distance_between_records,
                             back_color: i.back_color,
                             fore_color: i.fore_color,
+                            fill_pattern: i.fill_pattern,
+                            bevel: i.bevel,
+                            font_name: i.font_name,
+                            font_size: i.font_size,
+                            font_weight: i.font_weight,
+                            font_style: i.font_style,
+                            visual_attribute: i.visual_attribute,
+                            prompt_fore_color: i.prompt_fore_color,
+                            prompt_font_name: i.prompt_font_name,
+                            prompt_font_size: i.prompt_font_size,
+                            prompt_font_weight: i.prompt_font_weight,
+                            radio_buttons: i.radio_buttons,
                             enabled: i.enabled,
                             canvas_visible: i.canvas_visible,
                         });
@@ -909,7 +1058,11 @@ impl FormsXmlParser {
                         viewport_height: c.viewport_height,
                         viewport_x_position: c.viewport_x_position,
                         viewport_y_position: c.viewport_y_position,
+                        viewport_x_position_on_canvas: c.viewport_x_position_on_canvas,
+                        viewport_y_position_on_canvas: c.viewport_y_position_on_canvas,
                         back_color: c.back_color,
+                        visual_attribute: c.visual_attribute,
+                        inherited: c.inherited,
                         tab_pages: c.tab_pages,
                     });
                 }
@@ -982,6 +1135,25 @@ fn item_dml(e: &BytesStart) -> Option<ItemDml> {
         copy_value_from_item: get_attr(e, "CopyValueFromItem"),
     };
     if dml.is_empty() { None } else { Some(dml) }
+}
+
+fn visual_style(e: &BytesStart) -> Option<VisualStyle> {
+    let style = VisualStyle {
+        back_color: get_attr(e, "BackColor"),
+        fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+        fill_pattern: get_attr(e, "FillPattern"),
+        font_name: get_attr(e, "FontName"),
+        font_size: get_int_attr(e, "FontSize"),
+        font_weight: get_attr(e, "FontWeight"),
+        font_style: get_attr(e, "FontStyle"),
+        bevel: get_attr(e, "Bevel"),
+        visual_attribute: get_attr(e, "VisualAttributeName"),
+        prompt_fore_color: get_attr(e, "PromptForegroundColor"),
+        prompt_font_name: get_attr(e, "PromptFontName"),
+        prompt_font_size: get_int_attr(e, "PromptFontSize"),
+        prompt_font_weight: get_attr(e, "PromptFontWeight"),
+    };
+    if style.is_empty() { None } else { Some(style) }
 }
 
 fn item_geometry(e: &BytesStart) -> Option<ItemGeometry> {
@@ -1116,5 +1288,60 @@ fn owner_path_of(stack: &[Frame]) -> Option<String> {
         None
     } else {
         Some(names.join("."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_graphics_fill_pattern_multiline_prompts_items_display_and_radio_buttons() {
+        let dir = std::env::temp_dir().join(format!("ofw-xml-parity-{}", std::process::id()));
+        let cache = dir.join("cache");
+        fs::create_dir_all(&cache).unwrap();
+        let xml_path = dir.join("dept_fmb.xml");
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Module version="14.1.2.0.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="DEPT_MOD">
+    <Block Name="DEPT" RecordsDisplayCount="5">
+      <Item Name="DEPTNO" ItemType="Text Item" CanvasName="MAIN" Prompt="Dept&amp;#10;Number" ItemsDisplay="0"/>
+      <Item Name="BTN_SAVE" ItemType="Push Button" CanvasName="MAIN" Label="Save&#10;Record"/>
+      <Item Name="BTN_ROW" ItemType="Push Button" CanvasName="MAIN" Label="Edit" ItemsDisplay="5"/>
+      <Item Name="RG_STATUS" ItemType="Radio Group" CanvasName="MAIN" XPosition="10" YPosition="100" Width="120" Height="50">
+        <RadioButton Name="RB_ACTIVE" Label="Active" RadioButtonValue="A" XPosition="5" YPosition="8"/>
+        <RadioButton Name="RB_INACTIVE" Label="Inactive" RadioButtonValue="I" XPosition="5" YPosition="26"/>
+      </Item>
+    </Block>
+    <Canvas Name="MAIN" CanvasType="Content" Width="600" Height="400">
+      <Graphics Name="HDR_BOX" GraphicsType="Rectangle" FillPattern="transparent" BackColor="black" EdgeForegroundColor="darkblue" InternalLineWidth="2" XPosition="10" YPosition="10" Width="200" Height="30"/>
+    </Canvas>
+    <Canvas Name="STK_PANEL" CanvasType="Stacked" Width="400" Height="300" ViewportWidth="250" ViewportHeight="150" ViewportXPositionOnCanvas="20" ViewportYPositionOnCanvas="40" ViewportXPosition="5" ViewportYPosition="10"/>
+  </FormModule>
+</Module>"#;
+        fs::write(&xml_path, xml).unwrap();
+
+        let key = ModuleKey::new("DEPT_MOD", ModuleType::Form);
+        let idx = FormsXmlParser::parse(&key, &xml_path, &cache).unwrap();
+
+        let dept = &idx.blocks[0];
+        assert_eq!(dept.items[0].prompt.as_deref(), Some("Dept\nNumber"));
+        assert_eq!(dept.items[0].items_display, 5);
+        assert_eq!(dept.items[1].label.as_deref(), Some("Save\nRecord"));
+        assert_eq!(dept.items[1].items_display, 1);
+        assert_eq!(dept.items[2].items_display, 5);
+        assert_eq!(dept.items[3].radio_buttons.len(), 2);
+        assert_eq!(dept.items[3].radio_buttons[0].value.as_deref(), Some("A"));
+
+        let g = &idx.graphics[0];
+        assert_eq!(g.fill_pattern.as_deref(), Some("transparent"));
+        assert_eq!(g.edge_foreground_color.as_deref(), Some("darkblue"));
+        assert_eq!(g.line_width, Some(2));
+
+        let stk = &idx.canvases[1];
+        assert_eq!(stk.viewport_x_position_on_canvas, Some(20));
+        assert_eq!(stk.viewport_y_position_on_canvas, Some(40));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

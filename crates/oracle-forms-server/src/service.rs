@@ -198,6 +198,11 @@ impl FormsService {
             }
         }
 
+        // Resolve VisualAttribute, PropertyClass, and external ParentFilename/ParentModule inheritance
+        resolve_module_inheritance(&mut index, &effective_path, &target_cache_dir);
+        // Resolve TabPage -> Stacked / nested Tab canvas associations from WHEN-TAB-PAGE-CHANGED / ProgramUnits
+        resolve_tab_page_associations(&mut index, &target_cache_dir);
+
         let mut st = self.state.write().unwrap();
         let key_name = key.name.to_ascii_uppercase();
         st.modules.insert(key_name.clone(), index.clone());
@@ -1059,6 +1064,715 @@ fn resolve_class_chain(
     }
 }
 
+fn inheritance_stem(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let file_part = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed);
+    let stem = file_part
+        .strip_suffix(".olb")
+        .or_else(|| file_part.strip_suffix(".OLB"))
+        .or_else(|| file_part.strip_suffix(".fmb"))
+        .or_else(|| file_part.strip_suffix(".FMB"))
+        .or_else(|| file_part.strip_suffix(".xml"))
+        .or_else(|| file_part.strip_suffix(".XML"))
+        .unwrap_or(file_part);
+    if stem.is_empty() { None } else { Some(stem.to_string()) }
+}
+
+fn find_parent_xml(source_path: &Path, inh: &InheritanceRef) -> Option<PathBuf> {
+    let raw_key = inh.file.as_deref().or(inh.module.as_deref())?;
+    let stem = inheritance_stem(raw_key)?;
+    let lower = stem.to_ascii_lowercase();
+    let upper = stem.to_ascii_uppercase();
+    let candidates = [
+        format!("{}_olb.xml", lower),
+        format!("{}_OLB.xml", upper),
+        format!("{}.olb.xml", lower),
+        format!("{}_fmb.xml", lower),
+        format!("{}_FMB.xml", upper),
+        format!("{}.fmb.xml", lower),
+        format!("{}.xml", lower),
+        format!("{}.xml", upper),
+    ];
+
+    let mut search_dirs = Vec::new();
+    if let Some(parent) = source_path.parent() {
+        if parent.as_os_str().is_empty() {
+            search_dirs.push(PathBuf::from("."));
+        } else {
+            search_dirs.push(parent.to_path_buf());
+        }
+    }
+    let samples = FormsService::samples_dir();
+    if !search_dirs.contains(&samples) {
+        search_dirs.push(samples);
+    }
+    for extra in FormsService::extra_forms_dirs() {
+        if !search_dirs.contains(&extra) {
+            search_dirs.push(extra);
+        }
+    }
+
+    for dir in search_dirs {
+        if !dir.is_dir() {
+            continue;
+        }
+        for cand in &candidates {
+            let p = dir.join(cand);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if candidates.iter().any(|c| fname.eq_ignore_ascii_case(c)) {
+                    let p = entry.path();
+                    if p.is_file() {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn load_parent_modules(index: &ModuleIndex, source_path: &Path, cache_dir: &Path) -> HashMap<String, ModuleIndex> {
+    let mut loaded: HashMap<String, ModuleIndex> = HashMap::new();
+    let mut queue: Vec<InheritanceRef> = Vec::new();
+
+    for b in &index.blocks {
+        if let Some(ref inh) = b.inherited { queue.push(inh.clone()); }
+        for it in &b.items {
+            if let Some(ref inh) = it.inherited { queue.push(inh.clone()); }
+        }
+    }
+    for c in &index.canvases {
+        if let Some(ref inh) = c.inherited { queue.push(inh.clone()); }
+    }
+    for g in &index.graphics {
+        if let Some(ref inh) = g.inherited { queue.push(inh.clone()); }
+    }
+    for pc in &index.property_class_details {
+        if let Some(ref inh) = pc.inherited { queue.push(inh.clone()); }
+    }
+    for va in &index.visual_attribute_details {
+        if let Some(ref inh) = va.inherited { queue.push(inh.clone()); }
+    }
+
+    while let Some(inh) = queue.pop() {
+        if loaded.len() >= 10 {
+            break;
+        }
+        let key_opt = inh.file.as_deref().or(inh.module.as_deref()).and_then(inheritance_stem);
+        let Some(stem) = key_opt else { continue };
+        let key = stem.to_ascii_uppercase();
+        if loaded.contains_key(&key) || key.eq_ignore_ascii_case(&index.key.name) {
+            continue;
+        }
+        if let Some(parent_path) = find_parent_xml(source_path, &inh) {
+            let mtype = if parent_path.to_string_lossy().to_ascii_lowercase().contains("_olb") {
+                ModuleType::ObjectLibrary
+            } else {
+                ModuleType::Form
+            };
+            let pkey = ModuleKey::new(&stem, mtype);
+            if let Ok(parsed) = FormsXmlParser::parse(&pkey, &parent_path, cache_dir) {
+                for pc in &parsed.property_class_details {
+                    if let Some(ref p_inh) = pc.inherited { queue.push(p_inh.clone()); }
+                }
+                for va in &parsed.visual_attribute_details {
+                    if let Some(ref v_inh) = va.inherited { queue.push(v_inh.clone()); }
+                }
+                loaded.insert(parsed.key.name.to_ascii_uppercase(), parsed.clone());
+                loaded.entry(key).or_insert(parsed);
+            }
+        }
+    }
+    loaded
+}
+
+fn va_to_style(va: &VisualAttributeInfo) -> VisualStyle {
+    VisualStyle {
+        back_color: va.back_color.clone(),
+        fore_color: va.fore_color.clone(),
+        fill_pattern: va.fill_pattern.clone(),
+        font_name: va.font_name.clone(),
+        font_size: va.font_size,
+        font_weight: va.font_weight.clone(),
+        font_style: va.font_style.clone(),
+        bevel: None,
+        visual_attribute: None,
+        prompt_fore_color: va.prompt_fore_color.clone(),
+        prompt_font_name: va.prompt_font_name.clone(),
+        prompt_font_size: va.prompt_font_size,
+        prompt_font_weight: va.prompt_font_weight.clone(),
+    }
+}
+
+fn resolve_va_style(
+    index: &ModuleIndex,
+    parents: &HashMap<String, ModuleIndex>,
+    va_name: &str,
+    visited: &mut HashSet<String>,
+) -> Option<VisualStyle> {
+    let key = format!("{}:{}", index.key.name, va_name).to_ascii_uppercase();
+    if !visited.insert(key) {
+        return None;
+    }
+    if let Some(va) = index.visual_attribute_details.iter().find(|v| v.name.eq_ignore_ascii_case(va_name)) {
+        let mut style = va_to_style(va);
+        if let Some(ref inh) = va.inherited {
+            if let Some(p_mod) = find_parent_module(parents, inh) {
+                let target = inh.name.as_deref().unwrap_or(va_name);
+                if let Some(parent_style) = resolve_va_style(p_mod, parents, target, visited) {
+                    style = style.over(&parent_style);
+                }
+            }
+        }
+        return Some(style);
+    }
+    for p_mod in parents.values() {
+        if let Some(va) = p_mod.visual_attribute_details.iter().find(|v| v.name.eq_ignore_ascii_case(va_name)) {
+            return Some(va_to_style(va));
+        }
+    }
+    None
+}
+
+fn find_parent_module<'a>(parents: &'a HashMap<String, ModuleIndex>, inh: &InheritanceRef) -> Option<&'a ModuleIndex> {
+    for raw in [inh.file.as_deref(), inh.module.as_deref()].into_iter().flatten() {
+        if let Some(stem) = inheritance_stem(raw) {
+            if let Some(m) = parents.get(&stem.to_ascii_uppercase()) {
+                return Some(m);
+            }
+        }
+    }
+    None
+}
+
+struct ResolvedPc {
+    style: VisualStyle,
+    geometry: ItemGeometry,
+    dml: ItemDml,
+    item_type: Option<String>,
+    prompt: Option<String>,
+    label: Option<String>,
+    prompt_attachment_edge: Option<String>,
+    prompt_attachment_offset: Option<i32>,
+    prompt_align: Option<String>,
+}
+
+fn resolve_pc_full(
+    index: &ModuleIndex,
+    parents: &HashMap<String, ModuleIndex>,
+    pc_name: &str,
+    visited: &mut HashSet<String>,
+    hops: usize,
+) -> Option<ResolvedPc> {
+    let key = format!("{}:{}", index.key.name, pc_name).to_ascii_uppercase();
+    if hops >= 10 || !visited.insert(key) {
+        return None;
+    }
+    let pc = index.property_class_details.iter().find(|c| c.name.eq_ignore_ascii_case(pc_name))?;
+    let mut style = pc.style.clone().unwrap_or_default();
+    if let Some(ref va_name) = style.visual_attribute {
+        if let Some(va_style) = resolve_va_style(index, parents, va_name, &mut HashSet::new()) {
+            style = style.over(&va_style);
+        }
+    }
+    let mut geom = pc.geometry.clone().unwrap_or_default();
+    let mut dml = pc.item.clone().unwrap_or_default();
+    let mut item_type = pc.item_type.clone();
+    let mut prompt = pc.prompt.clone();
+    let mut label = pc.label.clone();
+    let mut edge = pc.prompt_attachment_edge.clone();
+    let mut offset = pc.prompt_attachment_offset;
+    let mut align = pc.prompt_align.clone();
+
+    if let Some(ref parent_pc) = pc.property_class {
+        if let Some(parent) = resolve_pc_full(index, parents, parent_pc, visited, hops + 1) {
+            style = style.over(&parent.style);
+            geom = geom.over(&parent.geometry);
+            dml = dml.over(&parent.dml);
+            item_type = item_type.or(parent.item_type);
+            prompt = prompt.or(parent.prompt);
+            label = label.or(parent.label);
+            edge = edge.or(parent.prompt_attachment_edge);
+            offset = offset.or(parent.prompt_attachment_offset);
+            align = align.or(parent.prompt_align);
+        }
+    } else if let Some(ref inh) = pc.inherited {
+        if let Some(p_mod) = find_parent_module(parents, inh) {
+            let target = inh.name.as_deref().unwrap_or(pc_name);
+            if let Some(parent) = resolve_pc_full(p_mod, parents, target, visited, hops + 1) {
+                style = style.over(&parent.style);
+                geom = geom.over(&parent.geometry);
+                dml = dml.over(&parent.dml);
+                item_type = item_type.or(parent.item_type);
+                prompt = prompt.or(parent.prompt);
+                label = label.or(parent.label);
+                edge = edge.or(parent.prompt_attachment_edge);
+                offset = offset.or(parent.prompt_attachment_offset);
+                align = align.or(parent.prompt_align);
+            }
+        }
+    }
+
+    Some(ResolvedPc {
+        style,
+        geometry: geom,
+        dml,
+        item_type,
+        prompt,
+        label,
+        prompt_attachment_edge: edge,
+        prompt_attachment_offset: offset,
+        prompt_align: align,
+    })
+}
+
+fn apply_style_to_item(item: &mut ItemInfo, style: &VisualStyle) {
+    if item.back_color.is_none() { item.back_color = style.back_color.clone(); }
+    if item.fore_color.is_none() { item.fore_color = style.fore_color.clone(); }
+    if item.fill_pattern.is_none() { item.fill_pattern = style.fill_pattern.clone(); }
+    if item.font_name.is_none() { item.font_name = style.font_name.clone(); }
+    if item.font_size.is_none() { item.font_size = style.font_size; }
+    if item.font_weight.is_none() { item.font_weight = style.font_weight.clone(); }
+    if item.font_style.is_none() { item.font_style = style.font_style.clone(); }
+    if item.bevel.is_none() { item.bevel = style.bevel.clone(); }
+    if item.visual_attribute.is_none() { item.visual_attribute = style.visual_attribute.clone(); }
+    if item.prompt_fore_color.is_none() { item.prompt_fore_color = style.prompt_fore_color.clone(); }
+    if item.prompt_font_name.is_none() { item.prompt_font_name = style.prompt_font_name.clone(); }
+    if item.prompt_font_size.is_none() { item.prompt_font_size = style.prompt_font_size; }
+    if item.prompt_font_weight.is_none() { item.prompt_font_weight = style.prompt_font_weight.clone(); }
+}
+
+fn find_parent_item<'a>(p_mod: &'a ModuleIndex, inh: &InheritanceRef) -> Option<&'a ItemInfo> {
+    let target_name = inh.name.as_deref()?;
+    let block_hint = inh.owner_path.as_deref().and_then(|p| p.split('.').next());
+    if let Some(b_name) = block_hint {
+        if let Some(blk) = p_mod.blocks.iter().find(|b| b.name.eq_ignore_ascii_case(b_name)) {
+            if let Some(it) = blk.items.iter().find(|i| i.name.eq_ignore_ascii_case(target_name)) {
+                return Some(it);
+            }
+        }
+    }
+    for blk in &p_mod.blocks {
+        if let Some(it) = blk.items.iter().find(|i| i.name.eq_ignore_ascii_case(target_name)) {
+            return Some(it);
+        }
+    }
+    None
+}
+
+fn resolve_module_inheritance(index: &mut ModuleIndex, source_path: &Path, cache_dir: &Path) {
+    let parents = load_parent_modules(index, source_path, cache_dir);
+    let mod_snapshot = index.clone();
+
+    for block in &mut index.blocks {
+        for item in &mut block.items {
+            // 1. Item's own VisualAttribute
+            if let Some(ref va_name) = item.visual_attribute.clone() {
+                if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, va_name, &mut HashSet::new()) {
+                    apply_style_to_item(item, &va_style);
+                }
+            }
+            // 2. Local PropertyClass
+            if let Some(ref pc_name) = item.property_class.clone() {
+                if let Some(pc) = resolve_pc_full(&mod_snapshot, &parents, pc_name, &mut HashSet::new(), 0) {
+                    apply_style_to_item(item, &pc.style);
+                    if item.width.is_none() { item.width = pc.geometry.width; }
+                    if item.height.is_none() { item.height = pc.geometry.height; }
+                    if item.item_type.is_none() { item.item_type = pc.item_type; }
+                    if item.prompt.is_none() { item.prompt = pc.prompt; }
+                    if item.label.is_none() { item.label = pc.label; }
+                    if !item.prompt_edge_set {
+                        if let Some(edge) = pc.prompt_attachment_edge { item.prompt_attachment_edge = edge; item.prompt_edge_set = true; }
+                    }
+                    if !item.prompt_offset_set {
+                        if let Some(off) = pc.prompt_attachment_offset { item.prompt_attachment_offset = off; item.prompt_offset_set = true; }
+                    }
+                    if !item.prompt_align_set {
+                        if let Some(align) = pc.prompt_align { item.prompt_align = align; item.prompt_align_set = true; }
+                    }
+                }
+            }
+            // 3. External ParentFilename / ParentModule (OLB or parent FMB)
+            if let Some(ref inh) = item.inherited.clone() {
+                if let Some(p_mod) = find_parent_module(&parents, inh) {
+                    let target = inh.name.as_deref().unwrap_or(&item.name);
+                    if let Some(p_item) = find_parent_item(p_mod, inh) {
+                        if item.width.is_none() { item.width = p_item.width; }
+                        if item.height.is_none() { item.height = p_item.height; }
+                        if item.item_type.is_none() { item.item_type = p_item.item_type.clone(); }
+                        if item.prompt.is_none() { item.prompt = p_item.prompt.clone(); }
+                        if item.label.is_none() { item.label = p_item.label.clone(); }
+                        if item.back_color.is_none() { item.back_color = p_item.back_color.clone(); }
+                        if item.fore_color.is_none() { item.fore_color = p_item.fore_color.clone(); }
+                        if item.fill_pattern.is_none() { item.fill_pattern = p_item.fill_pattern.clone(); }
+                        if item.bevel.is_none() { item.bevel = p_item.bevel.clone(); }
+                        if item.font_name.is_none() { item.font_name = p_item.font_name.clone(); }
+                        if item.font_size.is_none() { item.font_size = p_item.font_size; }
+                        if item.font_weight.is_none() { item.font_weight = p_item.font_weight.clone(); }
+                        if item.font_style.is_none() { item.font_style = p_item.font_style.clone(); }
+                        if item.radio_buttons.is_empty() && !p_item.radio_buttons.is_empty() {
+                            item.radio_buttons = p_item.radio_buttons.clone();
+                        }
+                        if !item.prompt_edge_set && p_item.prompt_edge_set {
+                            item.prompt_attachment_edge = p_item.prompt_attachment_edge.clone();
+                            item.prompt_edge_set = true;
+                        }
+                        if !item.prompt_offset_set && p_item.prompt_offset_set {
+                            item.prompt_attachment_offset = p_item.prompt_attachment_offset;
+                            item.prompt_offset_set = true;
+                        }
+                        if !item.prompt_align_set && p_item.prompt_align_set {
+                            item.prompt_align = p_item.prompt_align.clone();
+                            item.prompt_align_set = true;
+                        }
+                        if item.prompt_align_offset == 0 && p_item.prompt_align_offset != 0 {
+                            item.prompt_align_offset = p_item.prompt_align_offset;
+                        }
+                        if item.prompt_fore_color.is_none() { item.prompt_fore_color = p_item.prompt_fore_color.clone(); }
+                        if item.prompt_font_name.is_none() { item.prompt_font_name = p_item.prompt_font_name.clone(); }
+                        if item.prompt_font_size.is_none() { item.prompt_font_size = p_item.prompt_font_size; }
+                        if item.prompt_font_weight.is_none() { item.prompt_font_weight = p_item.prompt_font_weight.clone(); }
+                        if let Some(ref p_va) = p_item.visual_attribute {
+                            if let Some(va_style) = resolve_va_style(p_mod, &parents, p_va, &mut HashSet::new()) {
+                                apply_style_to_item(item, &va_style);
+                            }
+                        }
+                    } else if let Some(pc) = resolve_pc_full(p_mod, &parents, target, &mut HashSet::new(), 0) {
+                        apply_style_to_item(item, &pc.style);
+                        if item.width.is_none() { item.width = pc.geometry.width; }
+                        if item.height.is_none() { item.height = pc.geometry.height; }
+                        if item.item_type.is_none() { item.item_type = pc.item_type; }
+                        if item.prompt.is_none() { item.prompt = pc.prompt; }
+                        if item.label.is_none() { item.label = pc.label; }
+                    } else if let Some(va_style) = resolve_va_style(p_mod, &parents, target, &mut HashSet::new()) {
+                        apply_style_to_item(item, &va_style);
+                    }
+                }
+            }
+            // Apply any newly inherited visual_attribute if colors are still unset
+            if let Some(ref va_name) = item.visual_attribute.clone() {
+                if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, va_name, &mut HashSet::new()) {
+                    apply_style_to_item(item, &va_style);
+                }
+            }
+        }
+    }
+
+    for canvas in &mut index.canvases {
+        if let Some(ref va_name) = canvas.visual_attribute {
+            if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, va_name, &mut HashSet::new()) {
+                if canvas.back_color.is_none() { canvas.back_color = va_style.back_color; }
+            }
+        }
+        if let Some(ref inh) = canvas.inherited {
+            if let Some(p_mod) = find_parent_module(&parents, inh) {
+                let target = inh.name.as_deref().unwrap_or(&canvas.name);
+                if let Some(p_canvas) = p_mod.canvases.iter().find(|c| c.name.eq_ignore_ascii_case(target)) {
+                    if canvas.back_color.is_none() { canvas.back_color = p_canvas.back_color.clone(); }
+                    if canvas.viewport_width.is_none() { canvas.viewport_width = p_canvas.viewport_width; }
+                    if canvas.viewport_height.is_none() { canvas.viewport_height = p_canvas.viewport_height; }
+                }
+            }
+        }
+    }
+
+    for g in &mut index.graphics {
+        if let Some(ref va_name) = g.visual_attribute {
+            if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, va_name, &mut HashSet::new()) {
+                if g.back_color.is_none() { g.back_color = va_style.back_color; }
+                if g.fore_color.is_none() { g.fore_color = va_style.fore_color; }
+                if g.fill_pattern.is_none() { g.fill_pattern = va_style.fill_pattern; }
+                if g.font_name.is_none() { g.font_name = va_style.font_name; }
+                if g.font_size.is_none() { g.font_size = va_style.font_size; }
+                if g.font_weight.is_none() { g.font_weight = va_style.font_weight; }
+            }
+        }
+        if let Some(ref inh) = g.inherited {
+            if let Some(p_mod) = find_parent_module(&parents, inh) {
+                let target = inh.name.as_deref().unwrap_or(&g.name);
+                if let Some(p_g) = p_mod.graphics.iter().find(|pg| pg.name.eq_ignore_ascii_case(target)) {
+                    if g.back_color.is_none() { g.back_color = p_g.back_color.clone(); }
+                    if g.fore_color.is_none() { g.fore_color = p_g.fore_color.clone(); }
+                    if g.edge_foreground_color.is_none() { g.edge_foreground_color = p_g.edge_foreground_color.clone(); }
+                    if g.fill_pattern.is_none() { g.fill_pattern = p_g.fill_pattern.clone(); }
+                    if g.bevel.is_none() { g.bevel = p_g.bevel.clone(); }
+                    if g.font_name.is_none() { g.font_name = p_g.font_name.clone(); }
+                    if g.font_size.is_none() { g.font_size = p_g.font_size; }
+                    if g.font_weight.is_none() { g.font_weight = p_g.font_weight.clone(); }
+                    if g.graphics_text.is_none() { g.graphics_text = p_g.graphics_text.clone(); }
+                    if g.frame_title.is_none() { g.frame_title = p_g.frame_title.clone(); }
+                    if g.frame_title_fore_color.is_none() { g.frame_title_fore_color = p_g.frame_title_fore_color.clone(); }
+                    if g.frame_title_back_color.is_none() { g.frame_title_back_color = p_g.frame_title_back_color.clone(); }
+                    if g.frame_title_font_name.is_none() { g.frame_title_font_name = p_g.frame_title_font_name.clone(); }
+                    if g.frame_title_font_size.is_none() { g.frame_title_font_size = p_g.frame_title_font_size; }
+                    if g.frame_title_font_weight.is_none() { g.frame_title_font_weight = p_g.frame_title_font_weight.clone(); }
+                    if g.frame_title_visual_attribute.is_none() { g.frame_title_visual_attribute = p_g.frame_title_visual_attribute.clone(); }
+                }
+            }
+        }
+        if let Some(ref ft_va) = g.frame_title_visual_attribute {
+            if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, ft_va, &mut HashSet::new()) {
+                if g.frame_title_fore_color.is_none() { g.frame_title_fore_color = va_style.fore_color; }
+                if g.frame_title_back_color.is_none() { g.frame_title_back_color = va_style.back_color; }
+                if g.frame_title_font_name.is_none() { g.frame_title_font_name = va_style.font_name; }
+                if g.frame_title_font_size.is_none() { g.frame_title_font_size = va_style.font_size; }
+                if g.frame_title_font_weight.is_none() { g.frame_title_font_weight = va_style.font_weight; }
+            }
+        }
+    }
+}
+
+fn strip_plsql_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                if bytes[i] == b'\n' { out.push('\n'); }
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+        } else if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn extract_first_quoted_arg(line_upper: &str, line_orig: &str, fn_upper: &str) -> Option<String> {
+    let idx = line_upper.find(fn_upper)?;
+    let rest = &line_orig[idx + fn_upper.len()..];
+    let q1 = rest.find('\'')?;
+    let after_q1 = &rest[q1 + 1..];
+    let q2 = after_q1.find('\'')?;
+    Some(after_q1[..q2].trim().to_string())
+}
+
+fn extract_branch_for_tab(src: &str, tab_name: &str) -> Option<String> {
+    let clean = strip_plsql_comments(src);
+    let needle = format!("'{}'", tab_name.to_ascii_uppercase());
+    let lines: Vec<&str> = clean.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        let up = line.to_ascii_uppercase();
+        if (up.contains("IF ") || up.contains("ELSIF ") || up.contains("WHEN ")) && up.contains(&needle) {
+            let mut body = String::new();
+            let mut depth = 0i32;
+            for &l in &lines[idx + 1..] {
+                let lu = l.trim().to_ascii_uppercase();
+                if depth == 0 && (lu.starts_with("ELSIF ") || lu.starts_with("ELSE") || lu.starts_with("END IF") || lu.starts_with("WHEN ")) {
+                    break;
+                }
+                if lu.starts_with("IF ") || lu.contains(" THEN") && !lu.starts_with("ELSIF ") && !lu.starts_with("ELSE") {
+                    if lu.starts_with("IF ") { depth += 1; }
+                }
+                if lu.starts_with("END IF") {
+                    depth = (depth - 1).max(0);
+                }
+                body.push_str(l);
+                body.push('\n');
+            }
+            if !body.trim().is_empty() {
+                return Some(body);
+            }
+        }
+    }
+    None
+}
+
+fn collect_default_views(
+    src: &str,
+    canvas_lookup: &HashMap<String, String>,
+    exclude_canvas: &str,
+    pu_texts: &HashMap<String, String>,
+    depth: usize,
+) -> Vec<String> {
+    let clean = strip_plsql_comments(src);
+    let mut unconditional = Vec::new();
+    let mut if_branch = Vec::new();
+    let mut else_branch = Vec::new();
+    let mut has_else = false;
+    let mut branch_state = 0u8; // 0 = unconditional, 1 = if, 2 = elsif, 3 = else
+    let mut if_depth = 0i32;
+
+    for line in clean.lines() {
+        let trimmed = line.trim();
+        let up = trimmed.to_ascii_uppercase();
+        if up.starts_with("IF ") {
+            if if_depth == 0 {
+                branch_state = 1;
+            }
+            if_depth += 1;
+        } else if up.starts_with("ELSIF ") && if_depth == 1 {
+            branch_state = 2;
+        } else if (up == "ELSE" || up.starts_with("ELSE ")) && if_depth == 1 {
+            branch_state = 3;
+            has_else = true;
+        } else if up.starts_with("END IF") {
+            if_depth = (if_depth - 1).max(0);
+            if if_depth == 0 {
+                branch_state = 0;
+            }
+        }
+
+        let mut found: Vec<String> = Vec::new();
+        for fn_pat in ["SHOW_VIEW(", "SHOW_VIEW (", "GET_CANVAS_PROPERTY(", "SET_CANVAS_PROPERTY("] {
+            if let Some(arg) = extract_first_quoted_arg(&up, trimmed, fn_pat) {
+                if !fn_pat.starts_with("SHOW_VIEW") && !up.contains("TOPMOST_TAB_PAGE") {
+                    continue;
+                }
+                if let Some(real_name) = canvas_lookup.get(&arg.to_ascii_uppercase()) {
+                    if !real_name.eq_ignore_ascii_case(exclude_canvas) {
+                        found.push(real_name.clone());
+                    }
+                }
+            }
+        }
+
+        if depth < 2 && (branch_state == 0 || branch_state == 1 || branch_state == 3) {
+            for (pu_up, pu_src) in pu_texts {
+                if up.contains(pu_up) && !up.starts_with("PROCEDURE ") && !up.starts_with("FUNCTION ") {
+                    let sub = collect_default_views(pu_src, canvas_lookup, exclude_canvas, pu_texts, depth + 1);
+                    found.extend(sub);
+                }
+            }
+        }
+
+        for name in found {
+            match branch_state {
+                0 => if !unconditional.contains(&name) { unconditional.push(name); },
+                1 => if !if_branch.contains(&name) { if_branch.push(name); },
+                3 => if !else_branch.contains(&name) { else_branch.push(name); },
+                _ => {}
+            }
+        }
+    }
+
+    let mut result = unconditional;
+    let chosen = if has_else { else_branch } else { if_branch };
+    for name in chosen {
+        if !result.contains(&name) {
+            result.push(name);
+        }
+    }
+    result
+}
+
+fn resolve_tab_page_associations(index: &mut ModuleIndex, cache_dir: &Path) {
+    let canvas_lookup: HashMap<String, String> = index
+        .canvases
+        .iter()
+        .map(|c| (c.name.to_ascii_uppercase(), c.name.clone()))
+        .collect();
+
+    let mut pu_texts: HashMap<String, String> = HashMap::new();
+    for pu in &index.program_units {
+        if let Some(ref sref) = pu.text_ref {
+            if let Ok(txt) = fs::read_to_string(cache_dir.join(&sref.file)) {
+                pu_texts.insert(pu.name.to_ascii_uppercase(), txt);
+            }
+        }
+    }
+
+    let mut tab_triggers: Vec<String> = Vec::new();
+    for tr in &index.triggers {
+        if tr.name.eq_ignore_ascii_case("WHEN-TAB-PAGE-CHANGED") {
+            if let Some(ref sref) = tr.text_ref {
+                if let Ok(txt) = fs::read_to_string(cache_dir.join(&sref.file)) {
+                    tab_triggers.push(txt);
+                }
+            }
+        }
+    }
+
+    // Collect direct item/graphic counts per (canvas_upper, tab_page_upper)
+    let mut direct_counts: HashMap<(String, String), usize> = HashMap::new();
+    for b in &index.blocks {
+        for it in &b.items {
+            if let (Some(cn), Some(tp)) = (&it.canvas_name, &it.tab_page_name) {
+                *direct_counts.entry((cn.to_ascii_uppercase(), tp.to_ascii_uppercase())).or_default() += 1;
+            }
+        }
+    }
+    for g in &index.graphics {
+        if let (Some(cn), Some(tp)) = (&g.canvas_name, &g.tab_page_name) {
+            *direct_counts.entry((cn.to_ascii_uppercase(), tp.to_ascii_uppercase())).or_default() += 1;
+        }
+    }
+
+    let canvas_snapshot = index.canvases.clone();
+    for canvas in &mut index.canvases {
+        if canvas.tab_pages.is_empty() {
+            continue;
+        }
+        let c_up = canvas.name.to_ascii_uppercase();
+        for tp in &mut canvas.tab_pages {
+            let mut assoc: Vec<String> = Vec::new();
+            // 1. Check ProgramUnits and WHEN-TAB-PAGE-CHANGED for a branch matching tp.name
+            for pu_src in pu_texts.values() {
+                if let Some(branch) = extract_branch_for_tab(pu_src, &tp.name) {
+                    for name in collect_default_views(&branch, &canvas_lookup, &canvas.name, &pu_texts, 0) {
+                        if !assoc.contains(&name) {
+                            assoc.push(name);
+                        }
+                    }
+                }
+            }
+            if assoc.is_empty() {
+                for tr_src in &tab_triggers {
+                    if let Some(branch) = extract_branch_for_tab(tr_src, &tp.name) {
+                        for name in collect_default_views(&branch, &canvas_lookup, &canvas.name, &pu_texts, 0) {
+                            if !assoc.contains(&name) {
+                                assoc.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Fallback for empty TabPages: match overlay canvases in same window by TabPage stem
+            let count = direct_counts.get(&(c_up.clone(), tp.name.to_ascii_uppercase())).copied().unwrap_or(0);
+            if assoc.is_empty() && count == 0 {
+                let tp_up = tp.name.to_ascii_uppercase();
+                let stem = tp_up
+                    .strip_suffix("_TAB")
+                    .or_else(|| tp_up.strip_prefix("TAB_"))
+                    .unwrap_or(&tp_up)
+                    .trim_end_matches('S');
+                if stem.len() >= 4 {
+                    for other in &canvas_snapshot {
+                        let is_overlay = matches!(other.canvas_type.as_deref(), Some("Tab") | Some("Stacked"))
+                            || (other.canvas_type.is_none() && (other.viewport_x_position > 0 || other.viewport_y_position > 0));
+                        if !other.name.eq_ignore_ascii_case(&canvas.name)
+                            && other.window_name == canvas.window_name
+                            && is_overlay
+                            && other.name.to_ascii_uppercase().contains(stem)
+                        {
+                            assoc.push(other.name.clone());
+                        }
+                    }
+                }
+            }
+            tp.associated_canvases = assoc;
+        }
+    }
+}
+
 #[cfg(test)]
 mod disk_save_tests {
     use super::*;
@@ -1112,5 +1826,114 @@ mod disk_save_tests {
         let _ = fs::remove_file(&saved_path);
         let _ = fs::remove_dir_all(&extra_dir);
         let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn resolves_visual_attribute_property_class_and_sibling_olb_fmb_inheritance() {
+        let dir = std::env::temp_dir().join(format!("ofw-inherit-{}", std::process::id()));
+        let cache = dir.join("cache");
+        fs::create_dir_all(&dir).unwrap();
+
+        let olb_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Module version="14.1.2.0.0" xmlns="http://xmlns.oracle.com/Forms">
+  <ObjectLibrary Name="UTIL_STD">
+    <ObjectLibraryTab Name="TAB_UI">
+      <VisualAttribute Name="VA_INPUT" BackColor="r100g100b80" ForegroundColor="darkblue" FontName="Tahoma" FontSize="900"/>
+      <PropertyClass Name="PC_STD_BTN" ItemType="Push Button" Width="110" Height="28" BackColor="gray12" Bevel="Raised" FontWeight="Bold"/>
+    </ObjectLibraryTab>
+  </ObjectLibrary>
+</Module>"#;
+        fs::write(dir.join("util_std_olb.xml"), olb_xml).unwrap();
+
+        let parent_fmb_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Module version="14.1.2.0.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="BASE_FORM">
+    <Block Name="EMP">
+      <Item Name="EMPNO" ItemType="Text Item" Width="90" Height="20" Prompt="Employee No" Bevel="Lowered"/>
+    </Block>
+  </FormModule>
+</Module>"#;
+        fs::write(dir.join("base_form_fmb.xml"), parent_fmb_xml).unwrap();
+
+        let child_fmb_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Module version="14.1.2.0.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CHILD_EMP">
+    <VisualAttribute Name="VA_LOCAL" BackColor="white" ParentFilename="util_std.olb" ParentName="VA_INPUT"/>
+    <PropertyClass Name="PC_LOCAL_INPUT" VisualAttributeName="VA_LOCAL" Width="150"/>
+    <Block Name="EMP">
+      <Item Name="EMPNO" ParentModule="BASE_FORM" ParentFilename="base_form.fmb" ParentName="EMPNO" VisualAttributeName="VA_LOCAL" CanvasName="MAIN"/>
+      <Item Name="ENAME" ParentName="PC_LOCAL_INPUT" CanvasName="MAIN" Prompt="Name"/>
+      <Item Name="BTN_OK" ParentFilename="util_std.olb" ParentName="PC_STD_BTN" CanvasName="MAIN" Label="OK"/>
+    </Block>
+    <Canvas Name="MAIN" CanvasType="Content" Width="500" Height="300"/>
+  </FormModule>
+</Module>"#;
+        let child_path = dir.join("child_emp_fmb.xml");
+        fs::write(&child_path, child_fmb_xml).unwrap();
+
+        let service = FormsService::new(&cache);
+        let idx = service.load_module(&child_path).unwrap();
+        let emp = &idx.blocks[0];
+
+        // EMPNO inherits Width/Height/Prompt/Bevel from base_form_fmb.xml + colors/font from VA_LOCAL -> util_std_olb.xml
+        assert_eq!(emp.items[0].width, Some(90));
+        assert_eq!(emp.items[0].height, Some(20));
+        assert_eq!(emp.items[0].prompt.as_deref(), Some("Employee No"));
+        assert_eq!(emp.items[0].bevel.as_deref(), Some("Lowered"));
+        assert_eq!(emp.items[0].back_color.as_deref(), Some("white")); // local VA_LOCAL overrides parent VA_INPUT
+        assert_eq!(emp.items[0].fore_color.as_deref(), Some("darkblue")); // inherited from VA_INPUT in OLB
+        assert_eq!(emp.items[0].font_name.as_deref(), Some("Tahoma"));
+        assert_eq!(emp.items[0].font_size, Some(900));
+
+        // ENAME inherits from local PC_LOCAL_INPUT -> VA_LOCAL -> util_std_olb.xml
+        assert_eq!(emp.items[1].width, Some(150));
+        assert_eq!(emp.items[1].fore_color.as_deref(), Some("darkblue"));
+
+        // BTN_OK inherits from PC_STD_BTN in util_std_olb.xml
+        assert_eq!(emp.items[2].item_type.as_deref(), Some("Push Button"));
+        assert_eq!(emp.items[2].width, Some(110));
+        assert_eq!(emp.items[2].height, Some(28));
+        assert_eq!(emp.items[2].back_color.as_deref(), Some("gray12"));
+        assert_eq!(emp.items[2].bevel.as_deref(), Some("Raised"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolves_tab_page_associated_stacked_and_nested_tab_canvases() {
+        let dir = std::env::temp_dir().join(format!("ofw-tab-assoc-{}", std::process::id()));
+        let cache = dir.join("cache");
+        fs::create_dir_all(&dir).unwrap();
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Module version="14.1.2.0.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="DEPT_MOD">
+    <Trigger Name="WHEN-TAB-PAGE-CHANGED" TriggerText="BEGIN&#10;  TAB_CLICK('CV_TAB_MAIN', :SYSTEM.TAB_NEW_PAGE);&#10;END;"/>
+    <ProgramUnit Name="GO_SEARCH_TAB" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE GO_SEARCH_TAB IS&#10;BEGIN&#10;  SHOW_VIEW('CV_SEARCH_MAIN');&#10;  IF :BLK.MODE = 'ALT' THEN&#10;    SHOW_VIEW('CV_SEARCH_ALT');&#10;  ELSE&#10;    SHOW_VIEW('CV_SEARCH_DEFAULT');&#10;  END IF;&#10;END;"/>
+    <ProgramUnit Name="TAB_CLICK" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE TAB_CLICK(p_cv IN VARCHAR2, p_tab IN VARCHAR2) IS&#10;BEGIN&#10;  IF p_tab = 'SEARCH_TAB' THEN&#10;    GO_SEARCH_TAB;&#10;  ELSIF p_tab = 'RESULTS_TAB' THEN&#10;    SET_CANVAS_PROPERTY('CV_NESTED_TABS', TOPMOST_TAB_PAGE, 'SUB_A');&#10;  END IF;&#10;END;"/>
+    <Canvas Name="CV_TAB_MAIN" CanvasType="Tab" WindowName="WIN0" Width="800" Height="500">
+      <TabPage Name="SEARCH_TAB" Label="Search"/>
+      <TabPage Name="SUMMARY_TAB" Label="Summary"/>
+      <TabPage Name="RESULTS_TAB" Label="Results"/>
+    </Canvas>
+    <Canvas Name="CV_SEARCH_MAIN" WindowName="WIN0" ViewportXPosition="10" ViewportYPosition="40" Width="700" Height="150"/>
+    <Canvas Name="CV_SEARCH_ALT" WindowName="WIN0" ViewportXPosition="10" ViewportYPosition="200" Width="700" Height="150"/>
+    <Canvas Name="CV_SEARCH_DEFAULT" WindowName="WIN0" ViewportXPosition="10" ViewportYPosition="200" Width="700" Height="150"/>
+    <Canvas Name="CV_NESTED_TABS" CanvasType="Tab" WindowName="WIN0" ViewportXPosition="10" ViewportYPosition="40" Width="700" Height="400">
+      <TabPage Name="SUB_A" Label="Sub A"/>
+    </Canvas>
+  </FormModule>
+</Module>"#;
+        let fpath = dir.join("dept_tab_fmb.xml");
+        fs::write(&fpath, xml).unwrap();
+
+        let service = FormsService::new(&cache);
+        let idx = service.load_module(&fpath).unwrap();
+        let main_tab = &idx.canvases[0];
+        assert_eq!(main_tab.tab_pages[0].associated_canvases, vec!["CV_SEARCH_MAIN", "CV_SEARCH_DEFAULT"]);
+        assert!(main_tab.tab_pages[1].associated_canvases.is_empty());
+        assert_eq!(main_tab.tab_pages[2].associated_canvases, vec!["CV_NESTED_TABS"]);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

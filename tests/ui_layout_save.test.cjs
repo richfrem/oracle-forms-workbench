@@ -17,6 +17,7 @@ function setup(fail = false) {
     if (fail) throw new Error('Server unavailable');
     requests.push(JSON.parse(options.body));
   }, renderCanvasSvg() {} });
+  vm.runInContext(source.slice(source.indexOf('  function normalizeOracleFontSize('), source.indexOf('  // Initialize')), context);
   vm.runInContext(source.slice(source.indexOf('  function canvasCoordinateScale('), source.indexOf('  // Visual Canvas 2D SVG Rendering')), context);
   return { context, module, requests };
 }
@@ -75,6 +76,7 @@ function renderLayer(items, options = {}) {
     escapeHtml: value => String(value), normalizeOracleColor: value => value,
     canvas,
   });
+  vm.runInContext(source.slice(source.indexOf('  function normalizeOracleFontSize('), source.indexOf('  // Initialize')), context);
   vm.runInContext(source.slice(source.indexOf('  function canvasCoordinateScale('), source.indexOf('  // Visual Canvas 2D SVG Rendering')), context);
   vm.runInContext(source.slice(source.indexOf('  function buildCanvasLayer('), source.indexOf('  /** Index of the first record shown')), context);
   context.options = options;

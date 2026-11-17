@@ -1390,6 +1390,15 @@ fn resolve_module_inheritance(index: &mut ModuleIndex, source_path: &Path, cache
                     if item.item_type.is_none() { item.item_type = pc.item_type; }
                     if item.prompt.is_none() { item.prompt = pc.prompt; }
                     if item.label.is_none() { item.label = pc.label; }
+                    if !item.prompt_edge_set {
+                        if let Some(edge) = pc.prompt_attachment_edge { item.prompt_attachment_edge = edge; item.prompt_edge_set = true; }
+                    }
+                    if !item.prompt_offset_set {
+                        if let Some(off) = pc.prompt_attachment_offset { item.prompt_attachment_offset = off; item.prompt_offset_set = true; }
+                    }
+                    if !item.prompt_align_set {
+                        if let Some(align) = pc.prompt_align { item.prompt_align = align; item.prompt_align_set = true; }
+                    }
                 }
             }
             // 3. External ParentFilename / ParentModule (OLB or parent FMB)
@@ -1410,6 +1419,28 @@ fn resolve_module_inheritance(index: &mut ModuleIndex, source_path: &Path, cache
                         if item.font_size.is_none() { item.font_size = p_item.font_size; }
                         if item.font_weight.is_none() { item.font_weight = p_item.font_weight.clone(); }
                         if item.font_style.is_none() { item.font_style = p_item.font_style.clone(); }
+                        if item.radio_buttons.is_empty() && !p_item.radio_buttons.is_empty() {
+                            item.radio_buttons = p_item.radio_buttons.clone();
+                        }
+                        if !item.prompt_edge_set && p_item.prompt_edge_set {
+                            item.prompt_attachment_edge = p_item.prompt_attachment_edge.clone();
+                            item.prompt_edge_set = true;
+                        }
+                        if !item.prompt_offset_set && p_item.prompt_offset_set {
+                            item.prompt_attachment_offset = p_item.prompt_attachment_offset;
+                            item.prompt_offset_set = true;
+                        }
+                        if !item.prompt_align_set && p_item.prompt_align_set {
+                            item.prompt_align = p_item.prompt_align.clone();
+                            item.prompt_align_set = true;
+                        }
+                        if item.prompt_align_offset == 0 && p_item.prompt_align_offset != 0 {
+                            item.prompt_align_offset = p_item.prompt_align_offset;
+                        }
+                        if item.prompt_fore_color.is_none() { item.prompt_fore_color = p_item.prompt_fore_color.clone(); }
+                        if item.prompt_font_name.is_none() { item.prompt_font_name = p_item.prompt_font_name.clone(); }
+                        if item.prompt_font_size.is_none() { item.prompt_font_size = p_item.prompt_font_size; }
+                        if item.prompt_font_weight.is_none() { item.prompt_font_weight = p_item.prompt_font_weight.clone(); }
                         if let Some(ref p_va) = p_item.visual_attribute {
                             if let Some(va_style) = resolve_va_style(p_mod, &parents, p_va, &mut HashSet::new()) {
                                 apply_style_to_item(item, &va_style);
@@ -1479,7 +1510,22 @@ fn resolve_module_inheritance(index: &mut ModuleIndex, source_path: &Path, cache
                     if g.font_weight.is_none() { g.font_weight = p_g.font_weight.clone(); }
                     if g.graphics_text.is_none() { g.graphics_text = p_g.graphics_text.clone(); }
                     if g.frame_title.is_none() { g.frame_title = p_g.frame_title.clone(); }
+                    if g.frame_title_fore_color.is_none() { g.frame_title_fore_color = p_g.frame_title_fore_color.clone(); }
+                    if g.frame_title_back_color.is_none() { g.frame_title_back_color = p_g.frame_title_back_color.clone(); }
+                    if g.frame_title_font_name.is_none() { g.frame_title_font_name = p_g.frame_title_font_name.clone(); }
+                    if g.frame_title_font_size.is_none() { g.frame_title_font_size = p_g.frame_title_font_size; }
+                    if g.frame_title_font_weight.is_none() { g.frame_title_font_weight = p_g.frame_title_font_weight.clone(); }
+                    if g.frame_title_visual_attribute.is_none() { g.frame_title_visual_attribute = p_g.frame_title_visual_attribute.clone(); }
                 }
+            }
+        }
+        if let Some(ref ft_va) = g.frame_title_visual_attribute {
+            if let Some(va_style) = resolve_va_style(&mod_snapshot, &parents, ft_va, &mut HashSet::new()) {
+                if g.frame_title_fore_color.is_none() { g.frame_title_fore_color = va_style.fore_color; }
+                if g.frame_title_back_color.is_none() { g.frame_title_back_color = va_style.back_color; }
+                if g.frame_title_font_name.is_none() { g.frame_title_font_name = va_style.font_name; }
+                if g.frame_title_font_size.is_none() { g.frame_title_font_size = va_style.font_size; }
+                if g.frame_title_font_weight.is_none() { g.frame_title_font_weight = va_style.font_weight; }
             }
         }
     }

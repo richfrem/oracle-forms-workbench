@@ -291,6 +291,104 @@
     return sz;
   }
 
+  // Extracted from frmall.jar: oracle.ewt.laf.generic.FixedColorScheme & oracle.ewt.laf.oracle.OracleSwanColorScheme
+  const EWT_GENERIC_COLORS = {
+    desktop: '#008080',
+    activeCaption: '#000080',
+    activeCaptionText: '#ffffff',
+    control: '#c0c0c0',
+    controlHighlight: '#dfdfdf',
+    controlLtHighlight: '#ffffff',
+    controlShadow: '#808080',
+    controlDkShadow: '#000000',
+    text: '#ffffff',
+    textText: '#000000',
+    disabledBg: '#dfdfdf',
+    disabledText: '#808080',
+    info: '#ffffe1',
+  };
+
+  const EWT_ORACLE_SWAN_COLORS = {
+    light: '#eaeff5',
+    accent: '#c1d1e6',
+    surface: '#d2deee',
+    selection: '#d4e2ec',
+    border: '#9ec1df',
+    shadow: '#728fae',
+    active: '#2d84c5',
+    text: '#3c3c3c',
+  };
+
+  /**
+   * Port of oracle.forms.ui.GenericBorderPainter / OracleBorderPainter.
+   * Bevel values: None (0), Raised (1), Lowered (2), Plain (3).
+   */
+  function renderSvgBevelBox(x, y, w, h, bevel, fill, extraAttrs = '') {
+    const b = (bevel || 'Lowered').trim().toLowerCase();
+    if (b === 'none') {
+      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${escapeHtml(fill)}" ${extraAttrs}/>`;
+    }
+    if (b === 'plain') {
+      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${escapeHtml(fill)}" stroke="${EWT_GENERIC_COLORS.controlDkShadow}" stroke-width="1" ${extraAttrs}/>`;
+    }
+    const isRaised = b === 'raised' || b === 'outset';
+    const outerTL = isRaised ? EWT_GENERIC_COLORS.controlLtHighlight : EWT_GENERIC_COLORS.controlShadow;
+    const innerTL = isRaised ? EWT_GENERIC_COLORS.controlHighlight : EWT_GENERIC_COLORS.controlDkShadow;
+    const outerBR = isRaised ? EWT_GENERIC_COLORS.controlDkShadow : EWT_GENERIC_COLORS.controlLtHighlight;
+    const innerBR = isRaised ? EWT_GENERIC_COLORS.controlShadow : EWT_GENERIC_COLORS.controlHighlight;
+    return `
+      <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${escapeHtml(fill)}" ${extraAttrs}/>
+      <line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" stroke="${outerTL}" stroke-width="1"/>
+      <line x1="${x}" y1="${y}" x2="${x}" y2="${y + h}" stroke="${outerTL}" stroke-width="1"/>
+      <line x1="${x + 1}" y1="${y + 1}" x2="${x + w - 1}" y2="${y + 1}" stroke="${innerTL}" stroke-width="1"/>
+      <line x1="${x + 1}" y1="${y + 1}" x2="${x + 1}" y2="${y + h - 1}" stroke="${innerTL}" stroke-width="1"/>
+      <line x1="${x}" y1="${y + h}" x2="${x + w}" y2="${y + h}" stroke="${outerBR}" stroke-width="1"/>
+      <line x1="${x + w}" y1="${y}" x2="${x + w}" y2="${y + h}" stroke="${outerBR}" stroke-width="1"/>
+      <line x1="${x + 1}" y1="${y + h - 1}" x2="${x + w - 1}" y2="${y + h - 1}" stroke="${innerBR}" stroke-width="1"/>
+      <line x1="${x + w - 1}" y1="${y + 1}" x2="${x + w - 1}" y2="${y + h - 1}" stroke="${innerBR}" stroke-width="1"/>
+    `;
+  }
+
+  /**
+   * Port of oracle.forms.handler.PromptItem.computeBoundingBox().
+   * Computes SVG text coordinates, text-anchor, and bottom-anchor flag from PromptAttachmentEdge,
+   * PromptAttachmentOffset, PromptAlign, and PromptAlignOffset.
+   */
+  function computePromptLayout(x, y, w, h, item, coordScale, fontSize) {
+    const edge = (item.promptAttachmentEdge || 'Start').trim().toLowerCase();
+    const align = (item.promptAlign || 'Start').trim().toLowerCase();
+    const rawOffset = item.promptAttachmentOffset ?? 5;
+    const offset = Math.round(rawOffset * coordScale);
+    const alignOffset = Math.round((item.promptAlignOffset || 0) * coordScale);
+
+    if (edge === 'top' || edge === 'bottom') {
+      let px = x + alignOffset;
+      let anchor = 'start';
+      if (align === 'center') {
+        px = x + Math.round(w / 2) + alignOffset;
+        anchor = 'middle';
+      } else if (align === 'end' || align === 'right') {
+        px = x + w + alignOffset;
+        anchor = 'end';
+      }
+      if (edge === 'top') {
+        return { px, py: y - Math.max(3, offset), anchor, anchorBottom: true };
+      }
+      return { px, py: y + h + Math.max(3, offset) + fontSize, anchor, anchorBottom: false };
+    }
+
+    let py = y + Math.min(fontSize + 2, Math.max(10, h - 4)) + alignOffset;
+    if (align === 'center') {
+      py = y + Math.round(h / 2 + fontSize * 0.35) + alignOffset;
+    } else if (align === 'end' || align === 'bottom') {
+      py = y + h - 3 + alignOffset;
+    }
+    if (edge === 'end' || edge === 'right') {
+      return { px: x + w + Math.max(3, offset), py, anchor: 'start', anchorBottom: false };
+    }
+    return { px: x - Math.max(3, offset), py, anchor: 'end', anchorBottom: false };
+  }
+
   function renderSvgMultilineText(x, y, text, attrs, lineHeight = 13, anchorBottom = false) {
     const lines = String(text ?? '').split(/\r?\n/);
     if (lines.length <= 1) {
@@ -2981,9 +3079,12 @@
 
     // Layer 0.5: Tab Canvas Notebook Body & Interactive Tab Headers
     let tabClipId = null;
+    let surfaceBg = bgCol;
     if (isTabCanvas) {
       const tabBodyH = Math.max(60, tabHeight - 26);
       tabClipId = `tab-body-clip-${canvas.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const activeTpObj = canvas.tabPages.find(tp => tp.name === activeTabPage);
+      surfaceBg = normalizeOracleColor(activeTpObj?.backColor) || '#f5f4ef';
 
       svgHtml += `
         <defs><clipPath id="${tabClipId}"><rect x="${tabStartX + 2}" y="${tabBodyY + 1}" width="${Math.max(10, tabWidth - 4)}" height="${Math.max(10, tabBodyH - 3)}"/></clipPath></defs>
@@ -3054,15 +3155,19 @@
       const isSelGraphic = selectedObject && selectedObject.type === 'GRAPHIC' && selectedObject.graphic.name === g.name;
 
       if (gTypeLower === 'frame' || gType === '8') {
-        const title = g.frameTitle || g.name || '';
-        const titleColor = normalizeOracleColor(g.foreColor) || '#000';
+        const title = g.frameTitle || '';
+        const maskBg = normalizeOracleColor(g.frameTitleBackColor) || (fillCol !== 'none' ? fillCol : surfaceBg);
+        const titleColor = normalizeOracleColor(g.frameTitleForeColor) || '#000000';
+        const titleFont = g.frameTitleFontName || 'Segoe UI, Tahoma, sans-serif';
+        const titleSize = normalizeOracleFontSize(g.frameTitleFontSize, 11);
+        const titleWeight = g.frameTitleFontWeight || 'bold';
         svgHtml += `
           <g class="svg-graphic frame ${isSelGraphic ? 'svg-item-selected' : ''}" style="cursor:pointer;" onclick="window.selectSvgGraphic('${escapeHtml(g.name)}')">
             <rect x="${gx}" y="${gy}" width="${gw}" height="${gh}" fill="${fillCol}" stroke="${isSelGraphic ? '#38bdf8' : edgeCol}" stroke-width="${Math.max(1.5, lw)}" rx="2"/>
-            <rect x="${gx + 1}" y="${gy + 1}" width="${Math.max(0, gw - 2)}" height="${Math.max(0, gh - 2)}" fill="none" stroke="#ffffff" stroke-width="1" rx="2"/>
+            <rect x="${gx + 1}" y="${gy + 1}" width="${Math.max(0, gw - 2)}" height="${Math.max(0, gh - 2)}" fill="none" stroke="${EWT_GENERIC_COLORS.controlLtHighlight}" stroke-width="1" rx="2"/>
             ${title ? `
-              <rect x="${gx + 10}" y="${gy - 7}" width="${title.length * 7 + 12}" height="14" fill="${bgCol}"/>
-              <text x="${gx + 15}" y="${gy + 4}" font-family="Segoe UI, Tahoma, sans-serif" font-size="11" font-weight="bold" fill="${escapeHtml(titleColor)}">${escapeHtml(title)}</text>
+              <rect x="${gx + 10}" y="${gy - 7}" width="${Math.max(24, Math.round(title.length * (titleSize * 0.62) + 12))}" height="14" fill="${escapeHtml(maskBg)}"/>
+              <text x="${gx + 15}" y="${gy + 4}" font-family="${escapeHtml(titleFont)}" font-size="${titleSize}" font-weight="${escapeHtml(titleWeight)}" fill="${escapeHtml(titleColor)}">${escapeHtml(title)}</text>
             ` : ''}
           </g>
         `;
@@ -3165,35 +3270,20 @@
         // Prompt Rendering (only for first row, and NOT for buttons/checkboxes/headers!)
         if (isFirstRow && item.prompt && !isButton && !isCheckOrRadio && !isHeaderLabel) {
           const edge = (item.promptAttachmentEdge || 'Start').toLowerCase();
-          const rawOffset = item.promptAttachmentOffset ?? 5;
-          const offset = (coordScale < 0.5 && Math.abs(rawOffset) > 15)
-            ? Math.max(3, Math.round(rawOffset * coordScale))
-            : Math.max(3, rawOffset);
           const pColor = normalizeOracleColor(item.promptForeColor) || '#222';
           const pFont = item.promptFontName || 'Segoe UI, Tahoma, sans-serif';
           const pSize = normalizeOracleFontSize(item.promptFontSize, 11);
           const pWeight = item.promptFontWeight || (edge === 'top' ? '600' : 'normal');
+          const pLayout = computePromptLayout(x, rowY, w, h, item, coordScale, pSize);
 
-          if (edge === 'top') {
-            svgHtml += renderSvgMultilineText(
-              x,
-              rowY - offset,
-              item.prompt,
-              `font-family="${escapeHtml(pFont)}" font-size="${pSize}" fill="${escapeHtml(pColor)}" font-weight="${escapeHtml(pWeight)}"`,
-              pSize + 2,
-              true
-            );
-          } else {
-            // Start / left
-            svgHtml += renderSvgMultilineText(
-              x - offset,
-              rowY + Math.min(14, h - 4),
-              item.prompt,
-              `text-anchor="end" font-family="${escapeHtml(pFont)}" font-size="${pSize}" fill="${escapeHtml(pColor)}" font-weight="${escapeHtml(pWeight)}"`,
-              pSize + 2,
-              false
-            );
-          }
+          svgHtml += renderSvgMultilineText(
+            pLayout.px,
+            pLayout.py,
+            item.prompt,
+            `text-anchor="${pLayout.anchor}" font-family="${escapeHtml(pFont)}" font-size="${pSize}" fill="${escapeHtml(pColor)}" font-weight="${escapeHtml(pWeight)}"`,
+            pSize + 2,
+            pLayout.anchorBottom
+          );
         }
 
         // Widget Box by itemType
@@ -3250,31 +3340,30 @@
             <text x="${x + 18}" y="${rowY + 12}" font-family="Segoe UI, Tahoma, sans-serif" font-size="11" fill="#000">${escapeHtml(chkLabel)}</text>
           `;
         } else if (itemType.includes('radio')) {
-          // Radio Group container or single Radio Button
-          const rbs = item.radioButtons || [];
-          if (rbs.length > 0 || itemType.includes('group')) {
-            const rgBg = normalizeOracleColor(item.backColor) || bgCol;
-            const rgTitle = item.prompt || '';
-            svgHtml += `
-              <rect x="${x}" y="${rowY}" width="${w}" height="${h}" fill="${escapeHtml(rgBg)}" stroke="#808080" stroke-width="1" rx="2"/>
-              <rect x="${x + 1}" y="${rowY + 1}" width="${Math.max(0, w - 2)}" height="${Math.max(0, h - 2)}" fill="none" stroke="#ffffff" stroke-width="0.8" rx="2"/>
-            `;
-            if (rgTitle) {
-              svgHtml += `
-                <rect x="${x + 8}" y="${rowY - 6}" width="${rgTitle.length * 6.5 + 8}" height="12" fill="${escapeHtml(rgBg)}"/>
-                <text x="${x + 12}" y="${rowY + 3}" font-family="Segoe UI, Tahoma, sans-serif" font-size="10" font-weight="600" fill="#222">${escapeHtml(rgTitle)}</text>
-              `;
-            }
+          // VRadioGroup is a non-visual LWCheckboxGroup; VRadioButton instances render at their canvas coordinates.
+          const rbs = (item.radioButtons || []).filter(rb => rb.visible !== false);
+          if (rbs.length > 0) {
             rbs.forEach((rb, rbIdx) => {
-              const rx = (rb.xPosition >= item.xPosition ? scale(rb.xPosition) : x + scale(rb.xPosition || 8));
-              const ry = (rb.yPosition >= item.yPosition ? scale(rb.yPosition) : rowY + scale(rb.yPosition || (8 + rbIdx * 20)));
+              const hasExplicitPos = (rb.xPosition || 0) > 0 || (rb.yPosition || 0) > 0;
+              const rx = hasExplicitPos ? scale(rb.xPosition) : (x + 8);
+              const ry = hasExplicitPos ? scale(rb.yPosition) : (rowY + 8 + rbIdx * 20);
               const rbLabel = rb.label || rb.name;
+              const rbFg = normalizeOracleColor(rb.foreColor) || '#000000';
+              const rbFont = rb.fontName || 'Segoe UI, Tahoma, sans-serif';
+              const rbSize = normalizeOracleFontSize(rb.fontSize, 11);
               svgHtml += `
-                <circle cx="${rx + 6}" cy="${ry + 7}" r="6" fill="#ffffff" stroke="#808080" stroke-width="1"/>
+                <circle cx="${rx + 6}" cy="${ry + 7}" r="6" fill="#ffffff" stroke="${EWT_GENERIC_COLORS.controlShadow}" stroke-width="1"/>
+                <circle cx="${rx + 6}" cy="${ry + 7}" r="5" fill="none" stroke="${EWT_GENERIC_COLORS.controlHighlight}" stroke-width="0.6"/>
                 ${rbIdx === 0 ? `<circle cx="${rx + 6}" cy="${ry + 7}" r="2.8" fill="#000000"/>` : ''}
-                <text x="${rx + 17}" y="${ry + 11}" font-family="Segoe UI, Tahoma, sans-serif" font-size="11" fill="#000">${escapeHtml(rbLabel)}</text>
+                <text x="${rx + 17}" y="${ry + 11}" font-family="${escapeHtml(rbFont)}" font-size="${rbSize}" fill="${escapeHtml(rbFg)}">${escapeHtml(rbLabel)}</text>
               `;
             });
+          } else if (itemType.includes('group')) {
+            const rgTitle = item.prompt || item.name;
+            svgHtml += `
+              <rect x="${x}" y="${rowY}" width="${w}" height="${h}" fill="none" stroke="${EWT_GENERIC_COLORS.controlShadow}" stroke-dasharray="3,2" stroke-width="1" rx="2"/>
+              <text x="${x + 8}" y="${rowY + 13}" font-family="Segoe UI, Tahoma, sans-serif" font-size="10" fill="${EWT_GENERIC_COLORS.disabledText}">${escapeHtml(rgTitle)}</text>
+            `;
           } else {
             svgHtml += `
               <circle cx="${x + 6}" cy="${rowY + 6}" r="6" fill="#ffffff" stroke="#7f9db9" stroke-width="1"/>
@@ -3306,29 +3395,23 @@
             }
           }
           const textToShow = displayVal != null ? String(displayVal) : item.name;
-          const dispBg = normalizeOracleColor(item.backColor) || '#e8e5d8';
+          const dispBg = normalizeOracleColor(item.backColor) || EWT_GENERIC_COLORS.disabledBg;
           const dispFg = normalizeOracleColor(item.foreColor) || (displayVal != null ? '#111111' : '#555555');
           const dispFont = item.fontName || 'Segoe UI, Tahoma, sans-serif';
           const dispSize = normalizeOracleFontSize(item.fontSize, 11);
           const textWeight = item.fontWeight || (displayVal != null ? '600' : 'normal');
-          const flatBevel = ['none', 'plain'].includes((item.bevel || '').toLowerCase());
+          const dispBevel = item.bevel || 'Lowered';
 
           svgHtml += `
-            <rect x="${x}" y="${rowY}" width="${w}" height="${h}" fill="${escapeHtml(dispBg)}" stroke="${flatBevel ? 'none' : '#b0ac9d'}" stroke-width="1"/>
-            ${flatBevel ? '' : `
-              <line x1="${x}" y1="${rowY}" x2="${x + w}" y2="${rowY}" stroke="#808080" stroke-width="1"/>
-              <line x1="${x}" y1="${rowY}" x2="${x}" y2="${rowY + h}" stroke="#808080" stroke-width="1"/>
-              <line x1="${x}" y1="${rowY + h}" x2="${x + w}" y2="${rowY + h}" stroke="#ffffff" stroke-width="1"/>
-              <line x1="${x + w}" y1="${rowY}" x2="${x + w}" y2="${rowY + h}" stroke="#ffffff" stroke-width="1"/>
-            `}
+            ${renderSvgBevelBox(x, rowY, w, h, dispBevel, dispBg)}
             <text x="${x + 4}" y="${rowY + Math.min(14, h - 4)}" font-family="${escapeHtml(dispFont)}" font-size="${dispSize}" font-weight="${escapeHtml(textWeight)}" fill="${escapeHtml(dispFg)}">${escapeHtml(textToShow)}</text>
           `;
         } else {
-          // Text Item / Non-enterable item with 3D Generic lowered bevel
+          // Text Item / Non-enterable item with EWT Generic lowered bevel
           const isNonEnterable = (item.propertyClass || '').includes('NONENTERABLE') || item.enabled === false;
           const isList = itemType.includes('list') || item.lovName;
-          const bgBox = normalizeOracleColor(item.backColor) || (isNonEnterable ? '#f5f4ee' : '#ffffff');
-          const flatBevel = ['none', 'plain'].includes((item.bevel || '').toLowerCase());
+          const bgBox = normalizeOracleColor(item.backColor) || (isNonEnterable ? EWT_GENERIC_COLORS.disabledBg : EWT_GENERIC_COLORS.text);
+          const itemBevel = item.bevel || 'Lowered';
 
           const bRecords = queryRecordsByBlock.get(block.name);
           const activeIdx = activeRecordIndexByBlock.get(block.name) || 0;
@@ -3358,15 +3441,7 @@
           const textWeight = item.fontWeight || (displayVal != null ? '500' : 'normal');
 
           svgHtml += `
-            <rect x="${x}" y="${rowY}" width="${w}" height="${h}" fill="${escapeHtml(bgBox)}" stroke="${flatBevel ? '#b0ac9d' : '#808080'}" stroke-width="1"/>
-            ${flatBevel ? '' : `
-              <line x1="${x + 1}" y1="${rowY + 1}" x2="${x + w - 1}" y2="${rowY + 1}" stroke="#404040" stroke-width="1"/>
-              <line x1="${x + 1}" y1="${rowY + 1}" x2="${x + 1}" y2="${rowY + h - 1}" stroke="#404040" stroke-width="1"/>
-              <line x1="${x}" y1="${rowY + h}" x2="${x + w}" y2="${rowY + h}" stroke="#ffffff" stroke-width="1"/>
-              <line x1="${x + w}" y1="${rowY}" x2="${x + w}" y2="${rowY + h}" stroke="#ffffff" stroke-width="1"/>
-              <line x1="${x + 1}" y1="${rowY + h - 1}" x2="${x + w - 1}" y2="${rowY + h - 1}" stroke="#d4d0c8" stroke-width="1"/>
-              <line x1="${x + w - 1}" y1="${rowY + 1}" x2="${x + w - 1}" y2="${rowY + h - 1}" stroke="#d4d0c8" stroke-width="1"/>
-            `}
+            ${renderSvgBevelBox(x, rowY, w, h, itemBevel, bgBox)}
             <text x="${x + 6}" y="${rowY + Math.min(14, h - 4)}" font-family="${escapeHtml(itemFont)}" font-size="${itemSize}" ${isNonEnterable ? 'font-style="italic"' : ''} font-weight="${escapeHtml(textWeight)}" fill="${escapeHtml(textColor)}">${escapeHtml(textToShow)}</text>
           `;
           if (isList) {

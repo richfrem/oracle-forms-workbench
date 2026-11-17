@@ -292,7 +292,7 @@ pub struct RelationInfo {
     pub inherited: Option<InheritanceRef>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RadioButtonInfo {
     pub name: String,
@@ -304,6 +304,35 @@ pub struct RadioButtonInfo {
     pub y_position: i32,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub back_color: Option<String>,
+    #[serde(default)]
+    pub fore_color: Option<String>,
+    #[serde(default)]
+    pub font_name: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<i32>,
+}
+
+impl Default for RadioButtonInfo {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            label: None,
+            value: None,
+            x_position: 0,
+            y_position: 0,
+            width: None,
+            height: None,
+            visible: true,
+            back_color: None,
+            fore_color: None,
+            font_name: None,
+            font_size: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -409,6 +438,14 @@ pub struct ItemInfo {
     pub prompt_attachment_offset: i32,
     #[serde(default = "default_align")]
     pub prompt_align: String,
+    #[serde(default)]
+    pub prompt_align_offset: i32,
+    #[serde(skip)]
+    pub prompt_edge_set: bool,
+    #[serde(skip)]
+    pub prompt_offset_set: bool,
+    #[serde(skip)]
+    pub prompt_align_set: bool,
     #[serde(default = "default_one")]
     pub items_display: i32,
     #[serde(default)]
@@ -470,6 +507,10 @@ impl Default for ItemInfo {
             prompt_attachment_edge: default_edge(),
             prompt_attachment_offset: default_prompt_offset(),
             prompt_align: default_align(),
+            prompt_align_offset: 0,
+            prompt_edge_set: false,
+            prompt_offset_set: false,
+            prompt_align_set: false,
             items_display: 1,
             distance_between_records: 0,
             back_color: None,
@@ -551,6 +592,10 @@ pub struct TabPageInfo {
     pub name: String,
     pub label: Option<String>,
     #[serde(default)]
+    pub back_color: Option<String>,
+    #[serde(default)]
+    pub fore_color: Option<String>,
+    #[serde(default)]
     pub associated_canvases: Vec<String>,
 }
 
@@ -626,6 +671,18 @@ pub struct GraphicInfo {
     pub font_weight: Option<String>,
     #[serde(default)]
     pub visual_attribute: Option<String>,
+    #[serde(default)]
+    pub frame_title_fore_color: Option<String>,
+    #[serde(default)]
+    pub frame_title_back_color: Option<String>,
+    #[serde(default)]
+    pub frame_title_font_name: Option<String>,
+    #[serde(default)]
+    pub frame_title_font_size: Option<i32>,
+    #[serde(default)]
+    pub frame_title_font_weight: Option<String>,
+    #[serde(default)]
+    pub frame_title_visual_attribute: Option<String>,
     #[serde(default)]
     pub inherited: Option<InheritanceRef>,
 }

@@ -55,6 +55,10 @@ struct ItemBuilder {
     prompt_attachment_edge: String,
     prompt_attachment_offset: i32,
     prompt_align: String,
+    prompt_align_offset: i32,
+    prompt_edge_set: bool,
+    prompt_offset_set: bool,
+    prompt_align_set: bool,
     items_display: i32,
     distance_between_records: i32,
     back_color: Option<String>,
@@ -512,6 +516,10 @@ impl FormsXmlParser {
 
                     let raw_canvas = get_attr(e, "CanvasName").filter(|s| !s.trim().is_empty());
 
+                    let raw_prompt_edge = get_attr(e, "PromptAttachmentEdge");
+                    let raw_prompt_offset = get_int_attr(e, "PromptAttachmentOffset");
+                    let raw_prompt_align = get_attr(e, "PromptAlign");
+
                     *current_item = Some(ItemBuilder {
                         name: name.clone().unwrap_or_default(),
                         item_type: resolved_type,
@@ -531,9 +539,13 @@ impl FormsXmlParser {
                         y_position: get_int_attr(e, "YPosition").unwrap_or(0),
                         tab_page_name: get_attr(e, "TabPageName").filter(|s| !s.trim().is_empty()),
                         label,
-                        prompt_attachment_edge: get_attr(e, "PromptAttachmentEdge").unwrap_or_else(|| "Start".to_string()),
-                        prompt_attachment_offset: get_int_attr(e, "PromptAttachmentOffset").unwrap_or(5),
-                        prompt_align: get_attr(e, "PromptAlign").unwrap_or_else(|| "Start".to_string()),
+                        prompt_edge_set: raw_prompt_edge.is_some(),
+                        prompt_offset_set: raw_prompt_offset.is_some(),
+                        prompt_align_set: raw_prompt_align.is_some(),
+                        prompt_attachment_edge: raw_prompt_edge.unwrap_or_else(|| "Start".to_string()),
+                        prompt_attachment_offset: raw_prompt_offset.unwrap_or(5),
+                        prompt_align: raw_prompt_align.unwrap_or_else(|| "Start".to_string()),
+                        prompt_align_offset: get_int_attr(e, "PromptAlignOffset").unwrap_or(0),
                         items_display: items_disp,
                         distance_between_records: dist,
                         back_color: get_attr(e, "BackColor"),
@@ -567,6 +579,11 @@ impl FormsXmlParser {
                             y_position: get_int_attr(e, "YPosition").unwrap_or(0),
                             width: get_int_attr(e, "Width"),
                             height: get_int_attr(e, "Height"),
+                            visible: get_bool_attr(e, "Visible").unwrap_or(true),
+                            back_color: get_attr(e, "BackColor"),
+                            fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
+                            font_name: get_attr(e, "FontName"),
+                            font_size: get_int_attr(e, "FontSize"),
                         });
                     }
                 }
@@ -600,6 +617,8 @@ impl FormsXmlParser {
                     c.tab_pages.push(TabPageInfo {
                         name: page_name,
                         label: page_label,
+                        back_color: get_attr(e, "BackColor"),
+                        fore_color: get_attr(e, "ForegroundColor").or_else(|| get_attr(e, "ForeColor")),
                         associated_canvases: Vec::new(),
                     });
                 }
@@ -637,6 +656,12 @@ impl FormsXmlParser {
                     font_size: get_int_attr(e, "GraphicsFontSize").or_else(|| get_int_attr(e, "FontSize")),
                     font_weight: get_attr(e, "GraphicsFontWeight").or_else(|| get_attr(e, "FontWeight")),
                     visual_attribute: get_attr(e, "VisualAttributeName"),
+                    frame_title_fore_color: get_attr(e, "FrameTitleForegroundColor"),
+                    frame_title_back_color: get_attr(e, "FrameTitleBackColor"),
+                    frame_title_font_name: get_attr(e, "FrameTitleFontName"),
+                    frame_title_font_size: get_int_attr(e, "FrameTitleFontSize"),
+                    frame_title_font_weight: get_attr(e, "FrameTitleFontWeight"),
+                    frame_title_visual_attribute: get_attr(e, "FrameTitleVisualAttributeName"),
                     inherited,
                 });
             }
@@ -993,6 +1018,10 @@ impl FormsXmlParser {
                             prompt_attachment_edge: i.prompt_attachment_edge,
                             prompt_attachment_offset: i.prompt_attachment_offset,
                             prompt_align: i.prompt_align,
+                            prompt_align_offset: i.prompt_align_offset,
+                            prompt_edge_set: i.prompt_edge_set,
+                            prompt_offset_set: i.prompt_offset_set,
+                            prompt_align_set: i.prompt_align_set,
                             items_display: i.items_display,
                             distance_between_records: i.distance_between_records,
                             back_color: i.back_color,

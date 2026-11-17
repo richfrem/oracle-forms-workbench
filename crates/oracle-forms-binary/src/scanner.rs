@@ -8,6 +8,7 @@ use oracle_forms_core::sidecars::{
     fingerprint_file, first_code_line, line_count_of, PlsqlSidecars,
 };
 use crate::layout::generate_2column_layout;
+use crate::ros::decode_ros60050_layout;
 
 pub struct BinaryFmbParser;
 
@@ -235,8 +236,9 @@ impl BinaryFmbParser {
             }
         }
 
-        // 7. Auto-flow 2D Layout
-        let layout = generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1);
+        // 7. Direct ROS 60050 Layout Decoding, falling back to 2-column auto-flow if no geometry decoded
+        let layout = decode_ros60050_layout(&bytes)
+            .unwrap_or_else(|| generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1));
 
         let fingerprint = fingerprint_file(source_file).unwrap_or_default();
         let file_stem = source_file.file_name().and_then(|n| n.to_str()).unwrap_or("module.fmb");

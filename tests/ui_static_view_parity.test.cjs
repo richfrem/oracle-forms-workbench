@@ -346,3 +346,91 @@ test('TabPage content translates below tab strip and renders associated Stacked 
   assert.match(ctx.formsSvg.innerHTML, /data-item="SUB_B_ITEM"/);
   assert.doesNotMatch(ctx.formsSvg.innerHTML, /data-item="SUB_A_ITEM"/);
 });
+
+test('EWT bevels, PromptAlign/PromptAttachmentOffset, RadioGroup buttons, and Frame title masking render accurately', () => {
+  const mod = {
+    key: { name: 'ORDERS' },
+    coordinate: { coordinateSystem: 'Real', realUnit: 'Point' },
+    canvases: [
+      {
+        name: 'CV_TAB',
+        canvasType: 'Tab',
+        windowName: 'WIN0',
+        width: 500,
+        height: 300,
+        tabPages: [{ name: 'PG_MAIN', label: 'Main', backColor: 'r95g95b92' }],
+      },
+    ],
+    graphics: [
+      {
+        name: 'FRM_SEARCH',
+        canvasName: 'CV_TAB',
+        tabPageName: 'PG_MAIN',
+        graphicsType: 'Frame',
+        frameTitle: 'Search By',
+        foreColor: 'white',
+        fillPattern: 'transparent',
+        xPosition: 10,
+        yPosition: 10,
+        width: 240,
+        height: 90,
+      },
+    ],
+    blocks: [
+      {
+        name: 'ORDERS',
+        recordsDisplayed: 1,
+        items: [
+          {
+            name: 'ORDER_NO',
+            canvasName: 'CV_TAB',
+            tabPageName: 'PG_MAIN',
+            itemType: 'Text Item',
+            prompt: 'Order #:',
+            promptAttachmentEdge: 'End',
+            promptAttachmentOffset: 8,
+            promptAlign: 'Center',
+            promptAlignOffset: 2,
+            bevel: 'Lowered',
+            xPosition: 20,
+            yPosition: 30,
+            width: 80,
+            height: 20,
+          },
+          {
+            name: 'SEARCH_BY',
+            canvasName: 'CV_TAB',
+            tabPageName: 'PG_MAIN',
+            itemType: 'Radio Group',
+            xPosition: 200,
+            yPosition: 30,
+            width: 100,
+            height: 50,
+            radioButtons: [
+              { name: 'RB_ID', label: 'Order ID', xPosition: 20, yPosition: 28, visible: true },
+              { name: 'RB_CUST', label: 'Customer', xPosition: 20, yPosition: 48, visible: true },
+              { name: 'RB_HIDDEN', label: 'Hidden', xPosition: 20, yPosition: 68, visible: false },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const ctx = createUiContext(mod);
+  vm.runInContext('renderCanvasSvg()', ctx);
+  const svg = ctx.formsSvg.innerHTML;
+
+  // Frame title uses dark default instead of invisible white FillForegroundColor and masks with tabPage backColor
+  assert.match(svg, /fill="#f2f2eb"/);
+  assert.match(svg, /fill="#000000">Search By<\/text>/);
+
+  // PromptAttachmentEdge=End + PromptAlign=Center places prompt to the right of item (x=20+80+8=108)
+  assert.match(svg, /<text x="108" y="46" text-anchor="start"[^>]*>Order #:<\/text>/);
+
+  // RadioGroup renders visible RadioButtons at their own canvas positions without an opaque rect box
+  assert.match(svg, /cx="26" cy="35" r="6"/);
+  assert.match(svg, />Order ID<\/text>/);
+  assert.match(svg, />Customer<\/text>/);
+  assert.doesNotMatch(svg, />Hidden<\/text>/);
+});

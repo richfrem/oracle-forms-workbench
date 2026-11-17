@@ -1250,20 +1250,8 @@
             matched = data.forms.find(f => f.toLowerCase() === `${defaultStem.toLowerCase()}.fmx`) || null;
             if (matched) fmxSelect.value = matched;
           }
-          const matchNotice = document.getElementById('oracleLaunchMatchNotice');
+          updateOracleLaunchMatchNotice(defaultStem, matched, fmxSelect.value);
           const switchCompileBtn = document.getElementById('launchSwitchToCompileBtn');
-          if (matchNotice) {
-            matchNotice.classList.remove('is-found', 'is-missing');
-            if (!defaultStem) {
-              matchNotice.textContent = 'Select any deployed .fmx from your Oracle 14c deploy folders.';
-            } else if (matched) {
-              matchNotice.classList.add('is-found');
-              matchNotice.textContent = `Open module "${defaultStem}" matched deployed "${matched}" in the 14c deploy folder.`;
-            } else {
-              matchNotice.classList.add('is-missing');
-              matchNotice.textContent = `Open module "${defaultStem}" is loaded from your source folder (samples/ or OFW_FORMS_PATH_EXTRA), and no compiled "${defaultStem}.fmx" was found in the 14c deploy folders. Build & Compile it in 14c first, or pick another deployed .fmx below.`;
-            }
-          }
           if (switchCompileBtn) {
             switchCompileBtn.hidden = !defaultStem;
           }
@@ -1282,6 +1270,29 @@
         }
       } catch (_) {}
     }
+    function updateOracleLaunchMatchNotice(defaultStem, matched, selectedFmx) {
+      const matchNotice = document.getElementById('oracleLaunchMatchNotice');
+      if (!matchNotice) return;
+      matchNotice.classList.remove('is-found', 'is-missing');
+      if (selectedFmx && defaultStem && selectedFmx.toLowerCase() !== `${defaultStem.toLowerCase()}.fmx`) {
+        matchNotice.classList.add('is-found');
+        matchNotice.textContent = `Selected "${selectedFmx}" for 14c launch (open editor module is "${defaultStem}").`;
+      } else if (!defaultStem) {
+        matchNotice.textContent = selectedFmx
+          ? `Selected "${selectedFmx}" for 14c launch.`
+          : 'Select any deployed .fmx from your Oracle 14c deploy folders.';
+      } else if (matched || (selectedFmx && selectedFmx.toLowerCase() === `${defaultStem.toLowerCase()}.fmx`)) {
+        matchNotice.classList.add('is-found');
+        matchNotice.textContent = `Open module "${defaultStem}" matched deployed "${matched || selectedFmx}" in the 14c deploy folder.`;
+      } else {
+        matchNotice.classList.add('is-missing');
+        matchNotice.textContent = `Open module "${defaultStem}" is loaded from your source folder (samples/ or OFW_FORMS_PATH_EXTRA), and no compiled "${defaultStem}.fmx" was found in the 14c deploy folders. Build & Compile it in 14c first, or pick another deployed .fmx below.`;
+      }
+    }
+    document.getElementById('oraclePrecompiledFmx')?.addEventListener('change', event => {
+      const stem = currentPayload?.moduleIndex?.key?.name || null;
+      updateOracleLaunchMatchNotice(stem, null, event.target.value);
+    });
     document.getElementById('oracleBrowseFmxBtn')?.addEventListener('click', () => {
       document.getElementById('oracleBrowseFmxInput')?.click();
     });
@@ -1299,6 +1310,8 @@
         fmxSelect.appendChild(opt);
         fmxSelect.value = file.name;
       }
+      const stem = currentPayload?.moduleIndex?.key?.name || null;
+      updateOracleLaunchMatchNotice(stem, null, fmxSelect.value);
       event.target.value = '';
     });
     document.getElementById('launch14cBtn')?.addEventListener('click', () => {
@@ -1865,6 +1878,46 @@
       switchTab('canvasTab');
     }
     moduleBadge.textContent = `${summary.moduleName} (${summary.moduleType})`;
+    const rawSourcePath = (mod.sourceFile || '').trim();
+    const normSourcePath = rawSourcePath.replace(/\\/g, '/');
+    const sourceFileName = normSourcePath ? normSourcePath.split('/').pop() : '';
+    const sourceFolder = normSourcePath.includes('/') ? normSourcePath.slice(0, normSourcePath.lastIndexOf('/')) : '';
+    const extMatch = sourceFileName.match(/\.([^.]+)$/);
+    const extLabel = extMatch ? extMatch[1].toUpperCase() : '';
+    const sourceBadge = document.getElementById('sourceFileBadge');
+    if (sourceBadge) {
+      if (sourceFileName) {
+        sourceBadge.textContent = `${sourceFileName}${extLabel ? ` · ${extLabel}` : ''}`;
+        sourceBadge.title = rawSourcePath;
+        sourceBadge.hidden = false;
+      } else {
+        sourceBadge.hidden = true;
+      }
+    }
+    const sourceReadout = document.getElementById('sourceLocationReadout');
+    if (sourceReadout) {
+      if (sourceFileName) {
+        const shortDir = sourceFolder.length > 36 ? `…/${sourceFolder.split('/').slice(-2).join('/')}` : sourceFolder;
+        sourceReadout.textContent = shortDir ? `${sourceFileName} (${shortDir})` : sourceFileName;
+        sourceReadout.title = rawSourcePath;
+        sourceReadout.hidden = false;
+      } else {
+        sourceReadout.hidden = true;
+      }
+    }
+    if (sampleSelect && sourceFileName) {
+      const prevTemp = sampleSelect.querySelector('option[data-opened-temp="1"]');
+      if (prevTemp) prevTemp.remove();
+      const matchingOpt = [...sampleSelect.options].find(o => o.value.toLowerCase() === sourceFileName.toLowerCase());
+      if (matchingOpt) {
+        sampleSelect.value = matchingOpt.value;
+      } else {
+        const tempOpt = new Option(`${sourceFileName} (${sourceFolder || 'opened'})`, sourceFileName);
+        tempOpt.setAttribute('data-opened-temp', '1');
+        sampleSelect.add(tempOpt);
+        sampleSelect.value = sourceFileName;
+      }
+    }
     loadFullXml(summary.moduleName);
     codeTabBadge.textContent = summary.triggerCount + summary.programUnitCount;
 
@@ -2898,7 +2951,7 @@
         const isSelGraphic = selectedObject && selectedObject.type === 'GRAPHIC' && selectedObject.graphic.name === g.name;
         svgHtml += `
           <g class="svg-graphic frame ${isSelGraphic ? 'svg-item-selected' : ''}" style="cursor:pointer;" onclick="window.selectSvgGraphic('${escapeHtml(g.name)}')">
-            <rect x="${gx}" y="${gy}" width="${gw}" height="${gh}" fill="${g.backColor || 'none'}" stroke="${isSelGraphic ? '#38bdf8' : '#808080'}" stroke-width="1.5" rx="2"/>
+            <rect x="${gx}" y="${gy}" width="${gw}" height="${gh}" fill="none" stroke="${isSelGraphic ? '#38bdf8' : '#808080'}" stroke-width="1.5" rx="2"/>
             <rect x="${gx + 1}" y="${gy + 1}" width="${gw - 2}" height="${gh - 2}" fill="none" stroke="#ffffff" stroke-width="1" rx="2"/>
             ${title ? `
               <rect x="${gx + 10}" y="${gy - 7}" width="${title.length * 7 + 12}" height="14" fill="${bgCol}"/>

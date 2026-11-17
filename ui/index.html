@@ -31,6 +31,7 @@
             <button id="loadSampleBtn" class="btn btn-sm btn-secondary" title="Reload selected module">↻</button>
           </div>
           <span id="moduleBadge" class="badge module-badge">NO MODULE</span>
+          <span id="sourceFileBadge" class="badge source-file-badge" hidden></span>
         </div>
       </div>
 
@@ -165,6 +166,7 @@
             <div class="canvas-controls" id="canvasControls">
               <div class="canvas-bar-left">
                 <select id="canvasSelect" class="compact-select" title="Active Canvas"></select>
+                <span id="sourceLocationReadout" class="source-location-readout" hidden></span>
                 <div id="tabPagePills" class="tab-page-pills"></div>
               </div>
 
@@ -716,6 +718,7 @@
 
           <div class="modal-section" style="margin-bottom: 4px;">
             <p class="modal-hint" style="margin-bottom: 8px;">Pick any Oracle Forms or Reports file (<code>.fmb</code>, <code>.mmb</code>, <code>.olb</code>, <code>.pll</code>, <code>.pld</code>, <code>.rdf</code>, <code>.rpt</code>, <code>.xml</code>) from disk:</p>
+            <p class="modal-hint" style="margin-bottom: 8px; color: var(--text-secondary);"><strong>Tip:</strong> Pick a converted <code>_fmb.xml</code> export for real canvases and coordinates in the Rust Designer (binary <code>.fmb</code> files use a synthetic 2-column auto-layout; use <strong>Launch in 14c</strong> for full <code>.olb</code> colors and runtime parity).</p>
             <label class="btn btn-primary modal-upload-label" style="width:100%; justify-content:center; padding: 10px 14px; font-size: 13px;">
               💻 Choose File from Computer...
               <input type="file" id="fileInput" accept=".fmb,.fmx,.xml,.mmb,.mmx,.olb,.pll,.pld,.rdf,.rpt,.rex" style="display:none;">

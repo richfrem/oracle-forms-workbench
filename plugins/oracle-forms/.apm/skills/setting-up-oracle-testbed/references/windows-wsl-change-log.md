@@ -669,3 +669,11 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Updated `README.md`, `architecture.md`, and `AGENTS.md` to document `Launch in 14c` (`launch_fsal.py` / `/api/forms/oracle-preview/compiled` on deployed `.fmx` in `OFW_FORMS_APPS_DIR` / `forms_apps/<OFW_APP_NAME>/` / `forms/`), `Build & Compile (14c)` (`run_form.py`), `Preview in Rust` / `▶ Rust Preview` (standalone single-form preview + limitations modal), `OFW_FORMS_PATH_EXTRA` read-only source intake, and current WSL verification status. |
 | Verified | `cargo test` in WSL2 (`128 passed, 0 failed`) and `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`). |
 | Not verified | `tests/test_reference_pipeline.py` was not re-run in this session. |
+
+### UI polish: live `Launch in 14c` notice, transparent `Frame`, `_fmb.xml` tip, and open-file badges
+
+| Item | Detail |
+|---|---|
+| Change | Updated `ui/index.html`, `ui/styles.css`, and `ui/app.js`: (1) `updateOracleLaunchMatchNotice()` now updates `#oracleLaunchMatchNotice` when `#oraclePrecompiledFmx` changes or via file browse; (2) added `#sourceFileBadge` in the header, `#sourceLocationReadout` in the canvas bar, and `#sampleSelect` sync for files opened via `Browse / Open...` so the active file extension and source folder stay visible; (3) added an `_fmb.xml` vs `.fmb` tip in `#openFileModal`; (4) changed SVG `Frame` graphics fill to `none` so frames with unmodeled `FillPattern="transparent"` do not render as solid colored boxes. |
+| Verified | `cargo test` (`128 passed, 0 failed`), `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`), and `git diff --check` in WSL2. |
+| Not verified | Remaining static-preview gaps (`FillPattern` on non-`Frame` `Rectangle` graphics, `ItemsDisplay` on buttons in multi-row blocks, `.olb` property inheritance, and `&#10;` prompt decoding). |

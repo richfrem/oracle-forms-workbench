@@ -87,6 +87,7 @@ pub fn generate_2column_layout(
                 fore_color: None,
                 enabled: true,
                 canvas_visible: true,
+                ..Default::default()
             });
 
             item_y += step_y;
@@ -107,6 +108,7 @@ pub fn generate_2column_layout(
             height: frame_height,
             bevel: None,
             back_color: None,
+            ..Default::default()
         });
 
         blocks.push(BlockInfo {
@@ -146,7 +148,11 @@ pub fn generate_2column_layout(
         viewport_height: None,
         viewport_x_position: 0,
         viewport_y_position: 0,
+        viewport_x_position_on_canvas: None,
+        viewport_y_position_on_canvas: None,
         back_color: None,
+        visual_attribute: None,
+        inherited: None,
         tab_pages: Vec::new(),
     };
 

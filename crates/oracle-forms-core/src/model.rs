@@ -292,6 +292,92 @@ pub struct RelationInfo {
     pub inherited: Option<InheritanceRef>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioButtonInfo {
+    pub name: String,
+    pub label: Option<String>,
+    pub value: Option<String>,
+    #[serde(default)]
+    pub x_position: i32,
+    #[serde(default)]
+    pub y_position: i32,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualStyle {
+    pub back_color: Option<String>,
+    pub fore_color: Option<String>,
+    pub fill_pattern: Option<String>,
+    pub font_name: Option<String>,
+    pub font_size: Option<i32>,
+    pub font_weight: Option<String>,
+    pub font_style: Option<String>,
+    pub bevel: Option<String>,
+    pub visual_attribute: Option<String>,
+    pub prompt_fore_color: Option<String>,
+    pub prompt_font_name: Option<String>,
+    pub prompt_font_size: Option<i32>,
+    pub prompt_font_weight: Option<String>,
+}
+
+impl VisualStyle {
+    pub fn is_empty(&self) -> bool {
+        self.back_color.is_none()
+            && self.fore_color.is_none()
+            && self.fill_pattern.is_none()
+            && self.font_name.is_none()
+            && self.font_size.is_none()
+            && self.font_weight.is_none()
+            && self.font_style.is_none()
+            && self.bevel.is_none()
+            && self.visual_attribute.is_none()
+            && self.prompt_fore_color.is_none()
+            && self.prompt_font_name.is_none()
+            && self.prompt_font_size.is_none()
+            && self.prompt_font_weight.is_none()
+    }
+
+    pub fn over(&self, fallback: &VisualStyle) -> VisualStyle {
+        VisualStyle {
+            back_color: self.back_color.clone().or_else(|| fallback.back_color.clone()),
+            fore_color: self.fore_color.clone().or_else(|| fallback.fore_color.clone()),
+            fill_pattern: self.fill_pattern.clone().or_else(|| fallback.fill_pattern.clone()),
+            font_name: self.font_name.clone().or_else(|| fallback.font_name.clone()),
+            font_size: self.font_size.or(fallback.font_size),
+            font_weight: self.font_weight.clone().or_else(|| fallback.font_weight.clone()),
+            font_style: self.font_style.clone().or_else(|| fallback.font_style.clone()),
+            bevel: self.bevel.clone().or_else(|| fallback.bevel.clone()),
+            visual_attribute: self.visual_attribute.clone().or_else(|| fallback.visual_attribute.clone()),
+            prompt_fore_color: self.prompt_fore_color.clone().or_else(|| fallback.prompt_fore_color.clone()),
+            prompt_font_name: self.prompt_font_name.clone().or_else(|| fallback.prompt_font_name.clone()),
+            prompt_font_size: self.prompt_font_size.or(fallback.prompt_font_size),
+            prompt_font_weight: self.prompt_font_weight.clone().or_else(|| fallback.prompt_font_weight.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualAttributeInfo {
+    pub name: String,
+    pub back_color: Option<String>,
+    pub fore_color: Option<String>,
+    pub fill_pattern: Option<String>,
+    pub font_name: Option<String>,
+    pub font_size: Option<i32>,
+    pub font_weight: Option<String>,
+    pub font_style: Option<String>,
+    pub prompt_fore_color: Option<String>,
+    pub prompt_font_name: Option<String>,
+    pub prompt_font_size: Option<i32>,
+    pub prompt_font_weight: Option<String>,
+    pub inherited: Option<InheritanceRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemInfo {
@@ -329,6 +415,30 @@ pub struct ItemInfo {
     pub distance_between_records: i32,
     pub back_color: Option<String>,
     pub fore_color: Option<String>,
+    #[serde(default)]
+    pub fill_pattern: Option<String>,
+    #[serde(default)]
+    pub bevel: Option<String>,
+    #[serde(default)]
+    pub font_name: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<i32>,
+    #[serde(default)]
+    pub font_weight: Option<String>,
+    #[serde(default)]
+    pub font_style: Option<String>,
+    #[serde(default)]
+    pub visual_attribute: Option<String>,
+    #[serde(default)]
+    pub prompt_fore_color: Option<String>,
+    #[serde(default)]
+    pub prompt_font_name: Option<String>,
+    #[serde(default)]
+    pub prompt_font_size: Option<i32>,
+    #[serde(default)]
+    pub prompt_font_weight: Option<String>,
+    #[serde(default)]
+    pub radio_buttons: Vec<RadioButtonInfo>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_true")]
@@ -364,6 +474,18 @@ impl Default for ItemInfo {
             distance_between_records: 0,
             back_color: None,
             fore_color: None,
+            fill_pattern: None,
+            bevel: None,
+            font_name: None,
+            font_size: None,
+            font_weight: None,
+            font_style: None,
+            visual_attribute: None,
+            prompt_fore_color: None,
+            prompt_font_name: None,
+            prompt_font_size: None,
+            prompt_font_weight: None,
+            radio_buttons: vec![],
             enabled: true,
             canvas_visible: true,
         }
@@ -423,11 +545,13 @@ impl Default for BlockInfo {
 
 fn default_orientation() -> String { "Vertical".to_string() }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TabPageInfo {
     pub name: String,
     pub label: Option<String>,
+    #[serde(default)]
+    pub associated_canvases: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -448,7 +572,15 @@ pub struct CanvasInfo {
     pub viewport_x_position: i32,
     #[serde(default)]
     pub viewport_y_position: i32,
+    #[serde(default)]
+    pub viewport_x_position_on_canvas: Option<i32>,
+    #[serde(default)]
+    pub viewport_y_position_on_canvas: Option<i32>,
     pub back_color: Option<String>,
+    #[serde(default)]
+    pub visual_attribute: Option<String>,
+    #[serde(default)]
+    pub inherited: Option<InheritanceRef>,
     #[serde(default)]
     pub tab_pages: Vec<TabPageInfo>,
 }
@@ -456,7 +588,7 @@ pub struct CanvasInfo {
 fn default_canvas_width() -> i32 { 800 }
 fn default_canvas_height() -> i32 { 600 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphicInfo {
     pub name: String,
@@ -476,6 +608,26 @@ pub struct GraphicInfo {
     pub height: i32,
     pub bevel: Option<String>,
     pub back_color: Option<String>,
+    #[serde(default)]
+    pub fore_color: Option<String>,
+    #[serde(default)]
+    pub edge_foreground_color: Option<String>,
+    #[serde(default)]
+    pub edge_back_color: Option<String>,
+    #[serde(default)]
+    pub fill_pattern: Option<String>,
+    #[serde(default)]
+    pub line_width: Option<i32>,
+    #[serde(default)]
+    pub font_name: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<i32>,
+    #[serde(default)]
+    pub font_weight: Option<String>,
+    #[serde(default)]
+    pub visual_attribute: Option<String>,
+    #[serde(default)]
+    pub inherited: Option<InheritanceRef>,
 }
 
 fn default_graphic_type() -> String { "Rectangle".to_string() }
@@ -619,7 +771,7 @@ pub struct ParameterInfo {
     pub default_value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PropertyClassInfo {
     pub name: String,
@@ -628,6 +780,24 @@ pub struct PropertyClassInfo {
     pub geometry: Option<ItemGeometry>,
     pub property_class: Option<String>,
     pub inherited: Option<InheritanceRef>,
+    #[serde(default)]
+    pub style: Option<VisualStyle>,
+    #[serde(default)]
+    pub item_type: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub prompt_attachment_edge: Option<String>,
+    #[serde(default)]
+    pub prompt_attachment_offset: Option<i32>,
+    #[serde(default)]
+    pub prompt_align: Option<String>,
+    #[serde(default)]
+    pub items_display: Option<i32>,
+    #[serde(default)]
+    pub distance_between_records: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -716,6 +886,8 @@ pub struct ModuleIndex {
     pub parameters: Vec<ParameterInfo>,
     #[serde(default)]
     pub visual_attributes: Vec<String>,
+    #[serde(default)]
+    pub visual_attribute_details: Vec<VisualAttributeInfo>,
     #[serde(default)]
     pub property_classes: Vec<String>,
     #[serde(default)]

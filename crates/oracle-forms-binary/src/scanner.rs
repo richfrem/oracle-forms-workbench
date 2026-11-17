@@ -268,6 +268,7 @@ impl BinaryFmbParser {
             alerts: Vec::new(),
             parameters: Vec::new(),
             visual_attributes: Vec::new(),
+            visual_attribute_details: Vec::new(),
             property_classes: Vec::new(),
             property_class_details: Vec::new(),
             editors: Vec::new(),

@@ -144,6 +144,179 @@ pub fn start(
     Ok(id)
 }
 
+/// Validates a plain module or `.fmx` filename (no path separators or traversal).
+pub(crate) fn normalize_fmx_name(module_name: &str) -> Result<String, String> {
+    let trimmed = module_name.trim();
+    if trimmed.is_empty()
+        || !trimmed.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
+        || trimmed.contains("..")
+    {
+        return Err("Invalid form module name".into());
+    }
+    let stem = trimmed.strip_suffix(".fmx").or_else(|| trimmed.strip_suffix(".FMX")).unwrap_or(trimmed);
+    if stem.is_empty() || stem.contains('.') {
+        return Err("Invalid form module name".into());
+    }
+    Ok(format!("{}.fmx", stem))
+}
+
+/// Resolves deployed `.fmx` search directories from `.env` / environment
+/// (`OFW_FORMS_APPS_DIR`, `OFW_APP_NAME`, and `OFW_ORACLE_HOME/forms`).
+pub(crate) fn deployed_fmx_dirs(root: &std::path::Path) -> Vec<PathBuf> {
+    let home = oracle_home(root);
+    let apps_base = setting(root, "OFW_FORMS_APPS_DIR")
+        .map(expand_home)
+        .unwrap_or_else(|| home.join("forms_apps"));
+    let mut dirs = Vec::new();
+    if let Some(app_name) = setting(root, "OFW_APP_NAME") {
+        dirs.push(apps_base.join(app_name));
+    } else if apps_base.is_dir() {
+        dirs.push(apps_base.clone());
+        if let Ok(entries) = fs::read_dir(&apps_base) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    dirs.push(p);
+                }
+            }
+        }
+    }
+    dirs.push(home.join("forms"));
+    dirs
+}
+
+/// Locates an already-compiled `.fmx` in `OFW_FORMS_APPS_DIR` / `<Oracle Home>/forms_apps/<OFW_APP_NAME>/`
+/// or `<Oracle Home>/forms/`. Checks both exact casing and lowercase on case-sensitive filesystems.
+pub(crate) fn find_deployed_fmx(root: &std::path::Path, module_name: &str) -> Result<(PathBuf, String), String> {
+    let fmx = normalize_fmx_name(module_name)?;
+    let fmx_lower = fmx.to_ascii_lowercase();
+    let search_dirs = deployed_fmx_dirs(root);
+    for dir in &search_dirs {
+        for candidate in [&fmx, &fmx_lower] {
+            let p = dir.join(candidate);
+            if p.is_file() {
+                return Ok((p, candidate.clone()));
+            }
+        }
+    }
+    let searched: Vec<String> = search_dirs.iter().map(|d| d.display().to_string()).collect();
+    Err(format!("Compiled {} not found in {}. Compile the form first or select a compilation mode.", fmx, searched.join(" or ")))
+}
+
+/// Lists already-compiled `.fmx` files in `OFW_FORMS_APPS_DIR` / `<Oracle Home>/forms_apps/<OFW_APP_NAME>/`
+/// and `<Oracle Home>/forms/`, plus configured `OFW_FORMS_CONFIG`, `OFW_APP_NAME`, and `searchDirs`.
+pub fn list_deployed_fmx() -> serde_json::Value {
+    let root = match PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize() {
+        Ok(r) => r,
+        Err(_) => return serde_json::json!({ "forms": [], "formsConfig": null, "appName": null, "searchDirs": [] }),
+    };
+    let app_name = setting(&root, "OFW_APP_NAME");
+    let forms_config = setting(&root, "OFW_FORMS_CONFIG");
+    let dirs = deployed_fmx_dirs(&root);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut active_dirs = Vec::new();
+    for dir in dirs {
+        if dir.is_dir() {
+            active_dirs.push(dir.display().to_string());
+        }
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                        if name.to_ascii_lowercase().ends_with(".fmx") {
+                            seen.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let forms: Vec<String> = seen.into_iter().collect();
+    serde_json::json!({
+        "forms": forms,
+        "formsConfig": forms_config,
+        "appName": app_name,
+        "searchDirs": active_dirs
+    })
+}
+
+/// Validates space- or `&`-separated `NAME=VALUE` form parameters for `launch_fsal.py --param`.
+pub(crate) fn parse_launch_params(raw: Option<&str>) -> Result<Vec<String>, String> {
+    let text = raw.unwrap_or("").trim();
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for token in text.split(|c: char| c.is_ascii_whitespace() || c == '&') {
+        let tok = token.trim();
+        if tok.is_empty() {
+            continue;
+        }
+        let (k, v) = tok.split_once('=').ok_or_else(|| format!("Invalid parameter '{}'. Expected NAME=VALUE.", tok))?;
+        if k.is_empty()
+            || !k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            || !v.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'/' | b':' | b'@'))
+        {
+            return Err(format!("Invalid characters in parameter '{}'.", tok));
+        }
+        out.push(format!("{}={}", k, v));
+    }
+    Ok(out)
+}
+
+/// Launches an already-compiled `.fmx` directly via `launch_fsal.py` without running `XML2Forms` or `frmcmp_batch`.
+pub fn launch_precompiled(module_name: &str, forms_config: Option<&str>, launch_params: Option<&str>) -> Result<(String, String), String> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().map_err(|e| e.to_string())?;
+    let script = root.join("plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py");
+    if !fsal_jar(&root).is_file() {
+        return Err("FSAL client is missing. Set up the Oracle 14c reference environment first.".into());
+    }
+    if !script.is_file() {
+        return Err("FSAL launcher script is missing from this checkout.".into());
+    }
+    let (_fmx_path, fmx_name) = find_deployed_fmx(&root, module_name)?;
+    let cfg = forms_config
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| setting(&root, "OFW_FORMS_CONFIG"));
+    if let Some(ref c) = cfg {
+        if !c.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')) {
+            return Err("Invalid Forms config name. Use letters, digits, underscores, or hyphens.".into());
+        }
+    }
+    let extra_params = parse_launch_params(launch_params)?;
+    let mut jobs = jobs().lock().unwrap();
+    let mut active = 0;
+    jobs.retain(|_, job| match job.child.try_wait() { Ok(None) => { active += 1; true }, _ => true });
+    if active >= 4 { return Err("Close an existing Oracle preview before opening another".into()); }
+    if jobs.len() >= 32 {
+        let completed: Vec<_> = jobs.iter_mut().filter_map(|(id, job)| job.child.try_wait().ok().flatten().map(|_| id.clone())).collect();
+        for id in completed { if let Some(job) = jobs.remove(&id) { let _ = fs::remove_file(job.log); } }
+    }
+    let id = format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+    let log = std::env::temp_dir().join(format!("ofw-oracle-preview-{}.log", id));
+    let output = fs::OpenOptions::new().write(true).create_new(true).open(&log).map_err(|e| e.to_string())?;
+    let stderr = output.try_clone().map_err(|e| e.to_string())?;
+    let mut command = Command::new(python_program());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command.arg("-u").arg(script).arg(&fmx_name).arg("--interactive");
+    if let Some(ref c) = cfg {
+        command.args(["--config", c]);
+    }
+    for param in &extra_params {
+        command.args(["--param", param]);
+    }
+    let child = command.current_dir(&root).stdin(Stdio::null()).stdout(output).stderr(stderr).spawn().map_err(|e| e.to_string())?;
+    jobs.insert(id.clone(), Job { child, log });
+    Ok((id, fmx_name))
+}
+
 pub fn status(id: &str) -> Option<serde_json::Value> {
     let mut jobs = jobs().lock().unwrap();
     let job = jobs.get_mut(id)?;
@@ -280,7 +453,7 @@ pub async fn convert_to_xml(source_path: &std::path::Path) -> Result<(PathBuf, S
 
 #[cfg(test)]
 mod tests {
-    use super::validate_compile_target;
+    use super::{normalize_fmx_name, validate_compile_target};
 
     #[test]
     fn compile_target_defaults_and_accepts_tns_or_easy_connect() {
@@ -298,5 +471,23 @@ mod tests {
         for bad in ["user@FREEPDB1", "MY_ALIAS;rm -rf /", "host:1521/svc name", "MY_ALIAS'"] {
             assert!(validate_compile_target(Some(bad)).is_err(), "should reject {bad}");
         }
+    }
+
+    #[test]
+    fn normalize_fmx_name_accepts_stem_or_fmx_and_rejects_paths() {
+        assert_eq!(normalize_fmx_name("ORDERS").unwrap(), "ORDERS.fmx");
+        assert_eq!(normalize_fmx_name("orders.fmx").unwrap(), "orders.fmx");
+        assert_eq!(normalize_fmx_name("my_form_01.FMX").unwrap(), "my_form_01.fmx");
+        for bad in ["", "../orders", "dir/orders", "orders.xml", "orders;rm"] {
+            assert!(normalize_fmx_name(bad).is_err(), "should reject {bad}");
+        }
+    }
+
+    #[test]
+    fn parse_launch_params_validates_key_value_pairs() {
+        assert_eq!(super::parse_launch_params(None).unwrap(), Vec::<String>::new());
+        assert_eq!(super::parse_launch_params(Some("APPL4=Y MODE=TEST")).unwrap(), vec!["APPL4=Y", "MODE=TEST"]);
+        assert!(super::parse_launch_params(Some("BAD_TOKEN")).is_err());
+        assert!(super::parse_launch_params(Some("A=1;rm")).is_err());
     }
 }

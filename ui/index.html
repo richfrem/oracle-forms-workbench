@@ -34,32 +34,7 @@
         </div>
       </div>
 
-      <!-- Center: Primary Workspace Views -->
-      <nav class="center-tabs" aria-label="Workspace Views">
-        <button class="tab-btn active" data-tab="canvasTab" title="Form Designer & Live Runtime Window">
-          <span class="tab-icon">🎨</span>
-          <span>Form Designer</span>
-        </button>
-        <button class="tab-btn" data-tab="codeTab" title="PL/SQL Triggers & Program Units Studio">
-          <span class="tab-icon">📜</span>
-          <span>PL/SQL Studio</span>
-          <span id="codeTabBadge" class="pill-badge">0</span>
-        </button>
-        <button class="tab-btn" data-tab="xmlTab" title="Raw Forms2XML Inspector">
-          <span class="tab-icon">📄</span>
-          <span>XML Source</span>
-        </button>
-        <button class="tab-btn" data-tab="diffTab" title="Compare a baseline with one or more forms">
-          <span class="tab-icon">⚖️</span>
-          <span>Form Diff</span>
-        </button>
-        <button class="tab-btn" data-tab="reportsTab" title="Oracle Reports Engine & HTML5 Preview">
-          <span class="tab-icon">📊</span>
-          <span>Reports Engine</span>
-        </button>
-      </nav>
-
-      <!-- Right: Windows & Panels Visibility Bar -->
+      <!-- Right: Global Panel Toggles -->
       <div class="header-right">
         <details class="workspace-menu"><summary>View &amp; panels ▾</summary>
         <div class="panel-toggles" role="group" aria-label="Show or Hide IDE Windows & Panels">
@@ -86,6 +61,57 @@
         </details>
       </div>
     </header>
+
+    <!-- ==================== ROW 2: CURRENT-MODULE CONTEXT BAR ==================== -->
+    <div class="module-context-bar" aria-label="Current module views and actions">
+      <div class="module-context-left">
+        <nav class="center-tabs" aria-label="Workspace Views">
+          <button id="primaryPreviewTabBtn" class="tab-btn active" data-tab="canvasTab" title="Form Designer or Report Preview (changes based on open module)">
+            <span id="primaryPreviewIcon" class="tab-icon">🎨</span>
+            <span id="primaryPreviewLabel">Form Designer</span>
+          </button>
+          <button class="tab-btn" data-tab="codeTab" title="PL/SQL Triggers & Program Units Studio">
+            <span class="tab-icon">📜</span>
+            <span>PL/SQL Studio</span>
+            <span id="codeTabBadge" class="pill-badge">0</span>
+          </button>
+          <button class="tab-btn" data-tab="xmlTab" title="Raw Forms2XML Inspector">
+            <span class="tab-icon">📄</span>
+            <span>XML Source</span>
+          </button>
+          <button class="tab-btn" data-tab="diffTab" title="Compare a baseline with one or more forms">
+            <span class="tab-icon">⚖️</span>
+            <span>Form Diff</span>
+          </button>
+        </nav>
+        <div class="context-run-actions" aria-label="Run and compile actions">
+          <span class="context-sep" aria-hidden="true"></span>
+          <button id="launch14cBtn" class="btn btn-sm btn-emerald" title="Launch already-compiled .fmx directly in Oracle Forms 14c (full runtime, .pll libraries, CALL_FORM)">🚀 Launch in 14c</button>
+          <button id="previewRustBtn" class="btn btn-sm btn-secondary" title="Preview standalone form in the native Rust runtime (limited built-ins; no .pll or CALL_FORM)">🦀 Preview in Rust</button>
+          <button id="oracleReferenceBtn" class="btn btn-sm btn-secondary" title="Save XML, convert to FMB, compile in 14c, and deploy to WebLogic">🔨 Build &amp; Compile (14c)</button>
+        </div>
+      </div>
+      <div class="context-actions">
+        <button id="editLayoutToggleBtn" class="btn btn-sm btn-secondary" title="Enable Forms Builder visual layout &amp; property editor">
+          ✏️ Layout
+        </button>
+        <button id="openWizardBtn" class="btn btn-sm btn-primary" title="Open Data Block &amp; Layout Wizard (Select Tables, Columns, Frame Title, Form/Tabular)">
+          🧙‍♂️ Wizard
+        </button>
+        <button id="saveFormBtn" class="btn btn-sm btn-primary" title="Update the form's XML file in samples/">💾 Save Form</button>
+        <select id="menuModuleSelect" class="compact-select" aria-label="Attached Custom Menu Module (.mmb)" title="Switch or attach a custom .mmb Menu Module onto this Form">
+          <option value="OFW_EMP_MENU">🍔 Menu: OFW_EMP_MENU.mmb</option>
+          <option value="MAINMENU">🍔 Menu: MAINMENU.mmb</option>
+          <option value="DEFAULT">🍔 Menu: Standard Oracle Menu</option>
+          <option value="__BROWSE_MMB__">📂 Browse .mmb / _mmb.xml...</option>
+        </select>
+        <select id="previewAlertSelect" class="compact-select" aria-label="Preview declared alert" disabled>
+          <option value="">🔔 Alert...</option>
+        </select>
+        <button id="previewResetBtn" class="btn btn-sm btn-secondary" title="Reset preview field values" disabled>↺</button>
+        <button id="exportXmlBtn" class="btn btn-sm btn-outline" title="Export / save module as Forms2XML">💾 Export XML</button>
+      </div>
+    </div>
 
     <!-- ==================== BANNER FOR WARNINGS / NOTIFICATIONS ==================== -->
     <div id="conversionBanner" class="conversion-banner hidden">
@@ -164,32 +190,7 @@
                     <input type="checkbox" id="showNullCanvasToggle">
                     <span>👻 Hidden</span>
                   </label>
-                  <button id="editLayoutToggleBtn" class="btn btn-sm btn-secondary" title="Enable Forms Builder visual layout &amp; property editor">
-                    ✏️ Layout
-                  </button>
-                  <button id="openWizardBtn" class="btn btn-sm btn-primary" title="Open Data Block &amp; Layout Wizard (Select Tables, Columns, Frame Title, Form/Tabular)">
-                    🧙‍♂️ Wizard
-                  </button>
                 </div>
-              </div>
-
-              <div class="canvas-bar-right">
-                <button id="saveFormBtn" class="btn btn-sm btn-primary" title="Update the form's XML file in samples/">💾 Save Form</button>
-                <button id="oracleReferenceBtn" class="btn btn-sm btn-secondary" title="Save, compile and preview with Oracle Forms 14c">Preview in Oracle</button>
-                <details class="canvas-options"><summary>More form tools ▾</summary><div class="form-tools-menu">
-                <select id="menuModuleSelect" class="compact-select" aria-label="Attached Custom Menu Module (.mmb)" title="Switch or attach a custom .mmb Menu Module onto this Form">
-                  <option value="OFW_EMP_MENU">🍔 Menu: OFW_EMP_MENU.mmb</option>
-                  <option value="MAINMENU">🍔 Menu: MAINMENU.mmb</option>
-                  <option value="DEFAULT">🍔 Menu: Standard Oracle Menu</option>
-                  <option value="__BROWSE_MMB__">📂 Browse .mmb / _mmb.xml...</option>
-                </select>
-                <select id="previewAlertSelect" class="compact-select" aria-label="Preview declared alert" disabled>
-                  <option value="">🔔 Alert...</option>
-                </select>
-                <button id="previewResetBtn" class="btn btn-sm btn-secondary" title="Reset preview field values" disabled>↺</button>
-
-                <button id="exportXmlBtn" class="btn btn-sm btn-outline" title="Export module to lossless Forms2XML">💾 XML</button>
-                </div></details>
               </div>
             </div>
 
@@ -354,7 +355,8 @@
                 <!-- ==================== ORACLE FORMS IN-WINDOW ACTION TOOLBAR ==================== -->
                 <div class="oracle-action-toolbar" id="dbControls">
                   <!-- Session & Logon Controls inside Form Toolbar -->
-                  <button id="runFormBtn" class="ora-run-pill" title="Start Interactive Form Session (Triggers & PL/SQL)">▶ Run</button>
+                  <button id="toolbarLaunch14cBtn" class="ora-14c-pill" title="Launch deployed .fmx in Oracle 14c FSAL">🚀 14c</button>
+                  <button id="runFormBtn" class="ora-run-pill" title="Preview in Native Rust Runtime (limited built-ins; no .pll / CALL_FORM)">▶ Rust Preview</button>
                   <button id="stopFormBtn" class="ora-stop-pill hidden" title="Stop Running Form Session">■ Stop</button>
                   <button id="dbConfigBtn" class="tool-btn" title="Database Logon & Connection Settings (Action -> Connect)">🔑</button>
                   <button id="runtimeCommitBtn" class="tool-btn hidden" title="Save Record: commit database changes (Ctrl+S)">💾 Record</button>
@@ -654,8 +656,8 @@
         <div class="ora-field-row">
           <label for="dbBackendSelect"><u>D</u>atabase:</label>
           <select id="dbBackendSelect">
-            <option value="oracle-thin">FREEPDB1 — Oracle Thin (Pure-Rust :1521)</option>
-            <option value="oracle">FREEPDB1 — Container SQL*Plus Bridge</option>
+            <option value="oracle-thin">Oracle Thin (Pure-Rust TCP)</option>
+            <option value="oracle">Container SQL*Plus Bridge</option>
             <option value="sqlite">SQLite (Local In-Memory Engine)</option>
             <option value="mock">Mock Driver (Synthetic Sample Data)</option>
           </select>
@@ -821,13 +823,14 @@
   </dialog>
 
   <dialog id="oracleReferenceDialog" class="workbench-modal" aria-labelledby="oraclePreviewTitle">
-    <div class="modal-header oracle-preview-header"><div><span class="preview-eyebrow">ORACLE REFERENCE</span><h3 id="oraclePreviewTitle">Preview form in Oracle</h3><p>Compare your saved form with the Oracle Forms 14c desktop client.</p></div><button class="btn btn-secondary" onclick="this.closest('dialog').close()" aria-label="Close Oracle preview">Close</button></div>
+    <div class="modal-header oracle-preview-header"><div><span class="preview-eyebrow">ORACLE 14C BUILD &amp; COMPILE</span><h3 id="oraclePreviewTitle">Build &amp; compile form in Oracle</h3><p>Save designer XML, convert to FMB, compile against Oracle DB, and launch via FSAL.</p></div><button class="btn btn-secondary" onclick="this.closest('dialog').close()" aria-label="Close build and compile dialog">Close</button></div>
     <div class="modal-body oracle-preview-body">
-      <section class="oracle-launch-card" aria-label="Current form preview">
-        <ol class="oracle-preview-steps"><li><span>1</span>Save XML</li><li><span>2</span>Compile form</li><li><span>3</span>Open Oracle</li></ol>
-        <p>Launch the form named above with your latest designer edits. Your edits update the form's XML file in samples/.</p>
+      <section class="oracle-launch-card" aria-label="Current form compile and launch">
+        <ol id="oraclePreviewSteps" class="oracle-preview-steps"><li id="oracleStep1"><span>1</span>Save XML &amp; Convert FMB</li><li id="oracleStep2"><span>2</span>Compile FMX</li><li id="oracleStep3"><span>3</span>Deploy &amp; Launch FSAL</li></ol>
+        <p id="oraclePreviewIntro">Builds the currently open form from XML, compiles it against your target DB, and deploys the resulting <code>.fmx</code> into WebLogic (<code>forms_apps/</code>) before launching FSAL.</p>
+        <p id="oracleDeployTargetNote" class="preview-help">WebLogic deploy target: <code>&lt;Oracle Home&gt;/forms_apps/&lt;OFW_APP_NAME or default&gt;/</code></p>
         <fieldset class="oracle-compile-options">
-          <legend>Compile connection</legend>
+          <legend id="oracleCompileLegend">Compile connection</legend>
           <label for="oracleCompileMode">Compilation mode</label>
           <select id="oracleCompileMode"><option value="connected">Database-connected — for forms with SQL</option><option value="offline">Offline — no database object validation</option></select>
           <div id="oracleCompileCredentials" class="oracle-compile-fields">
@@ -835,12 +838,14 @@
             <label for="oracleCompilePassword">Database password<input id="oracleCompilePassword" type="password" autocomplete="current-password" placeholder="Enter compile password" aria-describedby="oraclePreviewSummary"></label>
             <label for="oracleCompileTarget">Target database (TNS alias or host:port/service)<input id="oracleCompileTarget" value="FREEPDB1" placeholder="FREEPDB1 or host:port/service" aria-describedby="oraclePreviewSummary"></label>
           </div>
-          <p class="preview-help">Defaults to FREEPDB1 (local testbed), or enter a TNS alias (e.g. MY_ALIAS) or host:port/service (e.g. db.example.com:1521/ORCLPDB1). Run clears its password after connecting; enter it here again for compilation. Runtime logon in Oracle is separate.</p>
+          <p id="oracleCompileHelp" class="preview-help">Defaults to FREEPDB1 (local testbed), or enter a TNS alias (e.g. MY_ALIAS) or host:port/service (e.g. db.example.com:1521/ORCLPDB1). Run clears its password after connecting; enter it here again for compilation. Runtime logon in Oracle is separate.</p>
         </fieldset>
         <button id="launchOraclePreviewBtn" class="btn btn-primary" disabled>Save &amp; launch in Oracle</button>
         <p id="oraclePreviewSummary" class="oracle-preview-summary" role="status" aria-live="polite">No preview launched for this form.</p>
-        <p class="preview-help">Forms with SQL need database-connected compilation so Oracle can resolve tables and views. Offline compilation must be selected explicitly and may fail for these forms.</p>
-        <p class="preview-help">Model-summary XML can omit unparsed Oracle properties. Any conversion or compilation error appears in diagnostics below.</p>
+        <div id="oracleCompileNotes">
+          <p class="preview-help">Forms with SQL need database-connected compilation so Oracle can resolve tables and views. Offline compilation must be selected explicitly and may fail for these forms.</p>
+          <p class="preview-help">Model-summary XML can omit unparsed Oracle properties. Any conversion or compilation error appears in diagnostics below.</p>
+        </div>
       </section>
       <section class="oracle-setup" aria-labelledby="oracleSetupHeading">
         <h4 id="oracleSetupHeading">Environment</h4>
@@ -875,6 +880,69 @@ python3 plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/healt
         <p>For the native desktop client, run this from the repository root:</p><pre id="oracleReferenceCommand"></pre>
         <button id="copyOracleReferenceBtn" class="btn btn-secondary">Copy FSAL command</button>
       </div></details>
+    </div>
+  </dialog>
+
+  <dialog id="oracleLaunchDialog" class="workbench-modal" aria-labelledby="oracleLaunchTitle">
+    <div class="modal-header oracle-preview-header"><div><span class="preview-eyebrow">ORACLE 14C PRE-COMPILED LAUNCH</span><h3 id="oracleLaunchTitle">Launch Deployed Form in Oracle 14c</h3><p>Run an already-compiled .fmx directly via FSAL (no XML2Forms or compile; runtime login happens inside the form).</p></div><button class="btn btn-secondary" onclick="this.closest('dialog').close()" aria-label="Close deployed form launch dialog">Close</button></div>
+    <div class="modal-body oracle-preview-body">
+      <section class="oracle-launch-card" aria-label="Deployed FMX launch options">
+        <div id="oracleLaunchMatchNotice" class="oracle-match-notice" role="status" aria-live="polite">
+          Checking deployed .fmx files…
+        </div>
+        <fieldset class="oracle-compile-options">
+          <legend>Deployed form &amp; WebLogic config</legend>
+          <div class="oracle-compile-fields">
+            <label for="oraclePrecompiledFmx">Deployed .fmx to launch
+              <select id="oraclePrecompiledFmx" aria-describedby="oracleLaunchSummary"><option value="">Loading deployed .fmx files…</option></select>
+            </label>
+            <label for="oracleBrowseFmxBtn">Or pick .fmx file
+              <button id="oracleBrowseFmxBtn" type="button" class="btn btn-secondary">📂 Browse .fmx…</button>
+              <input id="oracleBrowseFmxInput" type="file" accept=".fmx,.FMX" hidden>
+            </label>
+            <label for="oracleFormsConfig">Forms config section (formsweb.cfg)<input id="oracleFormsConfig" placeholder="e.g. standaloneapp or app config" aria-describedby="oracleLaunchSummary"></label>
+            <label for="oracleLaunchParams">Launch parameters (optional)<input id="oracleLaunchParams" placeholder="e.g. APPL4=Y (leave blank for form login)" aria-describedby="oracleLaunchSummary"></label>
+          </div>
+          <p id="oraclePrecompiledNote" class="preview-help">List populated from <code>OFW_FORMS_APPS_DIR</code> / <code>OFW_APP_NAME</code> and <code>OFW_ORACLE_HOME/forms</code> in <code>.env</code> (not the top-left <code>samples/</code> / <code>OFW_FORMS_PATH_EXTRA</code> source list).</p>
+        </fieldset>
+        <div class="oracle-launch-actions">
+          <button id="launchPrecompiledBtn" class="btn btn-primary">Launch deployed FMX in Oracle</button>
+          <button id="launchSwitchToCompileBtn" type="button" class="btn btn-secondary">🔨 Build &amp; Compile Open Form in 14c</button>
+        </div>
+        <p id="oracleLaunchSummary" class="oracle-preview-summary" role="status" aria-live="polite">Select a deployed .fmx to launch in Oracle 14c.</p>
+      </section>
+      <details id="oracleLaunchDiagnostics" class="oracle-preview-disclosure"><summary>Launch diagnostics</summary><pre id="oracleLaunchLog" tabindex="0" aria-label="Oracle FSAL launch output">No launch output yet.</pre></details>
+    </div>
+  </dialog>
+  <dialog id="rustPreviewNoticeDialog" class="workbench-modal" aria-labelledby="rustPreviewNoticeTitle">
+    <div class="modal-header oracle-preview-header">
+      <div>
+        <span class="preview-eyebrow">NATIVE RUST RUNTIME PREVIEW</span>
+        <h3 id="rustPreviewNoticeTitle">Preview in Rust — Known Limitations</h3>
+        <p>This runs the workbench's built-in Rust interpreter, not Oracle Forms 14c.</p>
+      </div>
+      <button class="btn btn-secondary" data-close-modal="rustPreviewNoticeDialog" aria-label="Close Rust preview notice">Close</button>
+    </div>
+    <div class="modal-body oracle-preview-body">
+      <div class="rust-preview-notice-box">
+        <p><strong>What works here:</strong> Standalone single-form layout preview, basic block queries, and simple triggers without starting Oracle 14c.</p>
+        <p><strong>What is not supported in Rust preview:</strong></p>
+        <ul>
+          <li>External <code>.pll</code> library execution (e.g., shared helper or security libraries)</li>
+          <li>Multi-form navigation (<code>CALL_FORM</code>, <code>OPEN_FORM</code>, <code>NEW_FORM</code>)</li>
+          <li>Full Forms built-in coverage (<code>CLEAR_LIST</code>, <code>ADD_LIST_ELEMENT</code>, <code>LOGON</code>, <code>SHOW_LOV</code>, <code>EXEC_SQL</code>, <code>WEBUTIL</code>, etc.)</li>
+        </ul>
+        <p><strong>Want a fully functional Oracle Forms runtime?</strong> Use <strong>Launch in 14c</strong> to run the compiled <code>.fmx</code> via Oracle 14c FSAL.</p>
+      </div>
+      <label class="ora-checkbox-label">
+        <input type="checkbox" id="skipRustPreviewNoticeCheck">
+        <span>Don't show this reminder again in this browser session</span>
+      </label>
+      <div class="oracle-launch-actions">
+        <button id="rustNoticeLaunch14cBtn" type="button" class="btn btn-emerald">🚀 Launch in 14c instead</button>
+        <button id="rustNoticeContinueBtn" type="button" class="btn btn-primary">▶ Continue with Rust Preview</button>
+        <button type="button" class="btn btn-secondary" data-close-modal="rustPreviewNoticeDialog">Cancel</button>
+      </div>
     </div>
   </dialog>
   <dialog id="runtimeAlertDialog" class="preview-dialog workbench-modal">

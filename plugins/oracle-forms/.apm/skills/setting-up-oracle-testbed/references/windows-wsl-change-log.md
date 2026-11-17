@@ -629,3 +629,43 @@ Gaps found when reviewing `windows-podman-setup.md` against what the setup neede
 | Change | Authored `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/external-repository-integration.md` documenting how external application repositories consume the workbench and container testbed. Details workspace isolation (`OFW_WORK_DIR` on ext4, `OFW_FORMS_PATH_EXTRA` read-only source intake, runtime segregation under `/oracle_home_14c/forms_apps/<app_name>/`), `start_testbed.py` lifecycle, and the 3-stage compilation pipeline using generic placeholders (`<external-app-repo>`, `<app_name>`) per `cross-project-isolation.md`. Linked in `SKILL.md` and `references/index.md`. |
 | Verified | Link checks in `SKILL.md` and `references/index.md`. Checked against `cross-project-isolation.md` to confirm zero proprietary project identifiers. |
 | Not verified | None. |
+
+### Support launching pre-compiled `.fmx` modules directly from Preview in Oracle
+
+| Item | Detail |
+|---|---|
+| Change | Added `precompiled` launch mode (`launch_precompiled`, `find_deployed_fmx`, `normalize_fmx_name` in `crates/oracle-forms-server/src/oracle_preview.rs`, wired through `SaveFormRequest` / `start_oracle_preview` in `routes.rs`, plus `Already compiled — launch deployed .fmx directly` option and optional `Forms config` input in `ui/index.html` and `ui/app.js`). Resolves deployed `.fmx` from `<Oracle Home>/forms_apps/<OFW_APP_NAME>/` or `<Oracle Home>/forms/` and launches `launch_fsal.py` directly without forcing `XML2Forms`, `frmcmp_batch`, or compile credentials. Also removed hardcoded `FREEPDB1 — ` prefix from the database driver selector in `ui/index.html`. |
+| Verified | `cargo check` and `cargo test` in WSL2 (`oracle-forms-server`: 39 passed, 0 failed; including `normalize_fmx_name_accepts_stem_or_fmx_and_rejects_paths`). Live UI click-through verified by owner: `Already compiled — launch deployed .fmx directly` skipped `XML2Forms`/compile with no compile credentials and launched the pre-compiled `.fmx` directly in FSAL, opening the native form login dialog. |
+| Not verified | None. |
+
+### Split Oracle 14c toolbar into `Launch in 14c` (precompiled) and `Build & Compile (14c)`
+
+| Item | Detail |
+|---|---|
+| Change | Separated `🚀 Launch in 14c` and `🔨 Build & Compile (14c)` into two independent `<dialog>` modals in `ui/index.html`, `ui/styles.css`, and `ui/app.js`: `#oracleLaunchDialog` (pre-compiled `.fmx` launch from `OFW_FORMS_APPS_DIR` / `OFW_APP_NAME` / `OFW_ORACLE_HOME/forms`, with `.fmx` dropdown, `Browse .fmx...`, `Forms config section`, `Launch parameters`, `.env` path note, and its own diagnostics) vs `#oracleReferenceDialog` (3-step XML -> FMB -> FMX build/compile against local/target DB). |
+| Verified | `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`), `cargo check`, and `cargo test` in WSL2 (`oracle-forms-server`: `40 passed, 0 failed`, including `parse_launch_params_validates_key_value_pairs` and `normalize_fmx_name_accepts_stem_or_fmx_and_rejects_paths`). |
+| Not verified | Live UI screenshot / click-through on the restarted Rust server (`--restart-rust` succeeded on port 7070). |
+
+### Reorganized header/context bars and refactored `Build & Compile (14c)` modal
+
+| Item | Detail |
+|---|---|
+| Change | Reorganized `ui/index.html`, `ui/styles.css`, and `ui/app.js` into a 2-row workbench header (`header.top-bar` with artifact picker + global `🚀 Launch in 14c` / `🔨 Build & Compile (14c)` / `View & panels ▾`; `div.module-context-bar` with context-aware `Form Designer` / `Report Preview` tab, `PL/SQL Studio`, `XML Source`, `Form Diff` + inline `Layout` / `Wizard` / `Save Form` / `Menu` / `Alert` / `↺` / `💾 Export XML`, removing the `More form tools ▾` dropdown and filtering actions per active tab and module type via `syncContextActionsUi`), leaving `.canvas-bar` as a slim single-row canvas/zoom bar. Refactored `#oracleReferenceDialog` (`Build & Compile (14c)`) with live step highlighting (`oracleStep1..3`) and `#oracleDeployTargetNote` displaying the WebLogic deploy folder. Hid `⚡ Convert via Oracle (XML/PLD)` in `xmlTab` when XML is already loaded, unified `Reports Engine` into the context-aware first tab (`setPrimaryPreviewMode`), hid form-only `.context-actions` when a report is open, fixed `loadSample`/`convertArtifactXmlBtn` for `.rdf`/`.xml` reports, fixed `convertArtifactXmlBtn` post-conversion reload (`loadSample(data.outputFile)` + routing `.pld` to `codeTab`), auto-loaded the first program unit / trigger (or `.pll` convert notice) in `renderCodeUnitsList` for `PL/SQL Studio`, and added `selectObject` scroll-to-unit in `.pld` `XML Source` + `scrollTop = 0` on `loadCode`. |
+| Verified | `node --test tests/ui_*.test.cjs` in WSL2 (`25 passed, 0 failed`), `cargo build -p oracle-forms-server` (`exit 0`), and `--restart-rust` live on port 7070 (`task-1873`). |
+| Not verified | Live UI screenshot on the restarted Rust server. |
+
+### Clarified Rust Preview vs Oracle 14c Launch and moved run/build buttons above the form
+
+| Item | Detail |
+|---|---|
+| Change | Moved `🚀 Launch in 14c` and `🔨 Build & Compile (14c)` out of `.header-right` into `.module-context-bar` right after `Form Diff`, and added `🦀 Preview in Rust` (`#previewRustBtn`, hidden on non-Form modules). Added `#toolbarLaunch14cBtn` (`🚀 14c`) beside `#runFormBtn` (renamed `▶ Run` to `▶ Rust Preview`) inside `#dbControls` in the emulated form toolbar so both modals are directly accessible from the form toolbar as well. Added `#rustPreviewNoticeDialog` (`openRustPreviewOrNotice()`), explaining Rust runtime limitations (no `.pll` libraries, no `CALL_FORM`/`OPEN_FORM`/`NEW_FORM`, incomplete built-ins such as `CLEAR_LIST`/`LOGON`/`SHOW_LOV`/`EXEC_SQL`) with `🚀 Launch in 14c instead`, `▶ Continue with Rust Preview`, and a per-session opt-out checkbox. Enhanced `#oracleLaunchDialog` with `#oracleLaunchMatchNotice` (explicitly indicating whether the open source module from `samples/` or `OFW_FORMS_PATH_EXTRA` has a matching deployed `.fmx` in `forms_apps/` / `forms/` or needs compilation first) and `#launchSwitchToCompileBtn` (`🔨 Build & Compile Open Form in 14c`). |
+| Verified | `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`) and `cargo check` in WSL2. |
+| Not verified | Live browser click-through of `#rustPreviewNoticeDialog` and `#oracleLaunchMatchNotice` on the restarted server. |
+
+### Aligned `README.md`, `architecture.md`, and `AGENTS.md` with current UI & test counts
+
+| Item | Detail |
+|---|---|
+| Change | Updated `README.md`, `architecture.md`, and `AGENTS.md` to document `Launch in 14c` (`launch_fsal.py` / `/api/forms/oracle-preview/compiled` on deployed `.fmx` in `OFW_FORMS_APPS_DIR` / `forms_apps/<OFW_APP_NAME>/` / `forms/`), `Build & Compile (14c)` (`run_form.py`), `Preview in Rust` / `▶ Rust Preview` (standalone single-form preview + limitations modal), `OFW_FORMS_PATH_EXTRA` read-only source intake, and current WSL verification status. |
+| Verified | `cargo test` in WSL2 (`128 passed, 0 failed`) and `node --test tests/ui_*.test.cjs` (`25 passed, 0 failed`). |
+| Not verified | `tests/test_reference_pipeline.py` was not re-run in this session. |

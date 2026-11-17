@@ -262,6 +262,26 @@
     });
   });
 
+  function syncContextActionsUi() {
+    const activeTabId = document.querySelector('.tab-btn.active')?.getAttribute('data-tab') || 'canvasTab';
+    const modType = (currentPayload?.summary?.moduleType || '').toUpperCase();
+    const isReport = moduleBadge?.textContent?.endsWith('(REPORT)') || modType === 'REPORT';
+    const isForm = modType === 'FORM';
+    const showDesignerTools = !isReport && isForm && activeTabId === 'canvasTab';
+    const formActions = document.querySelector?.('.context-actions');
+    if (formActions) formActions.hidden = isReport;
+    for (const id of ['editLayoutToggleBtn', 'openWizardBtn', 'menuModuleSelect', 'previewAlertSelect', 'previewResetBtn']) {
+      const el = document.getElementById(id);
+      if (el) el.hidden = !showDesignerTools;
+    }
+    const previewRustBtn = document.getElementById('previewRustBtn');
+    if (previewRustBtn) previewRustBtn.hidden = isReport || !isForm;
+    const saveBtn = document.getElementById('saveFormBtn');
+    if (saveBtn) saveBtn.hidden = isReport || !isForm;
+    const exportBtn = document.getElementById('exportXmlBtn');
+    if (exportBtn) exportBtn.hidden = isReport || modType === 'LIBRARY';
+  }
+
   // Tab switching
   function setupTabSwitching() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -271,6 +291,7 @@
         btn.classList.add('active');
         const viewId = btn.getAttribute('data-tab');
         document.getElementById(viewId).classList.add('active');
+        syncContextActionsUi();
         const leftPane = document.getElementById('leftPane');
         const toggleLeftBtn = document.getElementById('toggleLeftPaneBtn');
         if (viewId === 'reportsTab') {
@@ -288,7 +309,15 @@
 
   function switchTab(tabId) {
     const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
-    if (btn) btn.click();
+    if (btn) {
+      btn.click();
+    } else if (tabId === 'reportsTab') {
+      const primaryBtn = document.getElementById('primaryPreviewTabBtn');
+      if (primaryBtn) {
+        primaryBtn.setAttribute('data-tab', 'reportsTab');
+        primaryBtn.click();
+      }
+    }
   }
 
   function openBottomDrawer(tabPaneId = 'drawerPlsql') {
@@ -522,7 +551,7 @@
           openModal('dbConfigModal');
           break;
         case 'run':
-          startRuntimeSession();
+          openRustPreviewOrNotice();
           break;
         case 'commit':
           if (runtime.active) runtimeSend({ kind: 'commit' });
@@ -757,8 +786,33 @@
       if (previewEnabled && button) showPreviewDialog(button.title, 'Toolbar action not executed in this local preview.');
     });
 
-    // Live form session
-    runFormBtn?.addEventListener('click', startRuntimeSession);
+    // Live form session (with Rust preview limitations notice)
+    function openRustPreviewOrNotice() {
+      const skip = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('ofwSkipRustPreviewNotice') === '1';
+      const dlg = document.getElementById('rustPreviewNoticeDialog');
+      if (skip || !dlg?.showModal) {
+        startRuntimeSession();
+        return;
+      }
+      dlg.showModal();
+    }
+    document.getElementById('previewRustBtn')?.addEventListener('click', openRustPreviewOrNotice);
+    document.getElementById('toolbarLaunch14cBtn')?.addEventListener('click', () => {
+      document.getElementById('launch14cBtn')?.click();
+    });
+    document.getElementById('rustNoticeLaunch14cBtn')?.addEventListener('click', () => {
+      document.getElementById('rustPreviewNoticeDialog')?.close();
+      document.getElementById('launch14cBtn')?.click();
+    });
+    document.getElementById('rustNoticeContinueBtn')?.addEventListener('click', () => {
+      const skipCheck = document.getElementById('skipRustPreviewNoticeCheck');
+      if (skipCheck?.checked && typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('ofwSkipRustPreviewNotice', '1');
+      }
+      document.getElementById('rustPreviewNoticeDialog')?.close();
+      startRuntimeSession();
+    });
+    runFormBtn?.addEventListener('click', openRustPreviewOrNotice);
     stopFormBtn?.addEventListener('click', stopRuntimeSession);
     runtimeCommitBtn?.addEventListener('click', () => runtimeSend({ kind: 'commit' }));
     runtimeAlertDialog?.querySelectorAll('button[data-button]').forEach(btn => {
@@ -886,11 +940,14 @@
     const convertArtifactXmlBtn = document.getElementById('convertArtifactXmlBtn');
     if (convertArtifactXmlBtn) {
       convertArtifactXmlBtn.addEventListener('click', async () => {
-        if (!currentPayload || !currentPayload.moduleIndex || !currentPayload.moduleIndex.key) {
+        const isReportActive = moduleBadge?.textContent?.endsWith('(REPORT)') && reportSelect?.value;
+        if (!isReportActive && (!currentPayload || !currentPayload.moduleIndex || !currentPayload.moduleIndex.key)) {
           showBanner('Open a form, menu, library, or report first.');
           return;
         }
-        const moduleName = currentPayload.moduleIndex.key.name;
+        const moduleName = isReportActive
+          ? reportSelect.value.replace(/\.(rdf|rpt|xml)$/i, '')
+          : currentPayload.moduleIndex.key.name;
         const originalText = convertArtifactXmlBtn.textContent;
         convertArtifactXmlBtn.disabled = true;
         convertArtifactXmlBtn.textContent = 'Converting via Oracle...';
@@ -907,13 +964,13 @@
             return;
           }
           await loadSampleList();
-          if (data.payload) {
-            setModulePayload(data.payload);
-            switchTab('xmlTab');
-            await loadFullXml(data.payload.summary?.moduleName || moduleName);
-          } else if (data.outputFile) {
-            await loadFullXml(moduleName);
-            switchTab('xmlTab');
+          if (data.outputFile) {
+            await loadSample(data.outputFile);
+            if (data.outputFile.toLowerCase().endsWith('.pld')) {
+              switchTab('codeTab');
+            } else if (!data.outputFile.toLowerCase().endsWith('_report.xml') && !data.outputFile.toLowerCase().endsWith('_rdf.xml')) {
+              switchTab('xmlTab');
+            }
           } else {
             await loadFullXml(moduleName);
           }
@@ -1114,6 +1171,14 @@
             document.getElementById('oraclePreviewDiagnostics').open = !status.success;
             return;
           }
+          const step = status.log.includes('[3/3]') ? 3 : status.log.includes('[2/3]') ? 2 : 1;
+          for (const n of [1, 2, 3]) {
+            const el = document.getElementById(`oracleStep${n}`);
+            if (el?.classList) {
+              el.classList.toggle('active', n === step);
+              el.classList.toggle('done', n < step);
+            }
+          }
           summary.textContent = status.log.includes('Forms Session ID') ? `${sourceModule} opened in Oracle. Continue in the desktop window.`
             : status.log.includes('[3/3]') ? `Opening ${sourceModule} in the Oracle desktop client…`
             : status.log.includes('[2/3]') ? `Compiling ${sourceModule}…` : `Converting ${sourceModule} to FMB…`;
@@ -1158,13 +1223,158 @@
       command.textContent = `python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py ${name} --interactive`;
       document.getElementById('copyOracleReferenceBtn').disabled = false;
     }
+    async function loadOracleCompiledForms(defaultStem) {
+      try {
+        const res = await fetch('/api/forms/oracle-preview/compiled');
+        if (!res.ok) return;
+        const data = await res.json();
+        const fmxSelect = document.getElementById('oraclePrecompiledFmx');
+        const cfgInput = document.getElementById('oracleFormsConfig');
+        if (fmxSelect && Array.isArray(data.forms)) {
+          fmxSelect.innerHTML = '';
+          if (data.forms.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No deployed .fmx files found';
+            fmxSelect.appendChild(opt);
+          } else {
+            for (const f of data.forms) {
+              const opt = document.createElement('option');
+              opt.value = f;
+              opt.textContent = f;
+              fmxSelect.appendChild(opt);
+            }
+          }
+          let matched = null;
+          if (defaultStem) {
+            matched = data.forms.find(f => f.toLowerCase() === `${defaultStem.toLowerCase()}.fmx`) || null;
+            if (matched) fmxSelect.value = matched;
+          }
+          const matchNotice = document.getElementById('oracleLaunchMatchNotice');
+          const switchCompileBtn = document.getElementById('launchSwitchToCompileBtn');
+          if (matchNotice) {
+            matchNotice.classList.remove('is-found', 'is-missing');
+            if (!defaultStem) {
+              matchNotice.textContent = 'Select any deployed .fmx from your Oracle 14c deploy folders.';
+            } else if (matched) {
+              matchNotice.classList.add('is-found');
+              matchNotice.textContent = `Open module "${defaultStem}" matched deployed "${matched}" in the 14c deploy folder.`;
+            } else {
+              matchNotice.classList.add('is-missing');
+              matchNotice.textContent = `Open module "${defaultStem}" is loaded from your source folder (samples/ or OFW_FORMS_PATH_EXTRA), and no compiled "${defaultStem}.fmx" was found in the 14c deploy folders. Build & Compile it in 14c first, or pick another deployed .fmx below.`;
+            }
+          }
+          if (switchCompileBtn) {
+            switchCompileBtn.hidden = !defaultStem;
+          }
+        }
+        if (cfgInput && !cfgInput.value.trim() && data.formsConfig) {
+          cfgInput.value = data.formsConfig;
+        }
+        const preNote = document.getElementById('oraclePrecompiledNote');
+        if (preNote && Array.isArray(data.searchDirs) && data.searchDirs.length) {
+          preNote.textContent = `Populated from .env (OFW_FORMS_APPS_DIR / OFW_APP_NAME / OFW_ORACLE_HOME): ${data.searchDirs.join(', ')}`;
+        }
+        const deployNote = document.getElementById('oracleDeployTargetNote');
+        if (deployNote) {
+          const targetDir = Array.isArray(data.searchDirs) && data.searchDirs.length ? data.searchDirs[0] : `forms_apps/${data.appName || 'default'}/`;
+          deployNote.textContent = `WebLogic deploy target: ${targetDir}`;
+        }
+      } catch (_) {}
+    }
+    document.getElementById('oracleBrowseFmxBtn')?.addEventListener('click', () => {
+      document.getElementById('oracleBrowseFmxInput')?.click();
+    });
+    document.getElementById('oracleBrowseFmxInput')?.addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      const fmxSelect = document.getElementById('oraclePrecompiledFmx');
+      if (!file || !fmxSelect) return;
+      const existing = [...fmxSelect.options].find(o => o.value.toLowerCase() === file.name.toLowerCase());
+      if (existing) {
+        fmxSelect.value = existing.value;
+      } else {
+        const opt = document.createElement('option');
+        opt.value = file.name;
+        opt.textContent = file.name;
+        fmxSelect.appendChild(opt);
+        fmxSelect.value = file.name;
+      }
+      event.target.value = '';
+    });
+    document.getElementById('launch14cBtn')?.addEventListener('click', () => {
+      const stem = currentPayload?.moduleIndex?.key?.name || null;
+      const summary = document.getElementById('oracleLaunchSummary');
+      const log = document.getElementById('oracleLaunchLog');
+      const diag = document.getElementById('oracleLaunchDiagnostics');
+      if (summary) summary.textContent = 'Select a deployed .fmx to launch in Oracle 14c.';
+      if (log) log.textContent = 'No launch output yet.';
+      if (diag) diag.open = false;
+      loadOracleCompiledForms(stem);
+      document.getElementById('oracleLaunchDialog').showModal();
+      document.querySelector('#oracleLaunchDialog .modal-body').scrollTop = 0;
+    });
+    document.getElementById('launchSwitchToCompileBtn')?.addEventListener('click', () => {
+      document.getElementById('oracleLaunchDialog')?.close();
+      document.getElementById('oracleReferenceBtn')?.click();
+    });
+    document.getElementById('launchPrecompiledBtn')?.addEventListener('click', async event => {
+      const fmx = (document.getElementById('oraclePrecompiledFmx')?.value || '').trim();
+      const formsConfig = (document.getElementById('oracleFormsConfig')?.value || '').trim() || null;
+      const launchParams = (document.getElementById('oracleLaunchParams')?.value || '').trim() || null;
+      const summary = document.getElementById('oracleLaunchSummary');
+      const log = document.getElementById('oracleLaunchLog');
+      const diag = document.getElementById('oracleLaunchDiagnostics');
+      if (!fmx) {
+        if (summary) summary.textContent = 'Select or browse for a deployed .fmx file first.';
+        return;
+      }
+      const button = event.target;
+      button.disabled = true;
+      try {
+        if (summary) summary.textContent = `Launching ${fmx} in Oracle 14c…`;
+        if (log) log.textContent = 'Starting FSAL directly (skipping XML2Forms and compile)…';
+        const response = await checkedSave('/api/forms/oracle-preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ moduleName: fmx, precompiled: true, formsConfig, launchParams }),
+        });
+        const result = await response.json();
+        const heading = `Deployed form: ${result.fileName}\n`;
+        for (let poll = 0; poll < 300; poll++) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const res = await fetch(`/api/forms/oracle-preview/${encodeURIComponent(result.jobId)}`);
+          const status = await res.json();
+          if (!res.ok) throw new Error(status.error || 'Launch status unavailable');
+          if (log) log.textContent = heading + status.log;
+          if (!status.running) {
+            if (summary) summary.textContent = status.success ? `Oracle session for ${result.fileName} has closed.` : `Could not launch ${result.fileName}. Open diagnostics for details.`;
+            if (diag) diag.open = !status.success;
+            return;
+          }
+          if (summary) summary.textContent = status.log.includes('Forms Session ID') ? `${result.fileName} opened in Oracle. Continue in the desktop window.` : `Opening ${result.fileName} in FSAL…`;
+        }
+      } catch (error) {
+        if (summary) summary.textContent = `Could not launch ${fmx}.`;
+        if (log) log.textContent += `\n${error.message}`;
+        if (diag) diag.open = true;
+      } finally {
+        button.disabled = false;
+      }
+    });
     document.getElementById('oracleReferenceBtn')?.addEventListener('click', () => {
       if (!currentPayload) return showBanner('Open a form first.');
-      resetOraclePreview(currentPayload.moduleIndex.key.name);
+      const modName = currentPayload.moduleIndex.key.name;
+      resetOraclePreview(modName);
+      document.getElementById('oracleCompileMode').value = 'connected';
+      document.getElementById('oracleCompileCredentials').hidden = false;
       document.getElementById('oracleCompileUser').value = dbUserInput?.value.trim() || '';
       document.getElementById('oracleCompileTarget').value = 'FREEPDB1';
-      referenceForm.value = `${currentPayload.moduleIndex.key.name.toLowerCase()}.fmx`;
+      referenceForm.value = `${modName.toLowerCase()}.fmx`;
       updateOracleReference();
+      loadOracleCompiledForms(modName);
+      for (const n of [1, 2, 3]) {
+        const el = document.getElementById(`oracleStep${n}`);
+        if (el?.classList) { el.classList.remove('active', 'done'); }
+      }
       document.getElementById('oracleReferenceDialog').showModal();
       document.querySelector('#oracleReferenceDialog .modal-body').scrollTop = 0;
       checkOracleReadiness();
@@ -1492,11 +1702,37 @@
     }
   }
 
+  function setPrimaryPreviewMode(isReport) {
+    const btn = document.getElementById('primaryPreviewTabBtn');
+    const icon = document.getElementById('primaryPreviewIcon');
+    const label = document.getElementById('primaryPreviewLabel');
+    const formActions = document.querySelector?.('.context-actions');
+    if (btn) btn.setAttribute('data-tab', isReport ? 'reportsTab' : 'canvasTab');
+    if (icon) icon.textContent = isReport ? '📊' : '🎨';
+    if (label) label.textContent = isReport ? 'Report Preview' : 'Form Designer';
+    if (formActions) formActions.hidden = isReport;
+    syncContextActionsUi();
+  }
+
   async function loadSample(sampleName) {
     try {
       hideBanner();
       const low = (sampleName || '').toLowerCase();
       if (low.endsWith('_report.xml') || low.endsWith('_rdf.xml') || low.endsWith('.rdf') || low.endsWith('.rpt')) {
+        currentPayload = null;
+        setPrimaryPreviewMode(true);
+        const repBadge = sampleName.replace(/\.(xml|rdf|rpt)$/i, '').replace(/_(report|rdf)$/i, '').toUpperCase();
+        if (moduleBadge) moduleBadge.textContent = `${repBadge} (REPORT)`;
+        if (codeTabBadge) codeTabBadge.textContent = '0';
+        const convertBtn = document.getElementById('convertArtifactXmlBtn');
+        if (low.endsWith('.rdf') || low.endsWith('.rpt')) {
+          if (xmlTitle) xmlTitle.textContent = `${sampleName} (binary report)`;
+          if (xmlLinesBadge) xmlLinesBadge.textContent = '';
+          if (xmlSliceDisplay) xmlSliceDisplay.textContent = `<!-- Binary Oracle Report (${sampleName}).\n     Click "⚡ Convert via Oracle (XML/PLD)" to export XML via rwconverter. -->`;
+          if (convertBtn) convertBtn.hidden = false;
+        } else {
+          loadFullXml(sampleName);
+        }
         switchTab('reportsTab');
         if (reportSelect) {
           if (!Array.from(reportSelect.options).some(o => o.value === sampleName)) {
@@ -1623,6 +1859,11 @@
     const summary = payload.summary;
     const mod = payload.moduleIndex;
 
+    const isReport = (summary.moduleType || '').toUpperCase() === 'REPORT';
+    setPrimaryPreviewMode(isReport);
+    if (!isReport && document.getElementById('reportsTab')?.classList.contains('active')) {
+      switchTab('canvasTab');
+    }
     moduleBadge.textContent = `${summary.moduleName} (${summary.moduleType})`;
     loadFullXml(summary.moduleName);
     codeTabBadge.textContent = summary.triggerCount + summary.programUnitCount;
@@ -1672,7 +1913,20 @@
     const units = mod.programUnits || [];
     if (triggers.length === 0 && units.length === 0) {
       listEl.innerHTML = '<div class="empty-state">No triggers or PL/SQL program units in this module.</div>';
+      if (plsqlCodeDisplay) {
+        const isLib = (currentPayload?.summary?.moduleType || '').toUpperCase() === 'LIBRARY';
+        plsqlCodeDisplay.textContent = isLib
+          ? '-- Binary .pll library has no extracted PL/SQL source until converted to .pld via "⚡ Convert via Oracle (XML/PLD)" on the XML Source tab.'
+          : '-- No triggers or PL/SQL program units in this module.';
+      }
       return;
+    }
+    const firstUnit = units.find(u => u.textRef?.file);
+    const firstTrig = triggers.find(t => t.textRef?.file);
+    if (firstUnit) {
+      loadCode(firstUnit.name, firstUnit.textRef.file, 'PROGRAM_UNIT', null, false);
+    } else if (firstTrig) {
+      loadCode(firstTrig.name, firstTrig.textRef.file, 'TRIGGER', null, false);
     }
     let html = '';
     for (const t of triggers) {
@@ -2085,10 +2339,15 @@
       }
     }
 
-    // Load XML slice if objectRef exists
+    // Load XML slice if objectRef exists; otherwise scroll full text (e.g. .pld) to the unit's start line
     const objRef = mod.objectRefs.find(r => r.name === name);
     if (objRef && objRef.ref) {
       loadXmlSlice(name, objRef.ref.startLine, objRef.ref.endLine);
+    } else if (type === 'PROGRAM_UNIT' && targetObj?.programUnit?.textRef?.startLine && xmlSliceDisplay) {
+      const total = Math.max(1, (xmlSliceDisplay.textContent || '').split('\n').length);
+      const lineIdx = Math.max(0, targetObj.programUnit.textRef.startLine - 1);
+      const container = xmlSliceDisplay.parentElement || xmlSliceDisplay;
+      container.scrollTop = Math.floor((lineIdx / total) * container.scrollHeight);
     }
   }
 
@@ -2343,7 +2602,7 @@
       connectButton.disabled = false;
       connectButton.textContent = 'Connect & Run';
       runFormBtn.disabled = false;
-      runFormBtn.textContent = '▶ Run';
+      runFormBtn.textContent = '▶ Rust Preview';
       if (!runtime.active) setRuntimeUi(null);
     }
   }
@@ -5115,6 +5374,7 @@
         const data = await res.json();
         const highlighted = highlightPlsql(data.code);
         plsqlCodeDisplay.innerHTML = highlighted;
+        plsqlCodeDisplay.scrollTop = 0;
         const drawerPre = document.getElementById('drawerPlsqlDisplay');
         if (drawerPre) drawerPre.innerHTML = highlighted;
         const modalPre = document.getElementById('modalPlsqlDisplay');
@@ -5134,14 +5394,18 @@
     xmlTitle.textContent = `${moduleName} (full XML)`;
     xmlLinesBadge.textContent = '';
     xmlSliceDisplay.textContent = '<!-- Loading XML source... -->';
+    const convertBtn = document.getElementById('convertArtifactXmlBtn');
     try {
       const res = await fetch(`/api/module/${encodeURIComponent(moduleName)}/xml`);
       if (!res.ok) {
         xmlSliceDisplay.textContent = `<!-- No XML source available for ${moduleName} (binary .fmb files have no XML until converted). -->`;
+        if (convertBtn) convertBtn.hidden = false;
         return;
       }
       const data = await res.json();
       if (currentPayload && currentPayload.summary.moduleName !== moduleName) return;
+      const isBinaryFallback = data.xml.trimStart().startsWith('<!-- This module was parsed in Direct Binary');
+      if (convertBtn) convertBtn.hidden = !isBinaryFallback;
       xmlSliceDisplay.textContent = data.xml;
       xmlLinesBadge.textContent = `${data.endLine - data.startLine + 1} lines`;
     } catch (e) {

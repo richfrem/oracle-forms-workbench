@@ -59,6 +59,83 @@ body {
   overflow-x: auto;
 }
 
+.module-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+  padding: 5px 10px;
+  gap: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.module-context-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.context-run-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.context-sep {
+  width: 1px;
+  height: 20px;
+  background-color: var(--border-color);
+  margin: 0 2px;
+}
+
+.context-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.context-actions[hidden], .context-actions > *[hidden] { display: none; }
+
+.oracle-match-notice,
+.rust-preview-notice-box {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.oracle-match-notice.is-missing {
+  background: rgba(217, 119, 6, 0.14);
+  border-color: rgba(217, 119, 6, 0.45);
+}
+
+.oracle-match-notice.is-found {
+  background: rgba(5, 150, 105, 0.14);
+  border-color: rgba(5, 150, 105, 0.45);
+}
+
+.rust-preview-notice-box ul {
+  margin: 6px 0 8px 18px;
+}
+
+.rust-preview-notice-box p + p {
+  margin-top: 6px;
+}
+
+.oracle-launch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .header-left {
   display: flex;
   align-items: center;
@@ -1567,6 +1644,7 @@ input[type="range"] {
   background-color: var(--bg-panel);
   border-bottom: 1px solid var(--border-color);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -1762,6 +1840,22 @@ input[type="range"] {
 
 .ora-run-pill:hover {
   background: linear-gradient(180deg, #34d399 0%, #10b981 100%) !important;
+}
+
+.ora-14c-pill {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid #1d4ed8 !important;
+  border-radius: 3px !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.ora-14c-pill:hover {
+  background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%) !important;
 }
 
 .ora-stop-pill {
@@ -2682,10 +2776,10 @@ input[type="range"] {
 .oracle-logon-modal input[aria-invalid="true"] { border: 2px solid #b91c1c !important; }
 
 /* Oracle preview: one bounded scroll area, with diagnostics and manual tools secondary. */
-#oracleReferenceDialog { width: min(820px, calc(100vw - 32px)); max-height: min(900px, 90dvh); overflow: hidden; }
-#oracleReferenceDialog[open] { display: flex; flex-direction: column; }
-#oracleReferenceDialog .modal-header { flex-shrink: 0; gap: 16px; align-items: flex-start; }
-#oracleReferenceDialog .oracle-preview-body { min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; padding: 20px; display: grid; gap: 16px; }
+#oracleReferenceDialog, #oracleLaunchDialog { width: min(820px, calc(100vw - 32px)); max-height: min(900px, 90dvh); overflow: hidden; }
+#oracleReferenceDialog[open], #oracleLaunchDialog[open] { display: flex; flex-direction: column; }
+#oracleReferenceDialog .modal-header, #oracleLaunchDialog .modal-header { flex-shrink: 0; gap: 16px; align-items: flex-start; }
+#oracleReferenceDialog .oracle-preview-body, #oracleLaunchDialog .oracle-preview-body { min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; padding: 20px; display: grid; gap: 16px; }
 .oracle-preview-header h3 { margin: 4px 0 6px; overflow-wrap: anywhere; }
 .oracle-preview-header p { margin: 0; color: var(--text-muted); font-size: 12px; }
 .preview-eyebrow { color: #93c5fd; font-size: 10px; font-weight: 700; letter-spacing: 1.3px; }
@@ -2694,25 +2788,28 @@ input[type="range"] {
 .oracle-preview-steps { display: flex; flex-wrap: wrap; gap: 16px; list-style: none; padding: 0; margin: 0 0 16px; }
 .oracle-preview-steps li { display: flex; gap: 7px; align-items: center; color: var(--text-secondary); font-size: 12px; }
 .oracle-preview-steps li span { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #2563eb33; color: #93c5fd; font-weight: 700; }
+.oracle-preview-steps li.active { color: var(--text-main); font-weight: 600; }
+.oracle-preview-steps li.active span { background: var(--accent-color); color: #fff; }
+.oracle-preview-steps li.done span { background: var(--emerald-color); color: #fff; }
 .oracle-preview-summary { font-weight: 600; color: var(--text-main); overflow-wrap: anywhere; }
 .preview-help { color: var(--text-muted); font-size: 12px; }
 #oracleReferenceDialog .oracle-setup { margin: 0; min-width: 0; }
 #oracleReadinessStatus { line-height: 1.5; font-size: 12px; color: var(--text-secondary); }
-#oracleReferenceDialog details summary { padding: 10px 0; cursor: pointer; font-weight: 600; }
-#oracleReferenceDialog details { min-width: 0; }
+#oracleReferenceDialog details summary, #oracleLaunchDialog details summary { padding: 10px 0; cursor: pointer; font-weight: 600; }
+#oracleReferenceDialog details, #oracleLaunchDialog details { min-width: 0; }
 .oracle-preview-disclosure { border: 1px solid var(--border-color); border-radius: 8px; padding: 0 14px; }
-#oracleReferenceDialog pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; box-sizing: border-box; font: 11px/1.6 var(--font-mono); padding: 12px; border-radius: 6px; background: var(--bg-editor); }
-#oraclePreviewLog { max-height: 240px; overflow-y: auto; overflow-x: hidden; }
+#oracleReferenceDialog pre, #oracleLaunchDialog pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; box-sizing: border-box; font: 11px/1.6 var(--font-mono); padding: 12px; border-radius: 6px; background: var(--bg-editor); }
+#oraclePreviewLog, #oracleLaunchLog { max-height: 240px; overflow-y: auto; overflow-x: hidden; }
 .oracle-manual-launch { display: grid; gap: 10px; padding: 0 0 14px; min-width: 0; }
 .oracle-manual-launch p { margin: 0; line-height: 1.5; color: var(--text-secondary); }
 #oracleReferenceForm { width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 6px; }
 #oracleReferenceLink { color: #93c5fd; text-decoration: underline; text-underline-offset: 3px; }
-@media (max-width: 560px) { #oracleReferenceDialog .oracle-preview-body { padding: 12px; } #launchOraclePreviewBtn { width: 100%; } }
+@media (max-width: 560px) { #oracleReferenceDialog .oracle-preview-body, #oracleLaunchDialog .oracle-preview-body { padding: 12px; } #launchOraclePreviewBtn, #launchPrecompiledBtn { width: 100%; } }
 
 .oracle-compile-options { border: 1px solid var(--border-color); border-radius: 8px; margin: 12px 0; padding: 12px; min-width: 0; }
 .oracle-compile-options legend { padding: 0 6px; font-weight: 600; }
 .oracle-compile-options label { font-size: 12px; display: grid; gap: 6px; }
 .oracle-compile-options input, .oracle-compile-options select { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; margin: 6px 0; color: var(--text-main); background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 5px; }
 .oracle-compile-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.oracle-compile-fields[hidden] { display: none; }
+.oracle-compile-fields[hidden], .oracle-preview-steps[hidden], #oracleCompileHelp[hidden], #oracleCompileNotes[hidden], #oraclePrecompiledNote[hidden], #convertArtifactXmlBtn[hidden] { display: none; }
 @media(max-width: 560px) { .oracle-compile-fields { grid-template-columns: 1fr; } }

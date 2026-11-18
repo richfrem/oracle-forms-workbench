@@ -175,3 +175,8 @@ Source review covered `start_testbed.py`, `HOW-TO-RUN.md`, `DEPENDENCIES.md`, an
 Startup follow-up: R2 and R3 were addressed in `start_testbed.py`. The Mac launcher returned exit 0 with all services confirmed at `PORT=7075`, reusing running processes. Live WSL validation, a cold Mac start, and a full three-stage Mac batch remain outstanding.
 
 The Mac now has a local ignored `.env` derived from `example.env`. The configured checkout-local Oracle Home cannot satisfy the external work-directory rule. The running Forms container records mount sources from an older checkout path that is absent on the Mac host. The recovery plan is to provision a verified copy of Oracle Home outside the checkout and recreate the Forms container with that mount. Set `OFW_WORK_DIR` beneath the external Home after the new mount is in place. Migration and live compilation remain pending.
+
+## macOS recovery & sample builds follow-up (PR #44)
+
+- Recovered macOS Forms 14c launch and compilation, restored `podman exec -i -u oracle` in `run_form.py`, fixed 14c XML attributes in `writer.rs` and `prepare_oracle_preview_xml`, moved sample `.sql` seeds to `oracle-reference-stack/sql/` with full DDL/seed coverage in `seed_test_schema.sql`, and verified 22/22 Stage 1 XML validation, 18/18 Stage 2 builds, and 17/17 Stage 3 `frmcmp_batch` compiles.
+- Open items remaining from this plan: **D4** (broken links in `setting-up-oracle-testbed`), **R1** (scoped Rust restart in `start_testbed.py`), **S1–S3**, and **M1–M2**.

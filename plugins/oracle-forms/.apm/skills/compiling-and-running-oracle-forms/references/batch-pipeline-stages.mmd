@@ -25,7 +25,7 @@ flowchart TD
     subgraph S2["Stage 2: Build Native 14c Source Binaries (Headless / logon=no)"]
         direction TB
         S2_SCRIPT["Script: build_dependency_manifest.py --normalize"]
-        CONTAINER_CONV["Container: oracle-forms-14c:latest\n(Throwaway: podman run --rm)\nFORMS_PATH=/work:/oracle_home_14c/forms"]
+        CONTAINER_CONV["Container: forms-server-14c (running)\nFallback only: oracle-forms-14c throwaway container\nFORMS_PATH=/work:/oracle_home_14c/forms"]
         MANIFEST -.->|Module Order 1..N| S2_SCRIPT
         S2_SCRIPT --> CONTAINER_CONV
 
@@ -75,7 +75,7 @@ flowchart TD
         CMP_FMB --> EXEC_FMX
 
         PUBLISH["Publish to Forms App Dir:\nOFW_ORACLE_HOME/forms_apps/app_name/\n(with case-variant symlinks in stage & app)"]
-        EXEC_PLX & EXEC_MMX & EXEC_FMX -->|shutil.copy2 + symlinks| PUBLISH
+        EXEC_PLX & EXEC_MMX & EXEC_FMX -->|direct output_file writes + symlinks| PUBLISH
 
         PUBLISH -->|Update module status: compiled| MANIFEST
     end

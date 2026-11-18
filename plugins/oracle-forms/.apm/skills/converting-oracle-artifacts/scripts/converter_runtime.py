@@ -124,7 +124,7 @@ def host_path(path: Path) -> str:
 # The one long-lived Forms server container. Start it once before Stage 1 and leave it running through Stage 3;
 # Stages 1 and 2 run their tools in it with `podman exec`. A throwaway `podman run --rm` container is only the
 # fallback for when it is not running.
-SERVER_CONTAINER = "forms-server-14c"
+SERVER_CONTAINER = os.environ.get("OFW_FORMS_CONTAINER") or _dotenv_value("OFW_FORMS_CONTAINER") or "forms-server-14c"
 EXEC_USER = "oracle"
 
 

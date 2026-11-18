@@ -286,8 +286,8 @@ It writes `bin/setUserOverrides.sh` and the `instances/forms1` symlink, generate
 Load the demo schemas (run from `oracle-reference-stack/` or with the repo path):
 
 ```bash
-podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost/FREEPDB1 < samples/ofw_demo_employees.sql
-podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost/FREEPDB1 < samples/ofw_demo_sales.sql
+podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_employees.sql
+podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_sales.sql
 ```
 
 The `ORA-00942` lines from `ofw_demo_sales.sql`'s `DROP TABLE` statements are expected on the first run.

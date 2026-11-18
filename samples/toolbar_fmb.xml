@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
   <FormModule Name="TOOLBAR" Title="Shared toolbar">
     <Block Name="BAR">
       <Item Name="SELECT" ItemType="Push Button" CanvasName="BAR" Prompt="Select">

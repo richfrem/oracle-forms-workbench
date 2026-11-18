@@ -4,6 +4,8 @@ This directory separates active tracking from completed design specifications.
 
 ## Active tracking
 
+- [13: Save safety and macOS regression follow-up](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) — open save-preservation/source-boundary findings and Mac validation gaps.
+
 - [Implementation roadmap and milestones](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
 - [Conformance testing](09-CONFORMANCE-TESTING.md)
 - [Next-phase session prompt](10-NEXT-PHASE-SESSION-PROMPT.md)

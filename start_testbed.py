@@ -71,13 +71,11 @@ from typing import Dict, List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parent
 IS_WINDOWS = platform.system() == "Windows"
-# Running inside WSL: Podman is local, but the Rust app is built with the Windows toolchain.
+# Running inside WSL: Podman and the Rust app run as Linux processes.
 IS_WSL = platform.system() == "Linux" and "microsoft" in platform.uname().release.lower()
 DB_CONTAINER = "oracle23ai-lite"
-FORMS_CONTAINER = "forms-server-14c"
 NETWORK = "oracle-net"
 DB_PORT = 1521
-RUST_PORT = 7070
 DB_READY_LINE = "DATABASE IS READY TO USE"
 FORMS_RUNNING_LINE = "Server state changed to RUNNING"
 # Inside WSL the build output lives on WSL's own disk (much faster than the Windows drive).
@@ -88,8 +86,6 @@ else:
     RUST_BIN = REPO / "target" / "debug" / ("oracle-forms-server.exe" if IS_WINDOWS else "oracle-forms-server")
 FSAL_LAUNCHER = REPO / "plugins" / "oracle-forms" / ".apm" / "skills" / "compiling-and-running-oracle-forms" / "scripts" / "launch_fsal.py"
 FORMS_SERVLET_URL = "http://127.0.0.1:7001/forms/frmservlet"
-RUST_URL = f"http://127.0.0.1:{RUST_PORT}/"
-RUST_READINESS_URL = f"http://127.0.0.1:{RUST_PORT}/api/forms/oracle-preview/readiness"
 
 START_TIME = time.time()
 STARTED_AT = datetime.now()
@@ -168,6 +164,17 @@ def read_dotenv() -> Dict[str, str]:
                 key, value = line.split("=", 1)
                 values[key.strip()] = value.strip().strip('"').strip("'")
     return values
+
+
+FORMS_CONTAINER = os.environ.get("OFW_FORMS_CONTAINER") or read_dotenv().get("OFW_FORMS_CONTAINER") or "forms-server-14c"
+
+
+def rust_port() -> int:
+    """Resolve the server port from the shell, then .env, then the Rust default."""
+    raw = os.environ.get("PORT", read_dotenv().get("PORT", "7070"))
+    if raw.isascii() and raw.isdecimal() and len(raw) <= 5 and 0 < int(raw) <= 65535:
+        return int(raw)
+    return 7070
 
 
 def log_dir() -> Path:
@@ -301,7 +308,7 @@ def ensure_podman_runtime(distro: str) -> bool:
         if run_shell(fix, distro, interactive=True).returncode != 0:
             return record("Podman", "FAIL", "could not create the runtime directory; run the sudo commands from HOW-TO-RUN.md section 6 by hand")
         return record("Podman", "OK", "runtime directory recreated")
-    if podman(["info"], distro).returncode != 0:
+    if podman(["info"], distro).returncode != 0 and platform.system() == "Darwin":
         say("Starting the Podman machine...")
         subprocess.run(["podman", "machine", "start"])
     if podman(["info"], distro).returncode == 0:
@@ -448,24 +455,26 @@ def find_cargo() -> Optional[str]:
 
 def process_running(name: str) -> bool:
     """True when a process with this image name is running (Windows, WSL, or Unix)."""
-    if IS_WINDOWS or IS_WSL:
+    if IS_WINDOWS:
         exe = name if name.lower().endswith(".exe") else name + ".exe"
-        listing = subprocess.run(["tasklist.exe" if IS_WSL else "tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True)
+        listing = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {exe}"], capture_output=True, text=True)
         return exe.lower() in (listing.stdout or "").lower()
     return subprocess.run(["pgrep", "-f", name], capture_output=True).returncode == 0
 
 
 def rust_confirmed() -> Optional[str]:
-    """Confirmation detail when the Rust app answers (home page and readiness API), else None."""
-    if http_status(RUST_URL) != 200:
+    """Confirm the Workbench home page and its Oracle readiness endpoint."""
+    port = rust_port()
+    url = f"http://127.0.0.1:{port}"
+    if http_status(f"{url}/") != 200 or http_status(f"{url}/api/forms/oracle-preview/readiness") != 200:
         return None
-    readiness = http_status(RUST_READINESS_URL)
-    return f"home page answers on port {RUST_PORT}; readiness API {'answers' if readiness == 200 else f'returned {readiness}'}"
+    return f"home page and readiness API answer on port {port}"
 
 
 def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) -> bool:
     """Start the Rust app unless it is already running, and confirm it. Never stops a running app unless restart."""
     begin("Rust app")
+    port = rust_port()
     if not restart:
         detail = rust_confirmed()
         if detail:
@@ -487,9 +496,10 @@ def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) 
             if detail:
                 return record("Rust app", "OK", f"was already starting; now up ({detail})")
             time.sleep(2)
-        return record("Rust app", "WARN", f"a build or server is running but did not answer on port {RUST_PORT} yet; nothing was stopped")
+        return record("Rust app", "WARN", f"a build or server is running but did not answer on port {port} yet; nothing was stopped")
     env = os.environ.copy()
     env.update(read_dotenv())
+    env["PORT"] = str(port)
     if IS_WSL:
         env["CARGO_TARGET_DIR"] = str(WSL_TARGET_DIR)
         env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
@@ -530,7 +540,7 @@ def start_rust(db_credentials: bool, build_timeout: int, restart: bool = False) 
         if detail:
             return record("Rust app", "OK", f"built and started ({detail})")
         time.sleep(1)
-    return record("Rust app", "FAIL", f"did not answer on port {RUST_PORT}; see {rust_log()}")
+    return record("Rust app", "FAIL", f"did not answer on port {port}; see {rust_log()}")
 
 
 # ----------------------------------------------------------------------------- FSAL launch
@@ -575,7 +585,7 @@ def show_status(distro: str) -> int:
     rust = rust_confirmed()
     servlet = servlet_up()
     say(f"Database port {DB_PORT}: " + ("open" if db_port else "closed"))
-    say(f"Rust server (port {RUST_PORT}): " + (f"up ({rust})" if rust else "down"))
+    say(f"Rust server (port {rust_port()}): " + (f"up ({rust})" if rust else "not confirmed"))
     say("Forms servlet (port 7001): " + ("up" if servlet else "down"))
     return 0 if (up == 2 and db_port and rust and servlet) else 1
 

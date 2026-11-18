@@ -56,7 +56,7 @@ The agent drives the whole pipeline; the user never has to guess the next step. 
 
 **Decompile rule (read before any decompile):** the server export (XML plus library text, which is often `.txt`) is already converted; use it as is. Rename exported library `.txt` to `.pld` first, decompile **only** binaries with no export, and keep one folder (`<build-dir>/decompiled/out/`) with the full text set, exported and decompiled together. Do not decompile everything, and do not clear or move folders unannounced. Details: [references/batch-dependency-conversion.md](references/batch-dependency-conversion.md).
 
-**Gate 2, conversion:** run Stage 2 in order, report converted and failed counts, then hand off to Stage 3 in the `compiling-and-running-oracle-forms` skill and ask for the target database alias and whether to publish compiled output to `<OFW_ORACLE_HOME>/forms/`.
+**Gate 2, conversion:** run Stage 2 in order, report converted and failed counts, then hand off to Stage 3 in the `compiling-and-running-oracle-forms` skill and ask for the target database alias and whether to publish compiled output to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`.
 
 ## Scripts
 

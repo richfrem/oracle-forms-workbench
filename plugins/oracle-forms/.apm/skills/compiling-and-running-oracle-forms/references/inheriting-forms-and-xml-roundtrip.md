@@ -59,7 +59,7 @@ Hand edits via XML are acceptable only for forms with no inheritance, or for thr
 python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py <form>.fmx -u USER@alias [--param NAME=VALUE]
 ```
 
-- A form must be compiled and its `.fmx` copied to `<Oracle Home>/forms/` (a compile publishes it unless `--no-publish`; with `--no-publish` copy with `XDG_RUNTIME_DIR=/run/user/$(id -u) podman unshare cp <fmx> <Oracle Home>/forms/`).
+- A form must be compiled with its `.fmx` in `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`, registered on runtime `FORMS_PATH`. Compilation publishes there unless `--no-publish`; that option retains outputs in staging. Keep application binaries out of the Oracle product `forms/` directory.
 - A form that calls another form by name (`call_form('x')`) needs `x.fmx` in a runtime-visible directory under exactly that name; `FRM-40010 Cannot read form x` otherwise.
 - `--param NAME=VALUE` adds a URL-encoded launch parameter. Verify that each supplied value reaches the target form; URL construction alone does not establish runtime delivery. Also test the normal entry form and navigation path when the application initializes globals, session state, or database context there.
 - Logon strings use an Oracle Net alias that must exist in `tnsnames.ora`; the login form's database dropdown can hard-code production aliases that the container lacks (use `-u USER@alias`).
@@ -72,7 +72,7 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 4. Program-unit text in XML: newline `&amp;#10;`, `<` `&lt;`, `&` `&amp;`, tab `&#x9;`.
 5. A query that fails inside a silent-query helper (message level 5) shows as zero rows with no error; reproduce it in SQL*Plus as the same user and roles.
 
-Remove the debug copy and its `.fmx` from `<Oracle Home>/forms/` when done.
+Remove diagnostic artifacts only with operator approval, from their external scratch folder and the dedicated application deployment directory.
 
 ## 7. Known runtime messages that are setup, not code
 

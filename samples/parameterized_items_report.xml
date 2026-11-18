@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<report name="PARAMETERIZED_ITEMS" title="Items by minimum amount" unitOfMeasurement="inch">
+<report DTDVersion="9.0.4.0.0" name="PARAMETERIZED_ITEMS" title="Items by minimum amount" unitOfMeasurement="inch">
   <data>
     <userParameter name="P_MIN_AMOUNT" datatype="number" initialValue="25" />
     <dataSource name="Q_ITEMS">

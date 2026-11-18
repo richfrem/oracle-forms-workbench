@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
-  <FormModule Name="DUPES" Title="Duplicate names at different levels">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="DUPES" Title="Duplicate names at different levels" ConsoleWindow="WIN_DUPES">
     <Block Name="STOCK">
-      <Item Name="ID" ItemType="Text Item" DataType="Number"/>
-      <Item Name="QTY" ItemType="Text Item" DataType="Number">
-        <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- item level: validate qty"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" CanvasName="CV_DUPES" XPosition="20" YPosition="20" Width="100" Height="22"/>
+      <Item Name="QTY" ItemType="Text Item" DataType="Number" CanvasName="CV_DUPES" XPosition="20" YPosition="52" Width="100" Height="22">
+        <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- item level: validate qty&#10;NULL;"/>
       </Item>
-      <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- block level: next stock record"/>
+      <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- block level: next stock record&#10;NULL;"/>
     </Block>
     <Block Name="AUDIT">
-      <Item Name="ID" ItemType="Text Item" DataType="Number"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" CanvasName="CV_DUPES" XPosition="20" YPosition="90" Width="100" Height="22"/>
     </Block>
     <Block Name="FORM">
-      <Item Name="NOTE" ItemType="Text Item" DataType="Char"/>
-      <Trigger Name="KEY-COMMIT" TriggerText="-- block FORM commit"/>
+      <Item Name="NOTE" ItemType="Text Item" DataType="Char" CanvasName="CV_DUPES" XPosition="20" YPosition="128" Width="180" Height="22"/>
+      <Trigger Name="KEY-COMMIT" TriggerText="-- block FORM commit&#10;NULL;"/>
     </Block>
-    <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- form level: default navigation"/>
-    <Trigger Name="KEY-COMMIT" TriggerText="-- form level commit"/>
+    <Canvas Name="CV_DUPES" CanvasType="Content" WindowName="WIN_DUPES" Width="800" Height="600"/>
+    <Trigger Name="KEY-NEXT-ITEM" TriggerText="-- form level: default navigation&#10;NULL;"/>
+    <Trigger Name="KEY-COMMIT" TriggerText="-- form level commit&#10;NULL;"/>
+    <Window Name="WIN_DUPES" Title="Dupes" Width="800" Height="600"/>
   </FormModule>
 </Module>

@@ -41,11 +41,17 @@ class OutputNames(unittest.TestCase):
 class CompileConnection(unittest.TestCase):
     def test_offline_unresolved_objects_explain_connected_compilation(self):
         with TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
+            workspace = Path(directory).resolve()
+            root = workspace / 'repo'
+            root.mkdir()
+            oracle_home = workspace / 'oracle-home'
             fmb = root / 'sales.fmb'
             fmb.write_bytes(b'test-only')
             output = SimpleNamespace(returncode=1, stdout="identifier 'OFW_ORDERS' must be declared")
-            with patch.object(runner.subprocess, 'run', return_value=output):
+            with patch.dict(os.environ, {
+                'OFW_ORACLE_HOME': str(oracle_home),
+                'OFW_WORK_DIR': str(oracle_home / 'ofw-work'),
+            }), patch.object(runner.subprocess, 'run', return_value=output):
                 with self.assertRaisesRegex(RuntimeError, 'Select database-connected compilation'):
                     runner.compile_fmb_to_fmx(fmb, root, 'none', True)
 
@@ -104,7 +110,7 @@ class ParentFormStaging(unittest.TestCase):
             self.assertEqual((staged.parent / grandparent.name).read_bytes(), grandparent.read_bytes())
             self.assertFalse((staged.parent / unrelated.name).exists())
             try:
-                staged.parent.relative_to(oracle_home)
+                staged.parent.relative_to(oracle_home.resolve())
             except ValueError:
                 self.fail('staged parent forms must remain under the configured Oracle Home')
 
@@ -145,8 +151,21 @@ class PreviewCompatibility(unittest.TestCase):
         import xml.etree.ElementTree as ET
         with TemporaryDirectory() as directory:
             source = Path(directory) / 'orders_fmb.xml'
-            fixture = SCRIPT.parents[6] / 'samples/orders_fmb.xml'
-            original = fixture.read_bytes()
+            original = (
+                b'<?xml version="1.0" encoding="UTF-8"?>\n'
+                b'<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">\n'
+                b'  <FormModule Name="ORDERS">\n'
+                b'    <AttachedLibrary Name="UTILS" LibraryLocation="utils.pll"/>\n'
+                b'    <Canvas Name="CV_MAIN" CanvasType="Content" WindowName="WINDOW_MAIN"/>\n'
+                b'    <ModuleParameter Name="P_ORDER_ID" DataType="Number" DefaultValue="0"/>\n'
+                b'    <RecordGroup Name="RG_CUSTOMERS" RecordGroupType="Query" RecordGroupQuery="SELECT 1 FROM dual">\n'
+                b'      <RecordGroupColumn Name="CUSTOMER_NAME" DataType="Char"/>\n'
+                b'    </RecordGroup>\n'
+                b'    <Window Name="WINDOW_MAIN" Title="Orders"/>\n'
+                b'    <FutureUnknownElement Name="MYSTERY"><NestedUnknown Something="x"/></FutureUnknownElement>\n'
+                b'  </FormModule>\n'
+                b'</Module>\n'
+            )
             source.write_bytes(original)
             target = runner.prepare_oracle_preview_xml(source)
             self.assertNotEqual(source, target)
@@ -327,6 +346,7 @@ class ManifestCompile(unittest.TestCase):
             stage = home / 'ofw-work' / 'build' / 'stage'
             stage.mkdir(parents=True)
             with patch.object(manifest_builder.rt, 'server_running', return_value=True), \
+                 patch.object(manifest_builder.rt, 'SERVER_CONTAINER', 'forms-server-14c'), \
                  patch.object(manifest_builder.rt, 'default_oracle_home', return_value=home):
                 xml_cmd = ' '.join(manifest_builder.xml2forms_command(stage, stage / 'A_fmb.xml'))
                 pld_cmd = ' '.join(manifest_builder.pld2pll_command(stage, stage / 'L.pld', 'L.pll'))

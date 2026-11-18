@@ -33,6 +33,10 @@ fn oracle_home(root: &std::path::Path) -> PathBuf {
     setting(root, "OFW_ORACLE_HOME").map(expand_home).unwrap_or_else(|| root.join("oracle-reference-stack/oracle_home_14c"))
 }
 
+fn forms_container(root: &std::path::Path) -> String {
+    setting(root, "OFW_FORMS_CONTAINER").unwrap_or_else(|| "forms-server-14c".into())
+}
+
 /// Folder for staged Oracle preview jobs: `OFW_WORK_DIR`, else `<Oracle Home>/ofw-work`. Never inside the repository.
 pub(crate) fn work_dir(root: &std::path::Path) -> PathBuf {
     setting(root, "OFW_WORK_DIR").map(expand_home).unwrap_or_else(|| oracle_home(root).join("ofw-work"))
@@ -75,6 +79,32 @@ pub(crate) fn validate_compile_target(target: Option<&str>) -> Result<String, St
         return Err("Invalid target database. Use a TNS alias (e.g. FREEPDB1) or host:port/service.".into());
     }
     Ok(trimmed.into())
+}
+
+/// Reject a stale bind mount before Build & Compile saves the form.
+pub(crate) async fn check_build_mount() -> Result<(), String> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let container = forms_container(&root);
+    let home = oracle_home(&root).canonicalize().map_err(|error| {
+        format!("Cannot open configured OFW_ORACLE_HOME: {error}")
+    })?;
+    let mut command = podman_command(&[
+        "inspect", "--format", "{{range .Mounts}}{{if eq .Destination \"/oracle_home_14c\"}}{{.Source}}{{end}}{{end}}",
+        &container,
+    ]);
+    command.kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(10), command.output())
+        .await.map_err(|_| "Timed out checking the Forms container mount".to_string())?
+        .map_err(|error| format!("Cannot check the Forms container mount: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("Cannot inspect {container}. Check the Podman testbed setup."));
+    }
+    let source = String::from_utf8_lossy(&output.stdout);
+    let mounted = std::path::Path::new(source.trim());
+    if mounted == home || mounted.canonicalize().is_ok_and(|path| path == home) {
+        return Ok(());
+    }
+    Err(format!("Forms container mount mismatch: /oracle_home_14c is mounted from {}, but OFW_ORACLE_HOME is {}. Recreate {container} with the configured Oracle Home before building.", source.trim(), home.display()))
 }
 
 pub fn start(
@@ -366,11 +396,12 @@ pub async fn readiness() -> serde_json::Value {
         };
         matches!(tokio::time::timeout(std::time::Duration::from_secs(4), probe).await, Ok(Ok(true)))
     }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let forms_name = forms_container(&root);
     let (python, java, podman, forms, database, listener) = tokio::join!(
         command(python_program(), &["--version"]), command("java", &["-version"]), async { podman_output(&["--version"]).await.is_some() },
-        container("forms-server-14c"), container("oracle23ai-lite"), servlet()
+        container(&forms_name), container("oracle23ai-lite"), servlet()
     );
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let jar = fsal_jar(&root).is_file();
     let tooling = root.join("plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py").is_file();
     serde_json::json!({ "ready": python && java && podman && forms && listener && jar && tooling,

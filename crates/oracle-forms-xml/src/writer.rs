@@ -218,13 +218,14 @@ impl FormsXmlWriter {
             b_attrs.push(format!("QueryDataSourceName=\"{}\"", escape_attr(src)));
         }
         if let Some(pc) = &block.property_class {
-            b_attrs.push(format!("PropertyClass=\"{}\"", escape_attr(pc)));
+            b_attrs.push(format!(
+                "ParentModule=\"{}\" ParentModuleType=\"12\" ParentName=\"{}\" ParentType=\"29\"",
+                escape_attr(&module.key.name),
+                escape_attr(pc)
+            ));
         }
         if block.records_displayed > 1 {
-            b_attrs.push(format!("RecordsDisplayed=\"{}\"", block.records_displayed));
-        }
-        if block.distance_between_records > 0 {
-            b_attrs.push(format!("DistanceBetweenRecords=\"{}\"", block.distance_between_records));
+            b_attrs.push(format!("RecordsDisplayCount=\"{}\"", block.records_displayed));
         }
         if block.record_orientation != "Vertical" && !block.record_orientation.is_empty() {
             b_attrs.push(format!("RecordOrientation=\"{}\"", escape_attr(&block.record_orientation)));
@@ -342,10 +343,14 @@ impl FormsXmlWriter {
             i_attrs.push(format!("Label=\"{}\"", escape_attr(label)));
         }
         if let Some(lov) = &item.lov_name {
-            i_attrs.push(format!("LOVName=\"{}\"", escape_attr(lov)));
+            i_attrs.push(format!("LovName=\"{}\"", escape_attr(lov)));
         }
         if let Some(pc) = &item.property_class {
-            i_attrs.push(format!("PropertyClass=\"{}\"", escape_attr(pc)));
+            i_attrs.push(format!(
+                "ParentModule=\"{}\" ParentModuleType=\"12\" ParentName=\"{}\" ParentType=\"29\"",
+                escape_attr(&module.key.name),
+                escape_attr(pc)
+            ));
         }
 
         // Coordinates & Dimensions

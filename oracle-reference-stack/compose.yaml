@@ -67,7 +67,7 @@ services:
   forms-server-14c:
     image: oracle-forms-14c:latest
     platform: linux/amd64
-    container_name: forms-server-14c
+    container_name: ${OFW_FORMS_CONTAINER:-forms-server-14c}
     ports:
       - "7001:7001"   # WebLogic AdminServer
       - "9001:9001"   # WLS_FORMS managed server

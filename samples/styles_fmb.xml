@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
-  <FormModule Name="STYLES" Title="Shared property classes">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="STYLES" Title="Shared property classes" ConsoleWindow="WIN_STYLES">
+    <Block Name="STYLES_INFO">
+      <Item Name="INFO" ItemType="Display Item" DataType="Char" CanvasName="CV_STYLES" XPosition="20" YPosition="20" Width="120" Height="22"/>
+    </Block>
+    <Canvas Name="CV_STYLES" CanvasType="Content" WindowName="WIN_STYLES" Width="400" Height="200"/>
     <PropertyClass Name="BASE_TEXT" DatabaseItem="true" InsertAllowed="true" UpdateAllowed="true" MaximumLength="30" Width="120" Height="24"/>
     <PropertyClass Name="CONTROL_TEXT" DatabaseItem="false" KeyboardNavigable="false"/>
     <PropertyClass Name="LOCKED_TEXT" ParentModule="STYLES" ParentModuleType="12" ParentName="BASE_TEXT" ParentType="29" UpdateAllowed="false"/>
+    <Window Name="WIN_STYLES" Title="Styles" Width="400" Height="200"/>
   </FormModule>
 </Module>

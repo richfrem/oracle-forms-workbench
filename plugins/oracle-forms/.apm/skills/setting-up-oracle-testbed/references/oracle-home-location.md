@@ -84,3 +84,40 @@ Extra checks after the stack runs from the new folder: `python3 plugins/oracle-f
 - **Host paths inside the domain.** The WebLogic domain should contain only in-container paths (`/oracle_home_14c/...`), so moving the folder should not break it. **Not checked.**
 - **Same filesystem rules.** Ubuntu's disk is ext4, so symlinks and execute bits work without the `metadata` mount option that `/mnt/c` needs.
 - **The repo itself is also on `/mnt/c`.** Git and file reads pay the same cost. Moving it is a bigger change and is not part of this.
+
+For an existing macOS installation, check the running container’s actual Oracle Home bind mount before choosing `OFW_WORK_DIR`. The current compiler requires a work directory outside the checkout and the pipeline needs the directory visible to the container. An Oracle Home inside the checkout cannot satisfy both conditions using the default `<Oracle Home>/ofw-work` path. Provision and verify a copy of Oracle Home outside the checkout before switching the mount.
+
+### Check the active mount before troubleshooting XML conversion
+
+`OFW_ORACLE_HOME` and `OFW_WORK_DIR` configure the host tools. Podman stores the bind mount when it creates the Forms container. Changing the settings or restarting the container leaves the original mount in place.
+
+1. Compare the absolute `OFW_ORACLE_HOME` setting with the source of the `/oracle_home_14c` mount. Use `podman inspect forms-server-14c --format '{{json .Mounts}}'`.
+2. Verify the external Home includes the Oracle binaries and WebLogic domain. Keep `OFW_WORK_DIR` beneath that Home so host staging maps to `/oracle_home_14c/ofw-work`.
+3. With the owner's approval, recreate the Forms container using the verified Home and current checkout mounts. The database can keep running. Check the servlet and confirm the staged XML is readable inside the replacement before retrying compilation.
+
+### Replace the Forms container after a configuration change
+
+For a Compose-managed setup using the current Compose image and network, load the updated host settings and recreate just the Forms service from the repository root:
+
+```sh
+set -a
+source .env
+set +a
+podman compose -f oracle-reference-stack/compose.yaml up -d --no-deps --force-recreate forms-server-14c
+```
+
+Before replacing a legacy container, compare its image, ports and network with the current Compose file. Reuse its known-good image and network if those differ and the current image is unavailable. Check for required packages installed only in the old container's writable layer. Verify the external Home against the image that will run it. For a rollback option, stop and rename the old container before creating its replacement. Once the new mount, servlet and database reachability are confirmed, remove the stopped backup container by its exact name. Keep persistent Oracle Home and application data on host mounts.
+
+The provisioner uses a portable disk-space check on macOS and WSL. If a Podman-based copy encounters file or symlink permission errors on macOS, a host-side clone into a fresh external directory with `cp -ac` can preserve the tree. Run the provisioning verifier on that copy before using it.
+
+### Use the same container layout on macOS and WSL
+
+Set `OFW_ORACLE_HOME` to an absolute path outside the checkout on each host and put `OFW_WORK_DIR` beneath it. Use the Mac's filesystem with Podman Machine and Rosetta on Apple Silicon. Use Ubuntu's filesystem with Podman inside WSL2 on Windows. Both configurations map Oracle Home to `/oracle_home_14c` and use the same staging and application deployment layout.
+
+The shared `Containerfile.14c` already declares `libaio` and `libnsl2`. Verify the actual image used for replacement. A container created from an older image can have packages installed only in its writable layer. Before switching, run `provision_oracle_home.sh --verify` with the intended image and confirm the library check passes. After switching, check the staged XML inside the container and confirm Forms servlet and database connectivity. A Workbench browser refresh only verifies the Rust UI connection.
+
+### Image and container naming
+
+Use `oracle-forms-14c:latest` for the 14c image on both hosts. The optional 12c converter remains a separate image. To rename an existing Forms container, use `podman rename <current-name> oracle-forms-14c` and set `OFW_FORMS_CONTAINER=oracle-forms-14c` in the same checkout's `.env`. Compose, startup/status, Workbench preview, conversion, and compilation use that setting. For manual Podman commands, substitute the configured container name. Leaving it empty preserves `forms-server-14c` for existing WSL and Mac installations. The Compose service key remains `forms-server-14c`.
+
+An image retag keeps the existing image contents. A running container may still show the image name recorded when it was created. Verify its image ID and current tags to tell whether it uses the shared image build or a retagged legacy image.

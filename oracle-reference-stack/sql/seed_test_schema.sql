@@ -19,7 +19,7 @@ CREATE TABLESPACE forms_data DATAFILE '/opt/oracle/oradata/FREE/FREEPDB1/forms_d
 WHENEVER SQLERROR EXIT SQL.SQLCODE
 
 CREATE USER &db_user IDENTIFIED BY "&db_password" DEFAULT TABLESPACE forms_data QUOTA UNLIMITED ON forms_data;
-GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE VIEW TO &db_user;
+GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE VIEW, CREATE PROCEDURE TO &db_user;
 
 -- Tables are created inside the schema owner's schema
 CREATE TABLE &db_user..departments (
@@ -64,6 +64,92 @@ INSERT INTO &db_user..test_items (item_id, item_name, qty, price, amount) VALUES
 INSERT INTO &db_user..test_items (item_id, item_name, qty, price, amount) VALUES (4, 'Doohickey',       0, 3.75, 3.75);
 INSERT INTO &db_user..test_items (item_id, item_name, qty, price, amount) VALUES (5, 'Thingamajig',    40, 2.10, 2.10);
 
+COMMIT;
+
+-- Sample form support objects (all sample forms in samples/)
+CREATE TABLE &db_user..assignments (
+  agent_ref  VARCHAR2(30)  CONSTRAINT assignments_pk PRIMARY KEY,
+  agent_name VARCHAR2(100) NOT NULL
+);
+
+CREATE TABLE &db_user..claims (
+  claim_id     NUMBER(10)    CONSTRAINT claims_pk PRIMARY KEY,
+  policy_number VARCHAR2(30) NOT NULL,
+  claim_date   DATE          DEFAULT SYSDATE,
+  claim_amount NUMBER(12,2),
+  status       VARCHAR2(20),
+  description  VARCHAR2(255),
+  owner        VARCHAR2(30),
+  reference    VARCHAR2(50)
+);
+
+CREATE TABLE &db_user..customers (
+  customer_id   NUMBER(10)    CONSTRAINT customers_pk PRIMARY KEY,
+  customer_name VARCHAR2(100) NOT NULL,
+  city          VARCHAR2(50)
+);
+
+CREATE TABLE &db_user..orders (
+  order_id      NUMBER(10)    CONSTRAINT orders_pk PRIMARY KEY,
+  customer_name VARCHAR2(100) NOT NULL,
+  order_date    DATE          DEFAULT SYSDATE,
+  status        VARCHAR2(20),
+  total_amount  NUMBER(12,2)
+);
+
+CREATE TABLE &db_user..order_lines (
+  line_id    NUMBER(10)    CONSTRAINT order_lines_pk PRIMARY KEY,
+  order_id   NUMBER(10)    CONSTRAINT order_lines_order_fk REFERENCES &db_user..orders (order_id),
+  product    VARCHAR2(100) NOT NULL,
+  quantity   NUMBER(6),
+  unit_price NUMBER(10,2),
+  cancelled  VARCHAR2(1)   DEFAULT 'N'
+);
+
+CREATE TABLE &db_user..stock (
+  id  NUMBER(10) CONSTRAINT stock_pk PRIMARY KEY,
+  qty NUMBER(10) DEFAULT 0
+);
+
+CREATE TABLE &db_user..customer_invoices (
+  invoice_id  NUMBER(10)   CONSTRAINT customer_invoices_pk PRIMARY KEY,
+  customer_id NUMBER(10)   NOT NULL,
+  invoice_amt NUMBER(12,2) NOT NULL,
+  status      VARCHAR2(20) NOT NULL
+);
+
+CREATE TABLE &db_user..account_audit_log (
+  audit_id    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id NUMBER(10),
+  action_name VARCHAR2(60),
+  created_at  DATE DEFAULT SYSDATE
+);
+
+CREATE OR REPLACE PROCEDURE &db_user..log_account_audit(
+  p_customer_id IN NUMBER,
+  p_action      IN VARCHAR2
+) IS
+BEGIN
+  INSERT INTO &db_user..account_audit_log (customer_id, action_name)
+  VALUES (p_customer_id, p_action);
+END;
+/
+
+INSERT INTO &db_user..assignments VALUES ('AG-101', 'Ada Lovelace');
+INSERT INTO &db_user..assignments VALUES ('AG-102', 'Grace Hopper');
+
+INSERT INTO &db_user..claims (claim_id, policy_number, claim_date, claim_amount, status, description, owner, reference)
+VALUES (1, 'POL-1001', DATE '2026-01-10', 1250.00, 'OPEN', 'Initial sample claim', USER, 'REF-001');
+
+INSERT INTO &db_user..customers VALUES (1, 'Acme Corp', 'Victoria');
+INSERT INTO &db_user..customers VALUES (2, 'Pacific Traders', 'Vancouver');
+
+INSERT INTO &db_user..orders VALUES (1001, 'Acme Corp', DATE '2026-02-01', 'OPEN', 299.90);
+INSERT INTO &db_user..order_lines VALUES (1, 1001, 'Widget A', 10, 29.99, 'N');
+
+INSERT INTO &db_user..stock VALUES (1, 50);
+
+INSERT INTO &db_user..customer_invoices VALUES (5001, 1, 450.00, 'UNPAID');
 COMMIT;
 
 -- Queries

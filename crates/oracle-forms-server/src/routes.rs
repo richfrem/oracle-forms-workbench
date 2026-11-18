@@ -501,6 +501,14 @@ async fn start_oracle_preview(State(service): State<FormsService>, Json(req): Js
             None => return session_error(400, "Database-connected compilation needs a username and password. Enter compile credentials in Preview, or explicitly select offline compilation.".into()),
         }
     };
+    if credentials.is_some() {
+        if let Err(error) = crate::oracle_preview::validate_compile_target(req.database.as_deref()) {
+            return session_error(400, error);
+        }
+    }
+    if let Err(error) = crate::oracle_preview::check_build_mount().await {
+        return session_error(400, error);
+    }
     match service.save_form_file(&req.module_name) {
         Ok((saved_path, filename, display_path, mode)) => match crate::oracle_preview::start(&saved_path, &filename, credentials, req.database.as_deref()) {
             Ok(id) => Json(serde_json::json!({ "jobId": id, "fileName": filename, "path": display_path, "mode": mode })).into_response(),

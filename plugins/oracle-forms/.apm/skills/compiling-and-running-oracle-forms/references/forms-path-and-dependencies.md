@@ -70,3 +70,5 @@ Test both direct launch and the intended entry-form/navigation flow. Entry forms
 
 - Parent FMB staging and repository-local `OFW_WORK_DIR` rejection have synthetic unit tests.
 - Live XML2Forms parent resolution, container-to-development-database reachability, compiler-account object visibility, and runtime delivery of supplied parameters require a running Forms/database environment and have not been verified in this guide.
+
+For sample builds, keep the version-controlled sample as the source and let the tools stage it with its dependencies under `OFW_WORK_DIR`. Build the same-named FMB in staging and publish its FMX under `forms_apps/<app_name>/`. The Workbench checks the active Oracle Home bind mount before saving for Build & Compile. The standalone XML converter also checks that its staged input can be read inside the Forms container. A mount mismatch needs the container replacement workflow in the setup skill's Oracle Home reference.

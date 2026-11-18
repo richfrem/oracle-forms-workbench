@@ -212,22 +212,28 @@ def main() -> int:
 
     # 1. Check Containers
     db_ok = check_container("oracle23ai-lite")
-    fmw_ok = check_container("forms-server-14c")
+    forms_name = _env("OFW_FORMS_CONTAINER", "forms-server-14c") or "forms-server-14c"
+    fmw_ok = check_container(forms_name)
     print(f"  Oracle Database 23ai container : {'[UP]' if db_ok else '[DOWN]'}")
     print(f"  WebLogic Forms 14c container   : {'[UP]' if fmw_ok else '[DOWN]'}")
     if not db_ok or not fmw_ok:
         print("\n[!] Please ensure both containers are running:")
-        print("    podman start oracle23ai-lite forms-server-14c")
+        print(f"    podman start oracle23ai-lite {forms_name}")
         return 1
 
     # 2. Seed matching SQL if available
-    sql_candidate = input_file.parent / f"{input_file.stem.replace('_fmb', '')}.sql"
-    if not sql_candidate.exists():
-        # Try ofw_demo_sales.sql or ofw_demo_employees.sql
-        alt_name = input_file.stem.replace("_fmb", "").replace("ofw_", "ofw_demo_") + ".sql"
-        alt_path = input_file.parent / alt_name
-        if alt_path.exists():
-            sql_candidate = alt_path
+    base_name = input_file.stem.replace("_fmb", "")
+    alt_name = base_name.replace("ofw_", "ofw_demo_") + ".sql"
+    sql_dir = repo_root / "oracle-reference-stack" / "sql"
+    sql_candidate = next(
+        (p for p in (
+            input_file.parent / f"{base_name}.sql",
+            input_file.parent / alt_name,
+            sql_dir / f"{base_name}.sql",
+            sql_dir / alt_name,
+        ) if p.exists()),
+        input_file.parent / f"{base_name}.sql",
+    )
 
     if sql_candidate.exists():
         seed_database_if_present(sql_candidate, repo_root)

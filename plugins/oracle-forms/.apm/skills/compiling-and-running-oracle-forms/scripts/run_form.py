@@ -152,10 +152,16 @@ def prepare_oracle_preview_xml(source: Path) -> Path:
     def local(element):
         return element.tag.rsplit("}", 1)[-1] if isinstance(element.tag, str) else ""
 
+    forms = [element for element in root.iter() if local(element) == "FormModule"]
+    form_name = forms[0].get("Name", "") if forms else ""
     for element in root.iter():
         tag = local(element)
-        aliases = {"ModuleParameter": {"DataType": "ParameterDataType", "DefaultValue": "ParameterInitializeValue"},
-                   "RecordGroupColumn": {"DataType": "ColumnDataType"}}.get(tag, {})
+        aliases = {
+            "ModuleParameter": {"DataType": "ParameterDataType", "DefaultValue": "ParameterInitializeValue"},
+            "RecordGroupColumn": {"DataType": "ColumnDataType"},
+            "Item": {"LOVName": "LovName", "PropertyClass": "ParentName"},
+            "Block": {"RecordsDisplayed": "RecordsDisplayCount", "PropertyClass": "ParentName"},
+        }.get(tag, {})
         for old, new in aliases.items():
             if old not in element.attrib:
                 continue
@@ -166,7 +172,36 @@ def prepare_oracle_preview_xml(source: Path) -> Path:
                 raise RuntimeError(f"Conflicting {old}/{new} on {tag}; fix the source before Oracle preview")
             element.set(new, value)
             del element.attrib[old]
+            if new == "ParentName" and "ParentType" not in element.attrib:
+                element.set("ParentType", "29")
             changes.append(f"{tag}.{old} -> {new}")
+        if "ParentName" in element.attrib and "ParentModule" not in element.attrib and form_name:
+            element.set("ParentModule", form_name)
+            element.set("ParentModuleType", "12")
+            if "ParentType" not in element.attrib:
+                element.set("ParentType", "29")
+            changes.append(f"{tag}.ParentModule -> {form_name}")
+        drop_attrs = {
+            "Block": ("DistanceBetweenRecords",),
+            "Canvas": ("XPosition", "YPosition"),
+            "Graphics": ("CanvasName",),
+        }.get(tag, ())
+        for attr in drop_attrs:
+            if attr in element.attrib:
+                del element.attrib[attr]
+                changes.append(f"Omitted non-XSD attribute {tag}.{attr} from preview copy")
+        if tag == "ProgramUnit":
+            for child in list(element):
+                if local(child) in ("ProgramUnitText", "Text"):
+                    if child.text and "ProgramUnitText" not in element.attrib:
+                        element.set("ProgramUnitText", child.text)
+                    element.remove(child)
+                    changes.append(f"ProgramUnit <{local(child)}> -> ProgramUnitText attribute")
+            if element.text is not None:
+                if element.text.strip() and "ProgramUnitText" not in element.attrib:
+                    element.set("ProgramUnitText", element.text)
+                    changes.append("ProgramUnit text body -> ProgramUnitText attribute")
+                element.text = None
         # This exact marker is deliberately present in parser-conformance fixtures.
         # All other unknown elements are retained and left to Oracle validation.
         for child in list(element):
@@ -234,7 +269,11 @@ def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
     container_fmb = _compile_form().container_path(output_fmb, repo_root)
 
     print(f"[1/3] Converting XML definition {xml_path.name} to binary FMB...")
+    container_dir = container_fmb.rsplit('/', 1)[0]
     cmd = (
+        # Diagnostic only: a stale /oracle_home_14c bind mount makes the staged XML invisible to the container.
+        f"test -r {shlex.quote(container_xml)} || {{ "
+        f"echo 'Staged XML is missing or unreadable inside the Forms container. Check the Oracle Home bind mount.'; exit 2; }}; "
         f"export ORACLE_HOME=/oracle_home_14c; "
         f"export FORMS_API_TK_BYPASS=TRUE; "
         f"export LD_LIBRARY_PATH=/oracle_home_14c/lib; "
@@ -243,11 +282,11 @@ def convert_xml_to_fmb(xml_path: Path, repo_root: Path) -> Path:
         f"-classpath /oracle_home_14c/jlib/frmjdapi.jar:/oracle_home_14c/jlib/frmxmltools.jar:/oracle_home_14c/oracle_common/modules/oracle.xdk/xmlparserv2.jar "
         f"oracle.forms.util.xmltools.XML2Forms "
         f"OVERWRITE=YES "
-        f"OUTPUTDIR={container_fmb.rsplit('/', 1)[0]} "
-        f"{container_xml}"
+        f"OUTPUTDIR={shlex.quote(container_dir)} "
+        f"{shlex.quote(container_xml)}"
     )
 
-    res = subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", cmd]),
+    res = subprocess.run(podman_cmd(["exec", _compile_form().SERVER_CONTAINER, "/bin/sh", "-c", cmd]),
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if "Module saved as" not in res.stdout and res.returncode != 0:
         raise RuntimeError(f"XML2Forms failed:\n{res.stdout}")
@@ -307,7 +346,7 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
         f"compile_all=yes"
     )
 
-    res = subprocess.run(podman_cmd(["exec", "-i", "-u", "oracle", "forms-server-14c", "/bin/sh", "-s"]),
+    res = subprocess.run(podman_cmd(["exec", "-i", "-u", "oracle", cf.SERVER_CONTAINER, "/bin/sh", "-s"]),
                          input=cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     err_details = err_path.read_text(errors="replace").strip() if err_path.is_file() else ""
     if not offline and userid:
@@ -324,7 +363,7 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
                 f"/oracle_home_14c/bin/sqlplus -L -S {shlex.quote(userid)} </dev/null"
             )
             probe = subprocess.run(
-                podman_cmd(["exec", "-i", "-u", "oracle", "forms-server-14c", "/bin/sh", "-s"]),
+                podman_cmd(["exec", "-i", "-u", "oracle", cf.SERVER_CONTAINER, "/bin/sh", "-s"]),
                 input=probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=15,
             )
             probe_out = probe.stdout.replace(userid, "<redacted>").strip()

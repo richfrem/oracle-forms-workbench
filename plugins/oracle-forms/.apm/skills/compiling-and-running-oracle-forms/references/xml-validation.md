@@ -70,12 +70,15 @@ The schema is an **asset**: a data file that a script reads, not text for an age
 
 `extract_forms_schema.py --update` refreshes both together.
 
+## 14c XML authoring and compiler gotchas
+
+- **`Block`:** use `RecordsDisplayCount` (not `RecordsDisplayed`), and omit `DistanceBetweenRecords` (allowed on `Item`, `LOV`, and `PropertyClass`, not `Block`).
+- **Property-class inheritance (`ParentName` / `ParentType="29"`):** also include `ParentModule` and `ParentModuleType="12"`; omitting `ParentModule` causes `XML2Forms` to throw a `NullPointerException`.
+- **`Item` types:** LOVs use `LovName` (not `LOVName`). Check boxes use `CheckedValue` / `UncheckedValue` (not `ValueWhenChecked` / `ValueWhenUnchecked`) plus `InitializeValue`. List items need `<ListItemElement>` children; radio groups need `<RadioButton>` children and `InitializeValue`. Items on a `Tab` canvas require `TabPageName` (`FRM-30368`).
+- **`ProgramUnit` and `MenuItem`:** `ProgramUnit` uses the `ProgramUnitText="..."` attribute (not child elements/text); `MenuItem` uses `MenuItemCode="..."` (not `CommandText`).
+
 ## Verified results
 
-`validate_forms_xml.py samples/*.xml` on 2026-11-14 (WSL, `xmllint`, 14c): **9 passed, 13 failed**.
-
-- **Pass (9):** `ofw_demo_employees_fmb`, `ofw_emp_menu_mmb`, `ofw_sales_fmb`, `simple_module_fmb`, `test_db_fmb`, and four reports: `demo_employees`, `department_salaries`, `ofw_employee_directory`, `orders_summary`.
-- **Fail (13):** twelve older Forms fixtures (`claims`, `customers`, `departments_employees`, `dupes`, `entry`, `mainmenu`, `master_details`, `objects_olb`, `orders`, `picker`, `styles`, `toolbar`) plus the report `parameterized_items_report` (no `DTDVersion`). Seven of the twelve fail only on the dotted `12.2.1.19.0` version (`claims`, `dupes`, `entry`, `mainmenu`, `objects_olb`, `styles`, `toolbar`); `customers`, `departments_employees`, `master_details`, `orders`, and `picker` also have wrong attribute or element names.
-- These fixtures are used by the Rust parser tests and are deliberately 12c-style or legacy. They are not wrong in the Rust workbench; they are not valid 14c XML for XML2Forms. The Rust app's Preview in Oracle builds a normalized `oracle_compatible/` copy for such files.
+`validate_forms_xml.py` on all 22 tracked `samples/*.xml` files on 2026-11-18 (macOS, `xmllint`, 14c): **22 passed, 0 failed** (14 Forms, 2 Menus, 1 Object Library against `forms-14c.xsd`; 5 Reports against `reports.dtd`). Earlier 2026-11-14 legacy fixtures were updated to 14c-valid XML (`version="141020000"`, `DTDVersion="9.0.4.0.0"`, and valid 14c attributes).
 
 **Not verified:** the `java` backend, validation of report XML through `lxml`, and whether Oracle's own `XMLValidator` class (`forms/templates/scripts/frmxmlv.sh` in the Oracle Home) gives the same answers as `xmllint`. That Oracle validator could be run in a container as a second opinion; its arguments were not checked.

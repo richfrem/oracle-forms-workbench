@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
   <FormModule Name="MASTER_DETAILS" Title="Oracle Form Builder - MASTER_DETAILS">
     <Coordinate CharacterCellWidth="8" CharacterCellHeight="16" CoordinateSystem="Real" RealUnit="Pixel" DefaultFontScaling="false"/>
 
@@ -9,10 +9,10 @@
     <!-- ==================== MAIN CONTENT CANVAS: CANVAS4 ==================== -->
     <Canvas Name="CANVAS4" CanvasType="Content" Width="740" Height="440" WindowName="WINDOW1">
       <!-- Master Frame: Department Informations -->
-      <Graphics Name="FRAME_DEPT" GraphicsType="Frame" FrameTitle="Department Informations" CanvasName="CANVAS4" XPosition="40" YPosition="25" Width="520" Height="140" Bevel="Inset"/>
+      <Graphics Name="FRAME_DEPT" GraphicsType="Frame" FrameTitle="Department Informations" XPosition="40" YPosition="25" Width="520" Height="140" Bevel="Inset"/>
 
       <!-- Detail Frame: Employees Information -->
-      <Graphics Name="FRAME_EMP" GraphicsType="Frame" FrameTitle="Employees Information" CanvasName="CANVAS4" XPosition="40" YPosition="185" Width="660" Height="220" Bevel="Inset"/>
+      <Graphics Name="FRAME_EMP" GraphicsType="Frame" FrameTitle="Employees Information" XPosition="40" YPosition="185" Width="660" Height="220" Bevel="Inset"/>
     </Canvas>
 
     <!-- ==================== MASTER BLOCK: DEPARTMENTS ==================== -->
@@ -28,7 +28,7 @@
     </Block>
 
     <!-- ==================== DETAIL BLOCK: EMPLOYEES (5 ROWS TABULAR) ==================== -->
-    <Block Name="EMPLOYEES" QueryDataSourceName="EMPLOYEES" RecordsDisplayCount="5" DistanceBetweenRecords="4" OrderByClause="EMPLOYEE_ID">
+    <Block Name="EMPLOYEES" QueryDataSourceName="EMPLOYEES" RecordsDisplayCount="5" OrderByClause="EMPLOYEE_ID">
       <Item Name="EMPLOYEE_ID" ItemType="Text Item" DataType="Number" CanvasName="CANVAS4" Prompt="Employee Id" PromptAttachmentEdge="Top" PromptAttachmentOffset="6" XPosition="60" YPosition="225" Width="75" Height="20" PrimaryKey="true" Required="true" ItemsDisplay="5" DistanceBetweenRecords="4"/>
       <Item Name="FIRST_NAME" ItemType="Text Item" DataType="Char" CanvasName="CANVAS4" Prompt="First Name" PromptAttachmentEdge="Top" PromptAttachmentOffset="6" XPosition="145" YPosition="225" Width="125" Height="20" ItemsDisplay="5" DistanceBetweenRecords="4"/>
       <Item Name="HIRE_DATE" ItemType="Text Item" DataType="Date" CanvasName="CANVAS4" Prompt="Hire Date" PromptAttachmentEdge="Top" PromptAttachmentOffset="6" XPosition="280" YPosition="225" Width="85" Height="20" ItemsDisplay="5" DistanceBetweenRecords="4"/>
@@ -40,19 +40,6 @@
     </Block>
 
     <!-- ==================== PROGRAM UNIT: PAYROLL SUMMARY ==================== -->
-    <ProgramUnit Name="CALC_DEPT_TOTAL" ProgramUnitType="Function">
-      <Text>FUNCTION calc_dept_total(p_dept_id IN NUMBER) RETURN NUMBER IS
-  v_total NUMBER := 0;
-BEGIN
-  SELECT NVL(SUM(salary), 0)
-    INTO v_total
-    FROM employees
-   WHERE department_id = p_dept_id;
-  RETURN v_total;
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN 0;
-END;</Text>
-    </ProgramUnit>
+    <ProgramUnit Name="CALC_DEPT_TOTAL" ProgramUnitType="Function" ProgramUnitText="FUNCTION calc_dept_total(p_dept_id IN NUMBER) RETURN NUMBER IS&#10;  v_total NUMBER := 0;&#10;BEGIN&#10;  SELECT NVL(SUM(salary), 0)&#10;    INTO v_total&#10;    FROM employees&#10;   WHERE department_id = p_dept_id;&#10;  RETURN v_total;&#10;EXCEPTION&#10;  WHEN OTHERS THEN&#10;    RETURN 0;&#10;END;"/>
   </FormModule>
 </Module>

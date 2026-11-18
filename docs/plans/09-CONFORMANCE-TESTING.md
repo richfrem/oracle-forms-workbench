@@ -11,6 +11,10 @@ is in [completed/03](completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md) and
 
 ---
 
+## Current regression follow-up
+
+[Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) defines save-preservation, read-only-source, work-directory, and macOS path regression gates. On the reviewed Mac revision, 134 Rust and 32 frontend tests passed; the Python suite passed 34/36. These are automated regression results, not Oracle golden-trace certification. Track K remains open.
+
 ## 1. Concept: The Container Testbed as the Conformance Oracle
 
 In reverse-engineering complex enterprise middleware, the primary failure mode is **speculative implementation**: guessing how Oracle Forms handles edge cases (trigger ordering, failure propagation, validation timing) and implementing an idealized model that diverges from real-world behavior.

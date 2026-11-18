@@ -60,3 +60,7 @@ Podman's runtime directory `/run/user/<uid>` is gone, and `--status` reports "Po
 Run it again at any time. Anything already running and healthy is left alone and reported as such; a running Rust app is never stopped unless `--restart-rust`. It never removes containers or images.
 
 Not verified: the confirmation checks rely on `podman logs --since` and on reading the container's start time with `podman inspect`; if either is unavailable the script falls back to searching the last 400 log lines.
+
+### Workbench on a custom port
+
+Use the same `PORT` for startup and status, for example `PORT=7075 python3 start_testbed.py` and `PORT=7075 python3 start_testbed.py --status`. The launcher reads the shell setting first, then `.env`, and defaults to 7070. It confirms both the Workbench home page and readiness endpoint. On Windows issue these commands from Ubuntu WSL. On macOS issue them from the host shell.

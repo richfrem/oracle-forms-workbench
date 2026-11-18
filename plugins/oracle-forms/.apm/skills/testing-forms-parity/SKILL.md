@@ -33,7 +33,7 @@ python3 plugins/oracle-forms/.apm/skills/testing-forms-parity/scripts/test_parit
 ## Workflow
 
 1. Confirm the containers are active.
-2. Seed the form's SQL tables (`samples/ofw_demo_employees.sql` or `ofw_demo_sales.sql`) in `oracle23ai-lite`.
+2. Seed the form's SQL tables (`oracle-reference-stack/sql/ofw_demo_employees.sql` or `ofw_demo_sales.sql`) in `oracle23ai-lite`.
 3. Convert the XML to `.fmb` with `XML2Forms`, then compile to `.fmx` with `frmcmp_batch` against `FREEPDB1`.
 4. Stage the `.fmx` in `/oracle_home_14c/forms/` and probe `http://localhost:7001/forms/frmservlet?config=standaloneapp&form=<form>.fmx` for HTTP 200.
 5. Query the same block with `oracle-forms-cli query --backend oracle-thin` to check rows, column types, and timing.

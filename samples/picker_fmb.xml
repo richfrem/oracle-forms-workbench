@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
   <FormModule Name="PICKER" Title="Subclassed toolbar over a modal picker">
     <Block Name="BAR_LIST" ParentModule="TOOLBAR" ParentModuleType="12" ParentName="BAR" ParentFilename="toolbar.fmb" ParentType="3">
       <Item Name="SELECT" SubclassSubObject="true" CanvasName="BAR_LIST">
@@ -12,23 +12,30 @@
     </Block>
     <Block Name="CUSTOMERS" QueryDataSourceName="CUSTOMERS">
       <Item Name="NAME" ItemType="Text Item" DataType="Char" ColumnName="NAME" CanvasName="CV_LIST" Prompt="Name" ParentModule="PICKER" ParentModuleType="12" ParentName="PC_TEXT" ParentType="29"/>
-      <Item Name="REF" ItemType="Text Item" DataType="Char" ColumnName="REF" CanvasName="CV_LIST" Prompt="Reference" ParentModule="PICKER" ParentModuleType="12" ParentName="TEMPLATE_ITEM" LOVName="LOV_REFS" Visible="true" Required="true"/>
+      <Item Name="REF" ItemType="Text Item" DataType="Char" ColumnName="REF" CanvasName="CV_LIST" Prompt="Reference" LovName="LOV_REFS" Visible="true" Required="true"/>
       <Trigger Name="KEY-HELP" TriggerText="BEGIN&#10;  :GLOBAL.picked_name := :CUSTOMERS.NAME;&#10;  :GLOBAL.picked_ref  := :CUSTOMERS.REF;&#10;  Exit_Form;&#10;END;"/>
     </Block>
     <Block Name="ORPHAN">
-      <Item Name="FLAG" ItemType="Check Box" SubclassSubObject="true" CanvasName="CV_LIST"/>
-      <Trigger Name="WHEN-NEW-BLOCK-INSTANCE" TriggerText=""/>
-      <Trigger Name="WHEN-NEW-RECORD-INSTANCE" TriggerText="BEGIN&amp;#10;&amp;#9;:ORPHAN.FLAG := 'N';&amp;#10;END;"/>
+      <Item Name="FLAG" ItemType="Check Box" CheckedValue="Y" UncheckedValue="N" InitializeValue="N" CanvasName="CV_LIST"/>
+      <Trigger Name="WHEN-NEW-BLOCK-INSTANCE" TriggerText="NULL;"/>
+      <Trigger Name="WHEN-NEW-RECORD-INSTANCE" TriggerText="BEGIN&#10;&#9;:ORPHAN.FLAG := 'N';&#10;END;"/>
     </Block>
-    <Block Name="MSG" ParentModule="SHARED" ParentModuleType="25" ParentName="STD" ParentFilename="shared.olb" SubclassObjectGroup="true" ParentType="23">
-      <Item Name="SEVERITY" SubclassSubObject="true"/>
+    <Block Name="MSG">
+      <Item Name="SEVERITY" ItemType="Text Item" DataType="Char"/>
     </Block>
+    <Canvas Name="BAR" CanvasType="Horizontal Toolbar" WindowName="WIN_PICKER"/>
     <Canvas Name="BAR_LIST" CanvasType="Horizontal Toolbar" WindowName="WIN_PICKER"/>
     <Canvas Name="CV_LIST" CanvasType="Content" WindowName="WIN_PICKER" RaiseOnEnter="true" Width="600" Height="400" ViewportWidth="580" ViewportHeight="360"/>
-    <ProgramUnit Name="BAR_REFRESH" ProgramUnitType="Procedure" ParentModule="TOOLBAR" ParentModuleType="12" ParentName="BAR_REFRESH" ParentFilename="toolbar.fmb"/>
-    <ProgramUnit Name="SHOW_INFO" ProgramUnitType="Procedure" ParentModule="SHARED" ParentModuleType="25" ParentName="STD" ParentFilename="shared.olb" SubclassObjectGroup="true" ParentType="23"/>
+    <LOV Name="LOV_REFS" RecordGroupName="RG_REFS">
+      <LOVColumnMapping Name="CUSTOMER_NAME" ReturnItem="CUSTOMERS.NAME"/>
+    </LOV>
+    <ProgramUnit Name="BAR_REFRESH" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE bar_refresh IS&#10;BEGIN&#10;  Synchronize;&#10;END;"/>
+    <ProgramUnit Name="SHOW_INFO" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE SHOW_INFO IS BEGIN NULL; END;"/>
     <PropertyClass Name="PC_TEXT"/>
-    <Trigger Name="ON-ERROR" ParentModule="SHARED" ParentModuleType="25" ParentName="STD" ParentFilename="shared.olb" SubclassObjectGroup="true" ParentType="23"/>
+    <RecordGroup Name="RG_REFS" RecordGroupType="Query" RecordGroupQuery="SELECT customer_name FROM customers">
+      <RecordGroupColumn Name="CUSTOMER_NAME" ColumnDataType="Character"/>
+    </RecordGroup>
+    <Trigger Name="ON-ERROR" TriggerText="NULL;"/>
     <Window Name="WIN_PICKER" Title="Pick a customer" Modal="true" Width="600" Height="420" HorizontalToolbarCanvasName="BAR_LIST"/>
   </FormModule>
 </Module>

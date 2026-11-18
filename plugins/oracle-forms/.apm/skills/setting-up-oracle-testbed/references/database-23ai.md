@@ -21,7 +21,11 @@ Windows: Podman must be the one inside Ubuntu, and `/run/user/<uid>` must exist 
 
 ## Seed the test schema
 
-`oracle-reference-stack/sql/seed_test_schema.sql` creates the tablespace `FORMS_DATA` (the PDB has no `USERS` tablespace), the user `$DB_USER`, and tables `departments` (3 rows), `employees` (6 rows), and `test_items` (5 rows, with an `amount` column that the sample forms need). It takes the owner and password as variables:
+`oracle-reference-stack/sql/seed_test_schema.sql` creates the tablespace `FORMS_DATA` (the PDB has no `USERS` tablespace), the user `$DB_USER` (with `CREATE PROCEDURE`), and the sample tables and procedures needed by the forms in `samples/`:
+- Core tables: `departments` (3 rows), `employees` (6 rows), `test_items` (5 rows, with `amount` for `test_db.fmb`).
+- Additional sample form tables/procedures: `assignments`, `claims`, `customers`, `orders`, `order_lines`, `stock`, `customer_invoices`, `account_audit_log`, and procedure `log_account_audit`.
+
+It takes the owner and password as variables:
 
 ```bash
 (printf 'DEFINE db_user=%s\nDEFINE db_password=%s\n' "$DB_USER" "$DB_PASSWORD"; cat oracle-reference-stack/sql/seed_test_schema.sql) \
@@ -31,8 +35,8 @@ Windows: Podman must be the one inside Ubuntu, and `/run/user/<uid>` must exist 
 The first-run `ORA-01918` from `DROP USER` is expected. Then the demo schemas for the sample forms:
 
 ```bash
-podman exec -i oracle23ai-lite sqlplus -s "$DB_USER"/"$DB_PASSWORD"@localhost/FREEPDB1 < samples/ofw_demo_employees.sql
-podman exec -i oracle23ai-lite sqlplus -s "$DB_USER"/"$DB_PASSWORD"@localhost/FREEPDB1 < samples/ofw_demo_sales.sql
+podman exec -i oracle23ai-lite sqlplus -s "$DB_USER"/"$DB_PASSWORD"@localhost/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_employees.sql
+podman exec -i oracle23ai-lite sqlplus -s "$DB_USER"/"$DB_PASSWORD"@localhost/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_sales.sql
 ```
 
 `ORA-00942` lines from `ofw_demo_sales.sql`'s `DROP TABLE` statements are expected the first time. A form failing with `must be declared AMOUNT` means `test_items` lacks the `amount` column (re-run the seed).

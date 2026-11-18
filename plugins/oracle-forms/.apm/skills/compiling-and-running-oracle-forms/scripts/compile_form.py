@@ -74,7 +74,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
-SERVER_CONTAINER = "forms-server-14c"
 
 
 # Resolves the absolute path to the repository root directory.
@@ -100,6 +99,9 @@ _DOTENV = _read_dotenv()
 def _env(name: str, default: str = "") -> str:
     """Environment variable first, then the .env file, then the default."""
     return os.environ.get(name) or _DOTENV.get(name, default)
+
+
+SERVER_CONTAINER = _env("OFW_FORMS_CONTAINER") or "forms-server-14c"
 
 
 def _default_userid() -> str:
@@ -390,7 +392,7 @@ def publish_outputs(compiled: Path, repo_root: Path, dest_dir: Optional[Path] = 
         f"mkdir -p {shlex.quote(dest_cpath)} && "
         f"cp {shlex.quote(container_path(compiled, repo_root))} {shlex.quote(dest_cpath)}/{shlex.quote(compiled.name)}"
     )
-    subprocess.run(podman_cmd(["exec", "forms-server-14c", "/bin/sh", "-c", cmd]), check=True)
+    subprocess.run(podman_cmd(["exec", SERVER_CONTAINER, "/bin/sh", "-c", cmd]), check=True)
     _ensure_runtime_forms_path([dest_cpath])
     return target_dir / compiled.name
 
@@ -419,7 +421,7 @@ def _ensure_runtime_forms_path(extra_dirs: List[str]) -> None:
     """Prepend extra container paths ahead of /oracle_home_14c/forms in default.env inside forms-server-14c (idempotent)."""
     for env_file in _RUNTIME_ENV_FILES:
         check = subprocess.run(
-            podman_cmd(["exec", "-u", "oracle", "forms-server-14c", "grep", "^FORMS_PATH=", env_file]),
+            podman_cmd(["exec", "-u", "oracle", SERVER_CONTAINER, "grep", "^FORMS_PATH=", env_file]),
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
         )
         if check.returncode != 0 or "=" not in check.stdout:
@@ -432,7 +434,7 @@ def _ensure_runtime_forms_path(extra_dirs: List[str]) -> None:
         updated = ":".join(missing + parts)
         subprocess.run(
             podman_cmd([
-                "exec", "-u", "oracle", "forms-server-14c",
+                "exec", "-u", "oracle", SERVER_CONTAINER,
                 "sed", "-i", f"s|^FORMS_PATH=.*|FORMS_PATH={updated}|", env_file,
             ]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -522,7 +524,7 @@ def execute_compilation(cmd: str) -> int:
     Returns:
         0 on success, non-zero on compilation failure.
     """
-    res = subprocess.run(podman_cmd(["exec", "-u", "oracle", "forms-server-14c", "/bin/sh", "-c", cmd]),
+    res = subprocess.run(podman_cmd(["exec", "-u", "oracle", SERVER_CONTAINER, "/bin/sh", "-c", cmd]),
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     print(res.stdout)
 

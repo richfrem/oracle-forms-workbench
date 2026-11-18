@@ -33,8 +33,8 @@ Database connection details:
 
 ### Step 1: Seed Schema in Oracle 23ai
 ```bash
-podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost:1521/FREEPDB1 < samples/ofw_demo_employees.sql
-podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost:1521/FREEPDB1 < samples/ofw_demo_sales.sql
+podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost:1521/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_employees.sql
+podman exec -i oracle23ai-lite sqlplus -s $DB_USER/$DB_PASSWORD@localhost:1521/FREEPDB1 < oracle-reference-stack/sql/ofw_demo_sales.sql
 ```
 
 ### Step 2: Headless Compilation (.xml -> .fmb -> .fmx)

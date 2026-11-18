@@ -129,7 +129,7 @@ do_copy() {
   local need avail
   need="$(echo "$src_fp" | sed -n 's/.*bytes=\([0-9]*\).*/\1/p')"
   mkdir -p "$TARGET" 2>/dev/null || true
-  avail="$(df -B1 --output=avail "$TARGET" 2>/dev/null | tail -1 | tr -d ' ')"
+  avail="$(df -Pk "$TARGET" | awk 'NR == 2 {printf "%.0f\n", $4 * 1024}')"
   say "needs ${need:-?} bytes; free at target: ${avail:-?} bytes"
   [ -n "$need" ] && [ -n "$avail" ] && [ "$avail" -lt "$((need + need / 10))" ] && fail "not enough free space at $TARGET"
   say "Copying $SRC -> $TARGET (a few minutes; source is mounted read-only)"

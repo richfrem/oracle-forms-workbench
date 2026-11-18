@@ -95,7 +95,8 @@ def check_containers() -> bool:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         running = res.stdout.strip().splitlines()
         db_ok = "oracle23ai-lite" in running
-        forms_ok = "forms-server-14c" in running or "forms-14c-server" in running
+        forms_name = _env("OFW_FORMS_CONTAINER", "forms-server-14c") or "forms-server-14c"
+        forms_ok = forms_name in running or (forms_name == "forms-server-14c" and "forms-14c-server" in running)
         print(f"  - Oracle Database 23ai: {'RUNNING (ok)' if db_ok else 'STOPPED (fail)'}")
         print(f"  - Oracle Forms 14c Server: {'RUNNING (ok)' if forms_ok else 'STOPPED (fail)'}")
         return db_ok and forms_ok

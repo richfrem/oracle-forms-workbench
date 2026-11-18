@@ -12,7 +12,7 @@ Across `build-manifest.json`, `build_dependency_manifest.py`, and `compile_from_
 2. **Stage 2: Built (Oracle 14c Native Source):** `.olb`, `.pll`, `.mmb`, `.fmb` — built in topological dependency order (least dependencies -> most dependencies) inside the 14c container with **no database logon (`logon=no`)**:
    - `.xml` -> `.olb` / `.mmb` / `.fmb` via `XML2Forms` (with `FORMS_PATH=/work:/oracle_home_14c/forms`).
    - `.pld` -> `.pll` via `frmcmp_batch module=<name>.pld output_file=<name>.pll module_type=library parse=yes logon=no batch=yes` (prefer `.pld` over existing `.pll` when `.pld` is present so every `.pll` is freshly built in 14c).
-3. **Stage 3: Compiled (Runtime Executables):** `.plx`, `.mmx`, `.fmx` — compiled in the same dependency order via `compile_from_manifest.py` with user interactive database login and published to `<OFW_ORACLE_HOME>/forms/` (`.olb` is build-only and has no `.olx`).
+3. **Stage 3: Compiled (Runtime Executables):** `.plx`, `.mmx`, `.fmx` — compiled in the same dependency order via `compile_from_manifest.py` with user interactive database login and published to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` (`.olb` is build-only and has no `.olx`).
 
 ## Before you start: start `forms-server-14c` once and keep it running
 
@@ -44,7 +44,7 @@ The agent runs these gates in order in WSL2, shows a status table at each, and a
 |---|---|---|
 | 0 Intake | Ask for primary source folder(s), secondary fallback folder(s) for missing `.fmb`/`.pll`/`.mmb`/`.olb`, and the external `OFW_WORK_DIR` (default `<OFW_ORACLE_HOME>/ofw-work`). Copy into `<OFW_WORK_DIR>/source/` (originals untouched). | Duplicates: default prefer primary XML, fill gaps from secondary, exclude `.fmx`/`.plx`/`.err` and backup copies. Then: copy and run Stage 1? |
 | 1 Analysis | `--analyze-only`; table of modules by type, ordered count, `unresolvedDependencies`, true `cycles`; list scratch or duplicate files. | Clean up, supply missing files, or `--allow-missing`? Then: run Stage 2? `--normalize` for hand-authored XML? |
-| 2 Conversion | Stage 2 in order; converted vs failed counts. | Hand off to Stage 3: database alias, and publish to `<OFW_ORACLE_HOME>/forms/`? |
+| 2 Conversion | Stage 2 in order; converted vs failed counts. | Hand off to Stage 3: database alias, and publish to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`? |
 
 ## Stage 0: gather sources
 

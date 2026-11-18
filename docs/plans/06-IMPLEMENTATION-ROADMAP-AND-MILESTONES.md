@@ -5,6 +5,10 @@
 
 ---
 
+## Review follow-up after Windows preview improvements
+
+[Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) tracks three open issues: lossy summary overwrite, external-source save destinations, and conflicting work-directory defaults. It preserves the delivered preview improvements and does not reopen archived design specifications. Mac review checks passed 134 Rust and 32 frontend tests; Python passed 34/36. Live 14c comparison was not run.
+
 ## 1. Unified Phased Delivery Sequence
 
 ```text

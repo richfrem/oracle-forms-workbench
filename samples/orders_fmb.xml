@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
   <FormModule Name="ORDERS" ConsoleWindow="WINDOW_MAIN" Title="Order Entry">
+    <Coordinate CoordinateSystem="Real" RealUnit="Point" CharacterCellWidth="7" CharacterCellHeight="14" DefaultFontScaling="true"/>
     <Alert Name="AL_CONFIRM" AlertMessage="Save changes?"/>
     <AttachedLibrary Name="UTILS" LibraryLocation="utils"/>
     <Block Name="ORDERS" QueryDataSourceName="ORDERS" ScrollbarLength="0">
@@ -18,26 +19,23 @@
     <Block Name="CONTROL">
       <Item Name="BTN_SAVE" ItemType="Push Button" CanvasName="CV_MAIN" Prompt="" XPosition="140" YPosition="304" Width="120" Height="33" PromptAttachmentEdge="Start" PromptAttachmentOffset="5" Label="Save"/>
     </Block>
-    <Canvas Name="CV_MAIN" CanvasType="Content" WindowName="WINDOW_MAIN">
+    <Canvas Name="CV_MAIN" CanvasType="Content" WindowName="WINDOW_MAIN" Width="800" Height="600">
       <Graphics Name="FRAME1" GraphicsType="Frame"/>
     </Canvas>
     <Editor Name="ED_NOTES"/>
     <LOV Name="LOV_CUSTOMERS" RecordGroupName="RG_CUSTOMERS">
       <LOVColumnMapping Name="CUSTOMER_NAME" ReturnItem="ORDERS.CUSTOMER_NAME"/>
     </LOV>
-    <ModuleParameter Name="P_ORDER_ID" DataType="Number" DefaultValue="0"/>
+    <ModuleParameter Name="P_ORDER_ID" ParameterDataType="Number" ParameterInitializeValue="0"/>
     <ProgramUnit Name="CALC_TOTAL" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE calc_total(p_id NUMBER) IS&#10;BEGIN&#10;  NULL; -- &quot;total&quot; calculation&#10;END;"/>
     <ProgramUnit Name="PKG_ORDERS" ProgramUnitType="Package Spec" ProgramUnitText="PACKAGE pkg_orders IS&#10;  PROCEDURE refresh;&#10;END;"/>
     <ProgramUnit Name="PKG_ORDERS" ProgramUnitType="Package Body" ProgramUnitText="PACKAGE BODY pkg_orders IS&#10;  PROCEDURE refresh IS&#10;  BEGIN&#10;    NULL;&#10;  END;&#10;END;"/>
     <PropertyClass Name="PC_TEXT"/>
     <RecordGroup Name="RG_CUSTOMERS" RecordGroupType="Query" RecordGroupQuery="SELECT customer_name FROM customers">
-      <RecordGroupColumn Name="CUSTOMER_NAME" DataType="Char"/>
+      <RecordGroupColumn Name="CUSTOMER_NAME" ColumnDataType="Character"/>
     </RecordGroup>
     <Trigger Name="KEY-COMMIT" TriggerText="COMMIT_FORM;"/>
     <VisualAttribute Name="VA_HIGHLIGHT"/>
-    <Window Name="WINDOW_MAIN" Title="Orders"/>
-    <FutureUnknownElement Name="MYSTERY">
-      <NestedUnknown Something="x"/>
-    </FutureUnknownElement>
+    <Window Name="WINDOW_MAIN" Title="Orders" Width="800" Height="600"/>
   </FormModule>
 </Module>

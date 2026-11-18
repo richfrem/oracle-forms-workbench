@@ -61,7 +61,7 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 
 ## Interactive guided workflow (agent protocol)
 
-The agent drives the gates; the user never guesses the next step. Gates 0 to 2 are in `converting-oracle-artifacts` (intake, analysis, conversion). **Gate 3, compile:** ask for the database `user@db`, whether to run the `sqlplus` preflight (recommended) and whether to publish to `<Oracle Home>/forms/`; give the exact `compile_from_manifest.py` command so the user types the password at the `getpass` prompt (never in chat); then summarize compiled, skipped and failed, diagnose and ask which form to launch with `launch_fsal.py`. Detail: [references/batch-manifest-compilation.md](references/batch-manifest-compilation.md).
+The agent drives the gates; the user never guesses the next step. Gates 0 to 2 are in `converting-oracle-artifacts` (intake, analysis, conversion). **Gate 3, compile:** ask for the database `user@db`, whether to run the `sqlplus` preflight (recommended) and whether to publish to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`; give the exact `compile_from_manifest.py` command so the user types the password at the `getpass` prompt (never in chat); then summarize compiled, skipped and failed, diagnose and ask which form to launch with `launch_fsal.py`. Detail: [references/batch-manifest-compilation.md](references/batch-manifest-compilation.md).
 
 ## Dependencies, account and compile order
 

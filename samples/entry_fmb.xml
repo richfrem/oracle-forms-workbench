@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+<Module version="141020000" xmlns="http://xmlns.oracle.com/Forms">
   <FormModule Name="ENTRY" Title="Calls the picker and reads back what it picked">
     <Block Name="ASSIGNMENTS" QueryDataSourceName="ASSIGNMENTS">
       <Item Name="AGENT_REF" ItemType="Text Item" DataType="Char" ColumnName="AGENT_REF" CanvasName="CV_ENTRY" Prompt="Agent ref">
@@ -11,7 +11,9 @@
       <Item Name="SELECT" SubclassSubObject="true" CanvasName="BAR_ENTRY">
         <Trigger Name="WHEN-BUTTON-PRESSED" SubclassSubObject="true"/>
       </Item>
+      <Item Name="CANCEL" SubclassSubObject="true" CanvasName="BAR_ENTRY"/>
     </Block>
+    <Canvas Name="BAR" CanvasType="Horizontal Toolbar" WindowName="WIN_ENTRY"/>
     <Canvas Name="BAR_ENTRY" CanvasType="Horizontal Toolbar" WindowName="WIN_ENTRY"/>
     <Canvas Name="CV_ENTRY" CanvasType="Content" WindowName="WIN_ENTRY"/>
     <ProgramUnit Name="CLEAR_PICKED" ProgramUnitType="Procedure" ProgramUnitText="PROCEDURE clear_picked IS&#10;BEGIN&#10;  :GLOBAL.picked_name := NULL;&#10;  :GLOBAL.picked_ref := NULL;&#10;END;"/>

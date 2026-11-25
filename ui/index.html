@@ -85,33 +85,54 @@
             <span>Form Diff</span>
           </button>
         </nav>
-        <div class="context-run-actions" aria-label="Run and compile actions">
-          <span class="context-sep" aria-hidden="true"></span>
-          <button id="launch14cBtn" class="btn btn-sm btn-emerald" title="Launch already-compiled .fmx directly in Oracle Forms 14c (full runtime, .pll libraries, CALL_FORM)">🚀 Launch in 14c</button>
-          <button id="previewRustBtn" class="btn btn-sm btn-secondary" title="Preview standalone form in the native Rust runtime (limited built-ins; no .pll or CALL_FORM)">🦀 Preview in Rust</button>
-          <button id="oracleReferenceBtn" class="btn btn-sm btn-secondary" title="Save XML, convert to FMB, compile in 14c, and deploy to WebLogic">🔨 Build &amp; Compile (14c)</button>
-        </div>
       </div>
-      <div class="context-actions">
-        <button id="editLayoutToggleBtn" class="btn btn-sm btn-secondary" title="Enable Forms Builder visual layout &amp; property editor">
-          ✏️ Layout
-        </button>
-        <button id="openWizardBtn" class="btn btn-sm btn-primary" title="Open Data Block &amp; Layout Wizard (Select Tables, Columns, Frame Title, Form/Tabular)">
-          🧙‍♂️ Wizard
-        </button>
-        <button id="saveFormBtn" class="btn btn-sm btn-primary" title="Update the form's XML file in samples/">💾 Save Form</button>
-        <select id="menuModuleSelect" class="compact-select" aria-label="Attached Custom Menu Module (.mmb)" title="Switch or attach a custom .mmb Menu Module onto this Form">
-          <option value="OFW_EMP_MENU">🍔 Menu: OFW_EMP_MENU.mmb</option>
-          <option value="MAINMENU">🍔 Menu: MAINMENU.mmb</option>
-          <option value="DEFAULT">🍔 Menu: Standard Oracle Menu</option>
-          <option value="__BROWSE_MMB__">📂 Browse .mmb / _mmb.xml...</option>
-        </select>
-        <select id="previewAlertSelect" class="compact-select" aria-label="Preview declared alert" disabled>
-          <option value="">🔔 Alert...</option>
-        </select>
-        <button id="previewResetBtn" class="btn btn-sm btn-secondary" title="Reset preview field values" disabled>↺</button>
-        <button id="exportXmlBtn" class="btn btn-sm btn-outline" title="Export module as XML (Rust offline)">💾 Export XML (Rust)</button>
-        <button id="exportBinaryBtn" class="btn btn-sm btn-outline" title="Build &amp; download native Rust ROS.60050 binary (.fmb/.mmb/.olb) offline">🦀 Build Binary (Rust)</button>
+      <div class="module-context-right">
+        <div class="context-actions" aria-label="Form design and runtime controls">
+          <button id="editLayoutToggleBtn" class="btn btn-sm btn-secondary" title="Enable Forms Builder visual layout &amp; property editor">
+            ✏️ Layout
+          </button>
+          <button id="openWizardBtn" class="btn btn-sm btn-primary" title="Open Data Block &amp; Layout Wizard (Select Tables, Columns, Frame Title, Form/Tabular)">
+            🧙‍♂️ Wizard
+          </button>
+          <button id="saveFormBtn" class="btn btn-sm btn-primary" title="Update the form's XML file in samples/">💾 Save Form</button>
+          <select id="menuModuleSelect" class="compact-select" aria-label="Attached Custom Menu Module (.mmb)" title="Switch or attach a custom .mmb Menu Module onto this Form">
+            <option value="OFW_EMP_MENU">🍔 Menu: OFW_EMP_MENU.mmb</option>
+            <option value="MAINMENU">🍔 Menu: MAINMENU.mmb</option>
+            <option value="DEFAULT">🍔 Menu: Standard Oracle Menu</option>
+            <option value="__BROWSE_MMB__">📂 Browse .mmb / _mmb.xml...</option>
+          </select>
+          <select id="previewAlertSelect" class="compact-select" aria-label="Preview declared alert" disabled>
+            <option value="">🔔 Alert...</option>
+          </select>
+          <button id="previewResetBtn" class="btn btn-sm btn-secondary" title="Reset preview field values" disabled>↺</button>
+        </div>
+        <span class="context-sep" aria-hidden="true"></span>
+        <div class="context-engine-menus" aria-label="Export, build, and preview actions">
+          <details class="toolbar-menu" id="exportMenu">
+            <summary class="btn btn-sm btn-outline" title="Export or convert module to XML/PLD">📤 Export / Convert ▾</summary>
+            <div class="toolbar-menu-panel" role="menu">
+              <div class="toolbar-menu-heading">XML &amp; PLD Conversion</div>
+              <button id="exportXmlBtn" class="toolbar-menu-item" role="menuitem" title="Export module as XML (Rust offline)">🦀 Export XML (Rust)</button>
+              <button id="exportXml14cBtn" class="toolbar-menu-item" role="menuitem" title="Convert binary .fmb/.mmb/.olb/.rdf/.pll via Oracle 14c container">⚡ Convert via Oracle (14c)</button>
+            </div>
+          </details>
+          <details class="toolbar-menu" id="buildMenu">
+            <summary class="btn btn-sm btn-outline" title="Build binary module (.fmb/.mmb/.olb/.fmx)">🔨 Build ▾</summary>
+            <div class="toolbar-menu-panel" role="menu">
+              <div class="toolbar-menu-heading">Compile Binary Module</div>
+              <button id="exportBinaryBtn" class="toolbar-menu-item" role="menuitem" title="Build &amp; download native Rust ROS.60050 binary (.fmb/.mmb/.olb) offline">🦀 Build Binary (Rust)</button>
+              <button id="oracleReferenceBtn" class="toolbar-menu-item" role="menuitem" title="Save XML, convert to FMB, compile in 14c, and deploy to WebLogic">🔨 Build &amp; Compile (14c)</button>
+            </div>
+          </details>
+          <details class="toolbar-menu" id="previewMenu">
+            <summary class="btn btn-sm btn-emerald" title="Preview in Rust or launch in Oracle Forms 14c">▶ Run / Preview ▾</summary>
+            <div class="toolbar-menu-panel" role="menu">
+              <div class="toolbar-menu-heading">Runtime Execution</div>
+              <button id="previewRustBtn" class="toolbar-menu-item" role="menuitem" title="Preview standalone form in the native Rust runtime (limited built-ins; no .pll or CALL_FORM)">🦀 Preview in Rust</button>
+              <button id="launch14cBtn" class="toolbar-menu-item" role="menuitem" title="Launch already-compiled .fmx directly in Oracle Forms 14c (full runtime, .pll libraries, CALL_FORM)">🚀 Launch in 14c</button>
+            </div>
+          </details>
+        </div>
       </div>
     </div>
 

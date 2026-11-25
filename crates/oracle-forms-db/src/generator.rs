@@ -653,7 +653,7 @@ mod tests {
             relations: vec![],
             records_displayed: 1,
             distance_between_records: 0,
-            record_orientation: "Vertical".to_string(),
+            ..Default::default()
         };
 
         let gen = SqlGenerator::generate_select(&block, DbBackend::Oracle, Some(25)).unwrap();

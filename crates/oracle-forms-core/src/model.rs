@@ -1,4 +1,15 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RawXmlNode {
+    pub tag: String,
+    #[serde(default)]
+    pub attrs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub children: Vec<RawXmlNode>,
+}
 
 pub const CURRENT_INDEX_VERSION: i32 = 10;
 
@@ -497,6 +508,22 @@ pub struct ItemInfo {
     pub enabled: bool,
     #[serde(default = "default_true")]
     pub canvas_visible: bool,
+    #[serde(default)]
+    pub hint: Option<String>,
+    #[serde(default)]
+    pub access_key: Option<String>,
+    #[serde(default)]
+    pub auto_hint: Option<bool>,
+    #[serde(default)]
+    pub previous_navigation_item_name: Option<String>,
+    #[serde(default)]
+    pub keyboard_navigable: Option<bool>,
+    #[serde(default)]
+    pub mouse_navigate: Option<bool>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub extra_children: Vec<RawXmlNode>,
 }
 
 impl Default for ItemInfo {
@@ -547,6 +574,14 @@ impl Default for ItemInfo {
             list_elements: vec![],
             enabled: true,
             canvas_visible: true,
+            hint: None,
+            access_key: None,
+            auto_hint: None,
+            previous_navigation_item_name: None,
+            keyboard_navigable: None,
+            mouse_navigate: None,
+            extra_attrs: BTreeMap::new(),
+            extra_children: Vec::new(),
         }
     }
 }
@@ -580,6 +615,24 @@ pub struct BlockInfo {
     pub distance_between_records: i32,
     #[serde(default = "default_orientation")]
     pub record_orientation: String,
+    #[serde(default)]
+    pub navigation_style: Option<String>,
+    #[serde(default)]
+    pub next_navigation_block_name: Option<String>,
+    #[serde(default)]
+    pub previous_navigation_block_name: Option<String>,
+    #[serde(default)]
+    pub show_scrollbar: Option<bool>,
+    #[serde(default)]
+    pub visual_attribute: Option<String>,
+    #[serde(default)]
+    pub dml_data_type: Option<String>,
+    #[serde(default)]
+    pub query_data_source_type: Option<String>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub extra_children: Vec<RawXmlNode>,
 }
 
 impl Default for BlockInfo {
@@ -598,6 +651,15 @@ impl Default for BlockInfo {
             records_displayed: 1,
             distance_between_records: 0,
             record_orientation: "Vertical".to_string(),
+            navigation_style: None,
+            next_navigation_block_name: None,
+            previous_navigation_block_name: None,
+            show_scrollbar: None,
+            visual_attribute: None,
+            dml_data_type: None,
+            query_data_source_type: None,
+            extra_attrs: BTreeMap::new(),
+            extra_children: Vec::new(),
         }
     }
 }
@@ -705,6 +767,70 @@ pub struct GraphicInfo {
     pub inherited: Option<InheritanceRef>,
     #[serde(default)]
     pub points: Vec<PointInfo>,
+    #[serde(default)]
+    pub compound_texts: Vec<CompoundTextInfo>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSegmentInfo {
+    pub name: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub font_name: Option<String>,
+    #[serde(default)]
+    pub font_size: Option<i32>,
+    #[serde(default)]
+    pub font_weight: Option<String>,
+    #[serde(default)]
+    pub font_style: Option<String>,
+    #[serde(default)]
+    pub foreground_color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompoundTextInfo {
+    pub name: String,
+    #[serde(default)]
+    pub text_segments: Vec<TextSegmentInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectGroupChildInfo {
+    pub name: String,
+    #[serde(default)]
+    pub subclass_sub_object: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectGroupInfo {
+    pub name: String,
+    #[serde(default)]
+    pub children: Vec<ObjectGroupChildInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormReportInfo {
+    pub name: String,
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub execution_mode: Option<String>,
+    #[serde(default)]
+    pub comm_mode: Option<String>,
+    #[serde(default)]
+    pub destype: Option<String>,
+    #[serde(default)]
+    pub desformat: Option<String>,
+    #[serde(default)]
+    pub desname: Option<String>,
 }
 
 fn default_graphic_type() -> String { "Rectangle".to_string() }
@@ -979,6 +1105,18 @@ pub struct ModuleIndex {
     pub object_library_tabs: Vec<ObjectLibraryTabInfo>,
     #[serde(default)]
     pub object_refs: Vec<ObjectRef>,
+    #[serde(default)]
+    pub first_navigation_block_name: Option<String>,
+    #[serde(default)]
+    pub runtime_comp: Option<String>,
+    #[serde(default)]
+    pub object_groups: Vec<ObjectGroupInfo>,
+    #[serde(default)]
+    pub form_reports: Vec<FormReportInfo>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub extra_children: Vec<RawXmlNode>,
 }
 
 fn default_index_version() -> i32 { CURRENT_INDEX_VERSION }

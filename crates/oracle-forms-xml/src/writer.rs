@@ -1,4 +1,5 @@
 use oracle_forms_core::model::*;
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
@@ -52,6 +53,13 @@ impl FormsXmlWriter {
         if let Some(menu) = &module.menu_module {
             attrs.push(format!("MenuModule=\"{}\"", escape_attr(menu)));
         }
+        if let Some(fnb) = &module.first_navigation_block_name {
+            attrs.push(format!("FirstNavigationBlockName=\"{}\"", escape_attr(fnb)));
+        }
+        if let Some(rc) = &module.runtime_comp {
+            attrs.push(format!("RuntimeComp=\"{}\"", escape_attr(rc)));
+        }
+        append_extra_attrs(&mut attrs, &module.extra_attrs);
 
         let _ = writeln!(out, "  <FormModule {}>", attrs.join(" "));
 
@@ -194,6 +202,47 @@ impl FormsXmlWriter {
             let _ = writeln!(out, "    <Editor Name=\"{}\"/>", escape_attr(ed));
         }
 
+        // Object Groups
+        for og in &module.object_groups {
+            if og.children.is_empty() {
+                let _ = writeln!(out, "    <ObjectGroup Name=\"{}\"/>", escape_attr(&og.name));
+            } else {
+                let _ = writeln!(out, "    <ObjectGroup Name=\"{}\">", escape_attr(&og.name));
+                for ch in &og.children {
+                    let mut ch_attrs = vec![format!("Name=\"{}\"", escape_attr(&ch.name))];
+                    if let Some(sub) = ch.subclass_sub_object {
+                        ch_attrs.push(format!("SubclassSubObject=\"{}\"", sub));
+                    }
+                    let _ = writeln!(out, "      <ObjectGroupChild {}/>", ch_attrs.join(" "));
+                }
+                out.push_str("    </ObjectGroup>\n");
+            }
+        }
+
+        // Form Reports
+        for rep in &module.form_reports {
+            let mut r_attrs = vec![format!("Name=\"{}\"", escape_attr(&rep.name))];
+            if let Some(v) = &rep.filename {
+                r_attrs.push(format!("Filename=\"{}\"", escape_attr(v)));
+            }
+            if let Some(v) = &rep.execution_mode {
+                r_attrs.push(format!("ExecutionMode=\"{}\"", escape_attr(v)));
+            }
+            if let Some(v) = &rep.comm_mode {
+                r_attrs.push(format!("CommMode=\"{}\"", escape_attr(v)));
+            }
+            if let Some(v) = &rep.destype {
+                r_attrs.push(format!("Destype=\"{}\"", escape_attr(v)));
+            }
+            if let Some(v) = &rep.desformat {
+                r_attrs.push(format!("Desformat=\"{}\"", escape_attr(v)));
+            }
+            if let Some(v) = &rep.desname {
+                r_attrs.push(format!("Desname=\"{}\"", escape_attr(v)));
+            }
+            let _ = writeln!(out, "    <Report {}/>", r_attrs.join(" "));
+        }
+
         // Form-level Triggers (no block_name and no item_name)
         for trig in &module.triggers {
             if trig.block_name.is_none() && trig.item_name.is_none() {
@@ -208,6 +257,10 @@ impl FormsXmlWriter {
                     escape_attr(text)
                 );
             }
+        }
+
+        for extra in &module.extra_children {
+            write_raw_xml_node(out, extra, 4);
         }
 
         out.push_str("  </FormModule>\n");
@@ -232,6 +285,28 @@ impl FormsXmlWriter {
         if block.record_orientation != "Vertical" && !block.record_orientation.is_empty() {
             b_attrs.push(format!("RecordOrientation=\"{}\"", escape_attr(&block.record_orientation)));
         }
+        if let Some(ns) = &block.navigation_style {
+            b_attrs.push(format!("NavigationStyle=\"{}\"", escape_attr(ns)));
+        }
+        if let Some(nb) = &block.next_navigation_block_name {
+            b_attrs.push(format!("NextNavigationBlockName=\"{}\"", escape_attr(nb)));
+        }
+        if let Some(pb) = &block.previous_navigation_block_name {
+            b_attrs.push(format!("PreviousNavigationBlockName=\"{}\"", escape_attr(pb)));
+        }
+        if let Some(ss) = block.show_scrollbar {
+            b_attrs.push(format!("ShowScrollbar=\"{}\"", ss));
+        }
+        if let Some(va) = &block.visual_attribute {
+            b_attrs.push(format!("VisualAttributeName=\"{}\"", escape_attr(va)));
+        }
+        if let Some(dt) = &block.dml_data_type {
+            b_attrs.push(format!("DMLDataType=\"{}\"", escape_attr(dt)));
+        }
+        if let Some(qt) = &block.query_data_source_type {
+            b_attrs.push(format!("QueryDataSourceType=\"{}\"", escape_attr(qt)));
+        }
+        append_extra_attrs(&mut b_attrs, &block.extra_attrs);
 
         if let Some(dml) = &block.dml {
             if let Some(where_c) = &dml.where_clause {
@@ -317,6 +392,10 @@ impl FormsXmlWriter {
             let _ = writeln!(out, "      <Relation {}/>", r_attrs.join(" "));
         }
 
+        for extra in &block.extra_children {
+            write_raw_xml_node(out, extra, 6);
+        }
+
         out.push_str("    </Block>\n");
     }
 
@@ -380,6 +459,28 @@ impl FormsXmlWriter {
         if let Some(fc) = &item.fore_color {
             i_attrs.push(format!("ForegroundColor=\"{}\"", escape_attr(fc)));
         }
+        if let Some(hint) = &item.hint {
+            i_attrs.push(format!("Hint=\"{}\"", escape_attr(hint)));
+        }
+        if let Some(ak) = &item.access_key {
+            i_attrs.push(format!("AccessKey=\"{}\"", escape_attr(ak)));
+        }
+        if let Some(ah) = item.auto_hint {
+            i_attrs.push(format!("AutoHint=\"{}\"", ah));
+        }
+        if let Some(pi) = &item.previous_navigation_item_name {
+            i_attrs.push(format!("PreviousNavigationItemName=\"{}\"", escape_attr(pi)));
+        }
+        if let Some(kn) = item.keyboard_navigable {
+            i_attrs.push(format!("KeyboardNavigable=\"{}\"", kn));
+        }
+        if let Some(mn) = item.mouse_navigate {
+            i_attrs.push(format!("MouseNavigate=\"{}\"", mn));
+        }
+        if item.items_display > 1 {
+            i_attrs.push(format!("ItemsDisplay=\"{}\"", item.items_display));
+        }
+        append_extra_attrs(&mut i_attrs, &item.extra_attrs);
 
         // Item DML properties
         if let Some(dml) = &item.dml {
@@ -422,7 +523,7 @@ impl FormsXmlWriter {
             })
             .collect();
 
-        if item_trigs.is_empty() && item.radio_buttons.is_empty() && item.list_elements.is_empty() {
+        if item_trigs.is_empty() && item.radio_buttons.is_empty() && item.list_elements.is_empty() && item.extra_children.is_empty() {
             let _ = writeln!(out, "      <Item {}/>", i_attrs.join(" "));
         } else {
             let _ = writeln!(out, "      <Item {}>", i_attrs.join(" "));
@@ -466,6 +567,9 @@ impl FormsXmlWriter {
                     escape_attr(&trig.name),
                     escape_attr(text)
                 );
+            }
+            for extra in &item.extra_children {
+                write_raw_xml_node(out, extra, 8);
             }
             out.push_str("      </Item>\n");
         }
@@ -523,10 +627,11 @@ impl FormsXmlWriter {
                 if g.width != 0 {
                     g_attrs.push(format!("Width=\"{}\"", g.width));
                 }
-                if g.height != 0 {
-                    g_attrs.push(format!("Height=\"{}\"", g.height));
+                if let Some(h) = g.height.checked_sub(0).filter(|&v| v != 0) {
+                    g_attrs.push(format!("Height=\"{}\"", h));
                 }
-                if g.points.is_empty() {
+                append_extra_attrs(&mut g_attrs, &g.extra_attrs);
+                if g.points.is_empty() && g.compound_texts.is_empty() {
                     let _ = writeln!(out, "      <Graphics {}/>", g_attrs.join(" "));
                 } else {
                     let _ = writeln!(out, "      <Graphics {}>", g_attrs.join(" "));
@@ -538,6 +643,36 @@ impl FormsXmlWriter {
                             pt.x_position,
                             pt.y_position
                         );
+                    }
+                    for ct in &g.compound_texts {
+                        if ct.text_segments.is_empty() {
+                            let _ = writeln!(out, "        <CompoundText Name=\"{}\"/>", escape_attr(&ct.name));
+                        } else {
+                            let _ = writeln!(out, "        <CompoundText Name=\"{}\">", escape_attr(&ct.name));
+                            for ts in &ct.text_segments {
+                                let mut ts_attrs = vec![format!("Name=\"{}\"", escape_attr(&ts.name))];
+                                if let Some(t) = &ts.text {
+                                    ts_attrs.push(format!("Text=\"{}\"", escape_attr(t)));
+                                }
+                                if let Some(fn_) = &ts.font_name {
+                                    ts_attrs.push(format!("FontName=\"{}\"", escape_attr(fn_)));
+                                }
+                                if let Some(fs) = ts.font_size {
+                                    ts_attrs.push(format!("FontSize=\"{}\"", fs));
+                                }
+                                if let Some(fw) = &ts.font_weight {
+                                    ts_attrs.push(format!("FontWeight=\"{}\"", escape_attr(fw)));
+                                }
+                                if let Some(fst) = &ts.font_style {
+                                    ts_attrs.push(format!("FontStyle=\"{}\"", escape_attr(fst)));
+                                }
+                                if let Some(fg) = &ts.foreground_color {
+                                    ts_attrs.push(format!("ForegroundColor=\"{}\"", escape_attr(fg)));
+                                }
+                                let _ = writeln!(out, "          <TextSegment {}/>", ts_attrs.join(" "));
+                            }
+                            out.push_str("        </CompoundText>\n");
+                        }
                     }
                     out.push_str("      </Graphics>\n");
                 }
@@ -581,6 +716,44 @@ impl FormsXmlWriter {
             out.push_str("    </ObjectLibraryTab>\n");
         }
         out.push_str("  </ObjectLibrary>\n");
+    }
+}
+
+/// Appends any unmodeled XML attributes that were not already explicitly emitted.
+fn append_extra_attrs(attrs: &mut Vec<String>, extra: &BTreeMap<String, String>) {
+    for (k, v) in extra {
+        let already = attrs.iter().any(|existing| {
+            existing
+                .split_once('=')
+                .map(|(ek, _)| ek.eq_ignore_ascii_case(k))
+                .unwrap_or(false)
+        });
+        if !already {
+            attrs.push(format!("{}=\"{}\"", k, escape_attr(v)));
+        }
+    }
+}
+
+/// Recursively serializes an unmodeled Forms XML element and its children.
+fn write_raw_xml_node(out: &mut String, node: &RawXmlNode, indent: usize) {
+    let pad = " ".repeat(indent);
+    let mut attrs_vec = Vec::with_capacity(node.attrs.len());
+    for (k, v) in &node.attrs {
+        attrs_vec.push(format!("{}=\"{}\"", k, escape_attr(v)));
+    }
+    let attr_str = if attrs_vec.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", attrs_vec.join(" "))
+    };
+    if node.children.is_empty() {
+        let _ = writeln!(out, "{}<{}{}/>", pad, node.tag, attr_str);
+    } else {
+        let _ = writeln!(out, "{}<{}{}>", pad, node.tag, attr_str);
+        for child in &node.children {
+            write_raw_xml_node(out, child, indent + 2);
+        }
+        let _ = writeln!(out, "{}</{}>", pad, node.tag);
     }
 }
 

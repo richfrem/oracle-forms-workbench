@@ -428,6 +428,12 @@ impl BinaryFmbParser {
             menus,
             object_library_tabs,
             object_refs: Vec::new(),
+            first_navigation_block_name: None,
+            runtime_comp: None,
+            object_groups: Vec::new(),
+            form_reports: Vec::new(),
+            extra_attrs: Default::default(),
+            extra_children: Vec::new(),
         })
     }
 }

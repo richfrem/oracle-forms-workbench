@@ -67,7 +67,7 @@ async fn test_mock_driver_block_query() {
         relations: vec![],
         records_displayed: 1,
         distance_between_records: 0,
-        record_orientation: "Vertical".to_string(),
+        ..Default::default()
     };
 
     let result = mock.query_block(&block, Some(3)).await.expect("Block query failed");

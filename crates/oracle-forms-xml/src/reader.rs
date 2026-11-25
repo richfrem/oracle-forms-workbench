@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 use quick_xml::events::BytesStart;
@@ -31,6 +31,15 @@ struct BlockBuilder {
     trigger_names: Vec<String>,
     relations: Vec<RelationInfo>,
     data_source_column_count: i32,
+    navigation_style: Option<String>,
+    next_navigation_block_name: Option<String>,
+    previous_navigation_block_name: Option<String>,
+    show_scrollbar: Option<bool>,
+    visual_attribute: Option<String>,
+    dml_data_type: Option<String>,
+    query_data_source_type: Option<String>,
+    extra_attrs: BTreeMap<String, String>,
+    extra_children: Vec<RawXmlNode>,
 }
 
 struct ItemBuilder {
@@ -78,6 +87,14 @@ struct ItemBuilder {
     enabled: bool,
     canvas_visible: bool,
     trigger_names: Vec<String>,
+    hint: Option<String>,
+    access_key: Option<String>,
+    auto_hint: Option<bool>,
+    previous_navigation_item_name: Option<String>,
+    keyboard_navigable: Option<bool>,
+    mouse_navigate: Option<bool>,
+    extra_attrs: BTreeMap<String, String>,
+    extra_children: Vec<RawXmlNode>,
 }
 
 struct CanvasBuilder {
@@ -145,6 +162,13 @@ impl FormsXmlParser {
         let mut menus: Vec<MenuInfo> = Vec::new();
         let mut object_library_tabs: Vec<ObjectLibraryTabInfo> = Vec::new();
         let mut object_refs: Vec<ObjectRef> = Vec::new();
+        let mut first_navigation_block_name: Option<String> = None;
+        let mut runtime_comp: Option<String> = None;
+        let mut object_groups: Vec<ObjectGroupInfo> = Vec::new();
+        let mut form_reports: Vec<FormReportInfo> = Vec::new();
+        let mut module_extra_attrs: BTreeMap<String, String> = BTreeMap::new();
+        let mut module_extra_children: Vec<RawXmlNode> = Vec::new();
+        let mut raw_node_stack: Vec<(usize, RawXmlNode)> = Vec::new();
 
         let mut current_block: Option<BlockBuilder> = None;
         let mut current_item: Option<ItemBuilder> = None;
@@ -203,6 +227,12 @@ impl FormsXmlParser {
                         &mut menu_module,
                         &mut current_menu,
                         &mut current_tab,
+                        &mut first_navigation_block_name,
+                        &mut runtime_comp,
+                        &mut object_groups,
+                        &mut form_reports,
+                        &mut module_extra_attrs,
+                        &mut raw_node_stack,
                         &mut sidecars,
                     )?;
                 }
@@ -235,6 +265,12 @@ impl FormsXmlParser {
                         &mut menu_module,
                         &mut current_menu,
                         &mut current_tab,
+                        &mut first_navigation_block_name,
+                        &mut runtime_comp,
+                        &mut object_groups,
+                        &mut form_reports,
+                        &mut module_extra_attrs,
+                        &mut raw_node_stack,
                         &mut sidecars,
                     )?;
                     Self::handle_end_element(
@@ -258,6 +294,8 @@ impl FormsXmlParser {
                         &mut menus,
                         &mut current_tab,
                         &mut object_library_tabs,
+                        &mut module_extra_children,
+                        &mut raw_node_stack,
                     );
                 }
                 quick_xml::events::Event::End(_) => {
@@ -282,6 +320,8 @@ impl FormsXmlParser {
                         &mut menus,
                         &mut current_tab,
                         &mut object_library_tabs,
+                        &mut module_extra_children,
+                        &mut raw_node_stack,
                     );
                 }
                 _ => {}
@@ -341,6 +381,12 @@ impl FormsXmlParser {
             menus,
             object_library_tabs,
             object_refs,
+            first_navigation_block_name,
+            runtime_comp,
+            object_groups,
+            form_reports,
+            extra_attrs: module_extra_attrs,
+            extra_children: module_extra_children,
         })
     }
 
@@ -373,6 +419,12 @@ impl FormsXmlParser {
         menu_module: &mut Option<String>,
         current_menu: &mut Option<MenuInfo>,
         current_tab: &mut Option<ObjectLibraryTabInfo>,
+        first_navigation_block_name: &mut Option<String>,
+        runtime_comp: &mut Option<String>,
+        object_groups: &mut Vec<ObjectGroupInfo>,
+        form_reports: &mut Vec<FormReportInfo>,
+        module_extra_attrs: &mut BTreeMap<String, String>,
+        raw_node_stack: &mut Vec<(usize, RawXmlNode)>,
         sidecars: &mut PlsqlSidecars,
     ) -> Result<()> {
         let element = String::from_utf8_lossy(e.name().as_ref()).to_string();
@@ -390,6 +442,18 @@ impl FormsXmlParser {
             inherited: inherited.clone(),
         });
 
+        if !raw_node_stack.is_empty() {
+            raw_node_stack.push((
+                stack.len(),
+                RawXmlNode {
+                    tag: element,
+                    attrs: collect_attrs(e),
+                    children: Vec::new(),
+                },
+            ));
+            return Ok(());
+        }
+
         match element.as_str() {
             "Module" => {
                 *forms_version = get_attr(e, "version");
@@ -399,11 +463,15 @@ impl FormsXmlParser {
                     *module_name = n.clone();
                 }
                 *menu_module = get_attr(e, "MenuModule");
+                *first_navigation_block_name = get_attr(e, "FirstNavigationBlockName");
+                *runtime_comp = get_attr(e, "RuntimeComp");
+                *module_extra_attrs = collect_attrs(e);
             }
             "MenuModule" | "ObjectLibrary" => {
                 if let Some(ref n) = name {
                     *module_name = n.clone();
                 }
+                *module_extra_attrs = collect_attrs(e);
             }
             "Coordinate" => {
                 *coordinate_info = CoordinateInfo {
@@ -436,6 +504,15 @@ impl FormsXmlParser {
                         trigger_names: Vec::new(),
                         relations: Vec::new(),
                         data_source_column_count: 0,
+                        navigation_style: get_attr(e, "NavigationStyle"),
+                        next_navigation_block_name: get_attr(e, "NextNavigationBlockName"),
+                        previous_navigation_block_name: get_attr(e, "PreviousNavigationBlockName"),
+                        show_scrollbar: get_bool_attr(e, "ShowScrollbar"),
+                        visual_attribute: get_attr(e, "VisualAttributeName"),
+                        dml_data_type: get_attr(e, "DMLDataType"),
+                        query_data_source_type: get_attr(e, "QueryDataSourceType"),
+                        extra_attrs: collect_attrs(e),
+                        extra_children: Vec::new(),
                     });
                 }
             }
@@ -444,6 +521,14 @@ impl FormsXmlParser {
                     if let Some(b) = current_block.as_mut() {
                         b.data_source_column_count += 1;
                     }
+                    raw_node_stack.push((
+                        stack.len(),
+                        RawXmlNode {
+                            tag: element.clone(),
+                            attrs: collect_attrs(e),
+                            children: Vec::new(),
+                        },
+                    ));
                 }
             }
             "Relation" => {
@@ -565,6 +650,14 @@ impl FormsXmlParser {
                         enabled,
                         canvas_visible: vis,
                         trigger_names: Vec::new(),
+                        hint: get_attr(e, "Hint").map(|s| decode_double_escaped(&s).text),
+                        access_key: get_attr(e, "AccessKey"),
+                        auto_hint: get_bool_attr(e, "AutoHint"),
+                        previous_navigation_item_name: get_attr(e, "PreviousNavigationItemName"),
+                        keyboard_navigable: get_bool_attr(e, "KeyboardNavigable"),
+                        mouse_navigate: get_bool_attr(e, "MouseNavigate"),
+                        extra_attrs: collect_attrs(e),
+                        extra_children: Vec::new(),
                     });
                 }
             }
@@ -664,7 +757,67 @@ impl FormsXmlParser {
                     frame_title_visual_attribute: get_attr(e, "FrameTitleVisualAttributeName"),
                     inherited,
                     points: Vec::new(),
+                    compound_texts: Vec::new(),
+                    extra_attrs: collect_attrs(e),
                 });
+            }
+            "CompoundText" => {
+                if parent_element.as_deref() == Some("Graphics") {
+                    if let Some(g) = graphics.last_mut() {
+                        g.compound_texts.push(CompoundTextInfo {
+                            name: name.clone().unwrap_or_else(|| format!("CMPTXT_{}", g.compound_texts.len() + 1)),
+                            text_segments: Vec::new(),
+                        });
+                    }
+                }
+            }
+            "TextSegment" => {
+                if parent_element.as_deref() == Some("CompoundText") {
+                    if let Some(g) = graphics.last_mut() {
+                        if let Some(ct) = g.compound_texts.last_mut() {
+                            ct.text_segments.push(TextSegmentInfo {
+                                name: name.clone().unwrap_or_else(|| format!("TEXTSTR_{}", ct.text_segments.len() + 1)),
+                                text: get_attr(e, "Text").map(|s| decode_double_escaped(&s).text),
+                                font_name: get_attr(e, "FontName"),
+                                font_size: get_int_attr(e, "FontSize"),
+                                font_weight: get_attr(e, "FontWeight"),
+                                font_style: get_attr(e, "FontStyle"),
+                                foreground_color: get_attr(e, "ForegroundColor"),
+                            });
+                        }
+                    }
+                }
+            }
+            "ObjectGroup" => {
+                if parent_element.as_deref() == Some("FormModule") {
+                    object_groups.push(ObjectGroupInfo {
+                        name: name.clone().unwrap_or_default(),
+                        children: Vec::new(),
+                    });
+                }
+            }
+            "ObjectGroupChild" => {
+                if parent_element.as_deref() == Some("ObjectGroup") {
+                    if let Some(og) = object_groups.last_mut() {
+                        og.children.push(ObjectGroupChildInfo {
+                            name: name.clone().unwrap_or_default(),
+                            subclass_sub_object: get_bool_attr(e, "SubclassSubObject"),
+                        });
+                    }
+                }
+            }
+            "Report" => {
+                if parent_element.as_deref() == Some("FormModule") {
+                    form_reports.push(FormReportInfo {
+                        name: name.clone().unwrap_or_default(),
+                        filename: get_attr(e, "Filename"),
+                        execution_mode: get_attr(e, "ExecutionMode"),
+                        comm_mode: get_attr(e, "CommMode"),
+                        destype: get_attr(e, "Destype"),
+                        desformat: get_attr(e, "Desformat"),
+                        desname: get_attr(e, "Desname"),
+                    });
+                }
             }
             "Trigger" => {
                 let raw_text = get_attr(e, "TriggerText").unwrap_or_default();
@@ -903,7 +1056,18 @@ impl FormsXmlParser {
                     entries: Vec::new(),
                 });
             }
-            _ => {}
+            _ => {
+                if element != "Module" && parent_element.as_deref() != Some("ObjectLibraryTab") {
+                    raw_node_stack.push((
+                        stack.len(),
+                        RawXmlNode {
+                            tag: element.clone(),
+                            attrs: collect_attrs(e),
+                            children: Vec::new(),
+                        },
+                    ));
+                }
+            }
         }
 
         if let Some(t) = current_tab.as_mut() {
@@ -942,11 +1106,39 @@ impl FormsXmlParser {
         menus: &mut Vec<MenuInfo>,
         current_tab: &mut Option<ObjectLibraryTabInfo>,
         object_library_tabs: &mut Vec<ObjectLibraryTabInfo>,
+        module_extra_children: &mut Vec<RawXmlNode>,
+        raw_node_stack: &mut Vec<(usize, RawXmlNode)>,
     ) {
+        let depth = stack.len();
         let frame = match stack.pop() {
             Some(f) => f,
             None => return,
         };
+        if raw_node_stack.last().map(|(d, _)| *d == depth).unwrap_or(false) {
+            if let Some((_, node)) = raw_node_stack.pop() {
+                if let Some((_, parent_raw)) = raw_node_stack.last_mut() {
+                    parent_raw.children.push(node);
+                } else {
+                    match stack.last().map(|p| p.element.as_str()) {
+                        Some("Block") => {
+                            if let Some(b) = current_block.as_mut() {
+                                b.extra_children.push(node);
+                            }
+                        }
+                        Some("Item") => {
+                            if let Some(it) = current_item.as_mut() {
+                                it.extra_children.push(node);
+                            }
+                        }
+                        Some("FormModule" | "MenuModule" | "ObjectLibrary") => {
+                            module_extra_children.push(node);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            return;
+        }
         let final_end_line = end_line.max(frame.start_line);
 
         if let Some(ref name) = frame.name {
@@ -990,6 +1182,15 @@ impl FormsXmlParser {
                         records_displayed: b.records_displayed,
                         distance_between_records: b.distance_between_records,
                         record_orientation: b.record_orientation,
+                        navigation_style: b.navigation_style,
+                        next_navigation_block_name: b.next_navigation_block_name,
+                        previous_navigation_block_name: b.previous_navigation_block_name,
+                        show_scrollbar: b.show_scrollbar,
+                        visual_attribute: b.visual_attribute,
+                        dml_data_type: b.dml_data_type,
+                        query_data_source_type: b.query_data_source_type,
+                        extra_attrs: b.extra_attrs,
+                        extra_children: b.extra_children,
                     });
                 }
             }
@@ -1042,6 +1243,14 @@ impl FormsXmlParser {
                             list_elements: Vec::new(),
                             enabled: i.enabled,
                             canvas_visible: i.canvas_visible,
+                            hint: i.hint,
+                            access_key: i.access_key,
+                            auto_hint: i.auto_hint,
+                            previous_navigation_item_name: i.previous_navigation_item_name,
+                            keyboard_navigable: i.keyboard_navigable,
+                            mouse_navigate: i.mouse_navigate,
+                            extra_attrs: i.extra_attrs,
+                            extra_children: i.extra_children,
                         });
                     }
                 }
@@ -1095,6 +1304,19 @@ impl FormsXmlParser {
             _ => {}
         }
     }
+}
+
+fn collect_attrs(e: &BytesStart) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for a in e.attributes().flatten() {
+        if let (Ok(k), Ok(v)) = (
+            String::from_utf8(a.key.as_ref().to_vec()),
+            String::from_utf8(a.value.to_vec()),
+        ) {
+            map.insert(k, unescape_xml_entities(&v));
+        }
+    }
+    map
 }
 
 fn get_attr(e: &BytesStart, name: &str) -> Option<String> {

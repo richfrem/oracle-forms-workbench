@@ -1096,6 +1096,9 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+          if (xmlTitle) xmlTitle.textContent = `${currentPayload.moduleIndex.key.name} (Rust XML — ${data.mode || 'export'})`;
+          if (xmlSliceDisplay) xmlSliceDisplay.textContent = data.xml;
+          if (xmlLinesBadge) xmlLinesBadge.textContent = `${data.xml.split('\n').length} lines`;
           if (data.mode === 'summary') {
             showBanner(`Exported a SUMMARY of ${currentPayload.moduleIndex.key.name} (regenerated from the parsed model; unmodelled properties are omitted). Open the form from its Forms2XML file for a lossless export.`);
           } else {
@@ -1170,15 +1173,35 @@
             return;
           }
           await loadSampleList();
-          if (data.outputFile) {
-            await loadSample(data.outputFile);
-            if (data.outputFile.toLowerCase().endsWith('.pld')) {
-              switchTab('codeTab');
-            } else if (!data.outputFile.toLowerCase().endsWith('_report.xml') && !data.outputFile.toLowerCase().endsWith('_rdf.xml')) {
-              switchTab('xmlTab');
+          if (data.payload && data.payload.summary && !data.payload.isReport) {
+            setModulePayload(data.payload);
+            if (data.outputFile && sampleSelect && Array.from(sampleSelect.options).some(o => o.value === data.outputFile)) {
+              sampleSelect.value = data.outputFile;
             }
+          } else if (data.outputFile) {
+            await loadSample(data.outputFile);
           } else {
             await loadFullXml(moduleName);
+          }
+          if (data.outputContent && data.outputFile) {
+            const mime = data.outputFile.toLowerCase().endsWith('.pld') ? 'text/plain' : 'application/xml';
+            const blob = new Blob([data.outputContent], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = data.outputFile;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+          if (data.outputFile) {
+            const lowerOut = data.outputFile.toLowerCase();
+            if (lowerOut.endsWith('.pld')) {
+              switchTab('codeTab');
+            } else if (!lowerOut.endsWith('_report.xml') && !lowerOut.endsWith('_rdf.xml')) {
+              switchTab('xmlTab');
+            }
           }
           showBanner(`Converted ${moduleName} — saved to: ${data.outputPath || data.outputFile || 'XML'}`);
           setTimeout(hideBanner, 12000);
@@ -1405,13 +1428,29 @@
       }
     });
 
+    document.getElementById('exportXml14cBtn')?.addEventListener('click', () => {
+      document.getElementById('convertArtifactXmlBtn')?.click();
+    });
+
+    document.querySelectorAll?.('.toolbar-menu')?.forEach(menu => {
+      menu.addEventListener('toggle', () => {
+        if (!menu.open) return;
+        document.querySelectorAll?.('.toolbar-menu[open], .workspace-menu[open], .canvas-options[open]')?.forEach(other => {
+          if (other !== menu) other.open = false;
+        });
+      });
+      menu.querySelectorAll?.('.toolbar-menu-item')?.forEach(item => {
+        item.addEventListener('click', () => { menu.open = false; });
+      });
+    });
+
     document.addEventListener('click', event => {
-      document.querySelectorAll('.workspace-menu[open], .canvas-options[open]').forEach(menu => {
+      document.querySelectorAll('.workspace-menu[open], .canvas-options[open], .toolbar-menu[open]').forEach(menu => {
         if (!menu.contains(event.target)) menu.open = false;
       });
     });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape') document.querySelectorAll('.workspace-menu[open], .canvas-options[open]').forEach(menu => { menu.open = false; });
+      if (event.key === 'Escape') document.querySelectorAll('.workspace-menu[open], .canvas-options[open], .toolbar-menu[open]').forEach(menu => { menu.open = false; });
     });
     const referenceForm = document.getElementById('oracleReferenceForm');
     function updateOracleReference() {

@@ -635,11 +635,16 @@ async fn convert_artifact_to_xml(
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
-            let loaded_payload = service.load_module(&output_path).ok();
+            let loaded_payload = service
+                .load_module(&output_path)
+                .ok()
+                .map(|idx| idx.to_payload());
+            let output_content = std::fs::read_to_string(&output_path).ok();
             Json(serde_json::json!({
                 "ok": true,
                 "outputFile": output_file,
                 "outputPath": output_path.to_string_lossy(),
+                "outputContent": output_content,
                 "payload": loaded_payload,
                 "log": log,
             }))

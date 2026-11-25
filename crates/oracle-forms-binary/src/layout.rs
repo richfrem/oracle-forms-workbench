@@ -125,6 +125,7 @@ pub fn generate_2column_layout(
             records_displayed: 1,
             distance_between_records: 0,
             record_orientation: "Vertical".to_string(),
+            ..Default::default()
         });
 
         if is_col1 {

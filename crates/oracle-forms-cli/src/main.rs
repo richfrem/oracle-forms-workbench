@@ -78,6 +78,16 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
+    /// Build a native ROS.60050 binary (.fmb, .mmb, .olb) from Forms XML or PLD
+    ExportBinary {
+        /// Path to source XML or PLD file
+        file: PathBuf,
+
+        /// Destination path for generated binary (.fmb, .mmb, .olb)
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+
     /// Parse, evaluate, and render Oracle Reports (.xml) to HTML5
     Report {
         #[command(subcommand)]
@@ -287,24 +297,47 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::ExportXml { file, output } => {
+            let ext_lower = file
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
             let cache_dir = std::env::temp_dir().join("forms_export_cache");
-            let module = parse_file(&file, &cache_dir)?;
-            let is_xml_source = file.extension().map(|e| e.eq_ignore_ascii_case("xml")).unwrap_or(false);
-            let xml = if is_xml_source {
-                // Already Forms2XML: the original is the lossless export.
-                fs::read_to_string(&file).map_err(|e| FormsError::Internal(format!("Failed to read {}: {}", file.display(), e)))?
+            let is_xml_source = ext_lower == "xml";
+            let (module_name, xml) = if ext_lower == "rdf" {
+                let report = oracle_forms_binary::parse_rdf_report(&file)?;
+                (report.name.clone(), oracle_forms_binary::report_to_xml(&report))
             } else {
-                eprintln!(
-                    "WARNING: summary export. The XML is regenerated from the parsed model and omits \
-                     properties the Workbench does not model. Use Oracle's frmf2xml (oracle-reference-stack) \
-                     for a complete conversion."
-                );
-                let body = oracle_forms_xml::FormsXmlWriter::write_string(&module);
-                let note = "<!-- SUMMARY EXPORT: regenerated from the Workbench's parsed model; unmodelled properties are omitted. -->\n";
-                match body.find("?>") {
-                    Some(i) => format!("{}\n{}{}", &body[..i + 2], note, body[i + 2..].trim_start()),
-                    None => format!("{}{}", note, body),
-                }
+                let module = parse_file(&file, &cache_dir)?;
+                let out_is_pld = output
+                    .as_ref()
+                    .and_then(|p| p.extension())
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.eq_ignore_ascii_case("pld"))
+                    .unwrap_or(false);
+                let body = if is_xml_source {
+                    fs::read_to_string(&file).map_err(|e| FormsError::Internal(format!("Failed to read {}: {}", file.display(), e)))?
+                } else if ext_lower == "pll" || out_is_pld {
+                    module
+                        .program_units
+                        .iter()
+                        .filter_map(|pu| pu.source_text.as_deref())
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                } else {
+                    eprintln!(
+                        "WARNING: summary export. The XML is regenerated from the parsed model and omits \
+                         properties the Workbench does not model. Use Oracle's frmf2xml (oracle-reference-stack) \
+                         for a complete conversion."
+                    );
+                    let raw = oracle_forms_xml::FormsXmlWriter::write_string(&module);
+                    let note = "<!-- SUMMARY EXPORT: regenerated from the Workbench's parsed model; unmodelled properties are omitted. -->\n";
+                    match raw.find("?>") {
+                        Some(i) => format!("{}\n{}{}", &raw[..i + 2], note, raw[i + 2..].trim_start()),
+                        None => format!("{}{}", note, raw),
+                    }
+                };
+                (module.key.name.clone(), body)
             };
 
             if let Some(out_path) = output {
@@ -314,9 +347,32 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
                 fs::write(&out_path, &xml)
                     .map_err(|e| FormsError::Internal(format!("Failed to write export XML: {}", e)))?;
-                println!("Exported module '{}' to XML: {}", module.key.name, out_path.display());
+                println!("Exported module '{}' to {}", module_name, out_path.display());
             } else {
                 println!("{}", xml);
+            }
+        }
+
+        Commands::ExportBinary { file, output } => {
+            let out_ext = output
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+            if out_ext == "rdf" {
+                let report = oracle_forms_xml::ReportsXmlParser::parse_file(&file)?;
+                let bin = oracle_forms_binary::write_rdf_report(&report);
+                if let Some(parent) = output.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&output, bin)?;
+                println!("Built ROS.60050 report binary for '{}' -> {}", report.name, output.display());
+            } else {
+                let cache_dir = std::env::temp_dir().join("forms_export_bin_cache");
+                let module = parse_file(&file, &cache_dir)?;
+                oracle_forms_binary::RosBinaryWriter::write_to_file(&module, &output)
+                    .map_err(|e| FormsError::Internal(format!("Failed to write binary: {}", e)))?;
+                println!("Built ROS.60050 binary for '{}' -> {}", module.key.name, output.display());
             }
         }
 

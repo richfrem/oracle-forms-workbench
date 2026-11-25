@@ -8,7 +8,7 @@ use oracle_forms_core::sidecars::{
     fingerprint_file, first_code_line, line_count_of, PlsqlSidecars,
 };
 use crate::layout::generate_2column_layout;
-use crate::ros::decode_ros60050_layout;
+use crate::ros::{decode_ros60050_module, decode_ros60050_pll};
 
 pub struct BinaryFmbParser;
 
@@ -236,9 +236,159 @@ impl BinaryFmbParser {
             }
         }
 
-        // 7. Direct ROS 60050 Layout Decoding, falling back to 2-column auto-flow if no geometry decoded
-        let layout = decode_ros60050_layout(&bytes)
-            .unwrap_or_else(|| generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1));
+        // 7. Direct ROS 60050 Full Module Decoding, falling back to regex/2-column auto-flow
+        if key.module_type == ModuleType::Library {
+            if let Some(pll_units) = decode_ros60050_pll(&bytes) {
+                for mut pu in pll_units {
+                    let type_name = format!("{:?}", pu.unit_type).to_ascii_uppercase();
+                    if let Some(body) = pu.source_text.as_deref() {
+                        if let Ok(tref) = sidecars.write(
+                            PlsqlSidecars::PROGRAM_UNITS,
+                            &format!("{}.{}", pu.name, type_name),
+                            body,
+                        ) {
+                            pu.text_ref = Some(tref);
+                        }
+                    }
+                    if let Some(existing) = program_units.iter_mut().find(|p| p.name.eq_ignore_ascii_case(&pu.name)) {
+                        *existing = pu;
+                    } else {
+                        program_units.push(pu);
+                    }
+                }
+            }
+        }
+        let decoded_ros = decode_ros60050_module(&bytes);
+        let (
+            blocks,
+            windows,
+            canvases,
+            graphics,
+            attached_libraries,
+            lovs,
+            ros_record_groups,
+            alerts,
+            parameters,
+            visual_attributes,
+            property_classes,
+            editors,
+            menu_module,
+            menus,
+            object_library_tabs,
+        ) = if let Some(mut ros_mod) = decoded_ros {
+            // Merge ROS-decoded triggers with sidecar files
+            for mut trig in ros_mod.triggers {
+                let scope = match (&trig.block_name, &trig.item_name) {
+                    (Some(b), Some(i)) => format!("{}.{}", b, i),
+                    (Some(b), None) => b.clone(),
+                    _ => "FORM".to_string(),
+                };
+                let sig = format!("{}.{}", scope, trig.name);
+                if let Some(body) = trig.source_text.as_deref() {
+                    if !body.trim().is_empty() {
+                        if let Ok(tref) = sidecars.write(PlsqlSidecars::TRIGGERS, &sig, body) {
+                            trig.text_ref = Some(tref);
+                        }
+                    }
+                }
+                if let Some(existing) = triggers.iter_mut().find(|t| {
+                    t.name.eq_ignore_ascii_case(&trig.name)
+                        && t.block_name == trig.block_name
+                        && t.item_name == trig.item_name
+                }) {
+                    if trig.source_text.is_some() {
+                        *existing = trig;
+                    }
+                } else {
+                    triggers.push(trig);
+                }
+            }
+
+            // Merge ROS-decoded program units with sidecar files
+            for mut pu in ros_mod.program_units {
+                let type_name = format!("{:?}", pu.unit_type).to_ascii_uppercase();
+                if let Some(body) = pu.source_text.as_deref() {
+                    if !body.trim().is_empty() {
+                        if let Ok(tref) = sidecars.write(
+                            PlsqlSidecars::PROGRAM_UNITS,
+                            &format!("{}.{}", pu.name, type_name),
+                            body,
+                        ) {
+                            pu.text_ref = Some(tref);
+                        }
+                    }
+                }
+                if let Some(existing) = program_units
+                    .iter_mut()
+                    .find(|p| p.name.eq_ignore_ascii_case(&pu.name))
+                {
+                    if pu.source_text.is_some() {
+                        *existing = pu;
+                    }
+                } else {
+                    program_units.push(pu);
+                }
+            }
+
+            let has_positioned_item = ros_mod
+                .blocks
+                .iter()
+                .flat_map(|b| b.items.iter())
+                .any(|i| i.x_position > 0 || i.y_position > 0 || i.width.unwrap_or(0) > 0);
+            let use_synthetic = ros_mod.canvases.is_empty()
+                && ros_mod.menus.is_empty()
+                && ros_mod.object_library_tabs.is_empty()
+                && !has_positioned_item;
+
+            if use_synthetic {
+                let synth = generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1);
+                ros_mod.blocks = synth.blocks;
+                ros_mod.windows = synth.windows;
+                ros_mod.canvases = synth.canvases;
+                ros_mod.graphics = synth.graphics;
+            }
+
+            (
+                ros_mod.blocks,
+                ros_mod.windows,
+                ros_mod.canvases,
+                ros_mod.graphics,
+                ros_mod.attached_libraries,
+                ros_mod.lovs,
+                if ros_mod.record_groups.is_empty() {
+                    record_groups
+                } else {
+                    ros_mod.record_groups
+                },
+                ros_mod.alerts,
+                ros_mod.parameters,
+                ros_mod.visual_attributes,
+                ros_mod.property_classes,
+                ros_mod.editors,
+                ros_mod.menu_module,
+                ros_mod.menus,
+                ros_mod.object_library_tabs,
+            )
+        } else {
+            let layout = generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1);
+            (
+                layout.blocks,
+                layout.windows,
+                layout.canvases,
+                layout.graphics,
+                Vec::new(),
+                Vec::new(),
+                record_groups,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+        };
 
         let fingerprint = fingerprint_file(source_file).unwrap_or_default();
         let file_stem = source_file.file_name().and_then(|n| n.to_str()).unwrap_or("module.fmb");
@@ -258,25 +408,25 @@ impl BinaryFmbParser {
             converted_file,
             parsed_at,
             coordinate: CoordinateInfo::default(),
-            blocks: layout.blocks,
+            blocks,
             triggers,
             program_units,
-            attached_libraries: Vec::new(),
-            lovs: Vec::new(),
-            record_groups,
-            windows: layout.windows,
-            canvases: layout.canvases,
-            graphics: layout.graphics,
-            alerts: Vec::new(),
-            parameters: Vec::new(),
-            visual_attributes: Vec::new(),
+            attached_libraries,
+            lovs,
+            record_groups: ros_record_groups,
+            windows,
+            canvases,
+            graphics,
+            alerts,
+            parameters,
+            visual_attributes,
             visual_attribute_details: Vec::new(),
-            property_classes: Vec::new(),
+            property_classes,
             property_class_details: Vec::new(),
-            editors: Vec::new(),
-            menu_module: None,
-            menus: Vec::new(),
-            object_library_tabs: Vec::new(),
+            editors,
+            menu_module,
+            menus,
+            object_library_tabs,
             object_refs: Vec::new(),
         })
     }

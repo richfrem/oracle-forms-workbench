@@ -56,6 +56,7 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 | `references/forms-path-and-dependencies.md` | Where to place `.pll`/`.plx`/`.mmx`/`.olb`/`.fmx` dependencies on `FORMS_PATH` (WSL & macOS) and how to target another dev DB |
 | `references/linux-case-sensitivity-and-symlinks.md` | Why Oracle Forms on Linux needs uppercase symlinks (`MYLIB.plx -> mylib.plx`), how `add_case_variant()` creates them, and how to check for broken symlinks |
 | `references/inheriting-forms-and-xml-roundtrip.md` | Extract to XML, compare versions, compile with parent forms and libraries in one folder, run with form parameters, diagnose inside a form, known setup-only messages |
+| `references/rust-vs-14c-build-and-preview.md` | Two-loop workflow: Rust native inner loop (`Preview in Rust`, `Export XML (Rust)`, `Build Binary (Rust)`) vs. Oracle 14c outer loop (`XML2Forms` → `frmcmp_batch` → FSAL) |
 | `assets/forms-14c.xsd`, `assets/reports.dtd` | Oracle's Forms 14.1.2 XML Schema and the Reports DTD (script inputs, not for reading whole) |
 | `assets/12c/forms.xsd` | The owner's 12c Forms schema, dropped here; **not yet wired** as a `12c` version, so `--version 12c` fails until it is |
 

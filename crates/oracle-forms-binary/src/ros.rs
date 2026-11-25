@@ -147,15 +147,13 @@ fn find_compact_root_offset(bytes: &[u8]) -> Option<usize> {
 fn build_vstream(bytes: &[u8], root_page: usize) -> Vec<u8> {
     let mut vbytes = Vec::new();
     let mut off = root_page;
-    let mut page_idx = 0usize;
     while off + 8 <= bytes.len() {
         if bytes[off + 4..off + 8] == OBJ_PAGE_TAG {
-            let skip = if page_idx == 0 { 0x10 } else { 0x08 };
+            let skip = 0x10;
             let end = (off + PAGE_SIZE).min(bytes.len());
             if off + skip < end {
                 vbytes.extend_from_slice(&bytes[off + skip..end]);
             }
-            page_idx += 1;
         }
         off += PAGE_SIZE;
     }

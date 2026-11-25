@@ -67,6 +67,7 @@ The agent drives the whole pipeline; the user never has to guess the next step. 
 | `test_conversions.py` | Runs every path for the five types and prints a PASS, FAIL, BLOCKED, SKIP table |
 | `extract_forms_schema.py` | Runs Oracle's `SchemaGenerator` in a container, compares the result with `assets/forms-14c.xsd`, `--update` refreshes the copies. **Not verified:** the generator's arguments (`--usage`) |
 | `build_dependency_manifest.py` | Batch: scans a read-only source folder (prompts for it if `--source-dir` is omitted), writes `<build-dir>/build-manifest.json` in dependency order, then stages and converts XML to binary. `--analyze-only`, `--allow-missing`, `--convert-only` (Stage 2 only, from the existing manifest), `--normalize`. Build dir must be outside the repo. [references/batch-dependency-conversion.md](references/batch-dependency-conversion.md) |
+| `references/rust-native-binary-conversion.md` | When to use Rust native `oracle-forms-cli export-xml` (offline `ROS.60050` `.fmb`/`.mmb`/`.olb`/`.pll`/`.rdf`) vs. Oracle 14c `Forms2XML` |
 | `assets/build-manifest.template.json` | The one manifest shape for the whole pipeline (a worked example; each stage fills only its own record per module) |
 
 ## Verified conversion paths

@@ -663,6 +663,7 @@ impl FormsXmlParser {
                     frame_title_font_weight: get_attr(e, "FrameTitleFontWeight"),
                     frame_title_visual_attribute: get_attr(e, "FrameTitleVisualAttributeName"),
                     inherited,
+                    points: Vec::new(),
                 });
             }
             "Trigger" => {
@@ -1038,6 +1039,7 @@ impl FormsXmlParser {
                             prompt_font_size: i.prompt_font_size,
                             prompt_font_weight: i.prompt_font_weight,
                             radio_buttons: i.radio_buttons,
+                            list_elements: Vec::new(),
                             enabled: i.enabled,
                             canvas_visible: i.canvas_visible,
                         });

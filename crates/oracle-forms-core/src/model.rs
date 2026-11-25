@@ -407,6 +407,21 @@ pub struct VisualAttributeInfo {
     pub inherited: Option<InheritanceRef>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListItemElementInfo {
+    pub name: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PointInfo {
+    pub name: String,
+    pub x_position: i32,
+    pub y_position: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemInfo {
@@ -476,6 +491,8 @@ pub struct ItemInfo {
     pub prompt_font_weight: Option<String>,
     #[serde(default)]
     pub radio_buttons: Vec<RadioButtonInfo>,
+    #[serde(default)]
+    pub list_elements: Vec<ListItemElementInfo>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default = "default_true")]
@@ -527,6 +544,7 @@ impl Default for ItemInfo {
             prompt_font_size: None,
             prompt_font_weight: None,
             radio_buttons: vec![],
+            list_elements: vec![],
             enabled: true,
             canvas_visible: true,
         }
@@ -685,6 +703,8 @@ pub struct GraphicInfo {
     pub frame_title_visual_attribute: Option<String>,
     #[serde(default)]
     pub inherited: Option<InheritanceRef>,
+    #[serde(default)]
+    pub points: Vec<PointInfo>,
 }
 
 fn default_graphic_type() -> String { "Rectangle".to_string() }

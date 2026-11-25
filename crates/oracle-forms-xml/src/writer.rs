@@ -55,19 +55,21 @@ impl FormsXmlWriter {
 
         let _ = writeln!(out, "  <FormModule {}>", attrs.join(" "));
 
-        // Coordinate Info
+        // Coordinate Info (only emit when non-default coordinate system or explicitly set)
         let coord = &module.coordinate;
-        let mut coord_attrs = Vec::new();
-        if let Some(cs) = &coord.coordinate_system {
-            coord_attrs.push(format!("CoordinateSystem=\"{}\"", escape_attr(cs)));
+        if coord.coordinate_system.is_some() {
+            let mut coord_attrs = Vec::new();
+            if let Some(cs) = &coord.coordinate_system {
+                coord_attrs.push(format!("CoordinateSystem=\"{}\"", escape_attr(cs)));
+            }
+            if let Some(ru) = &coord.real_unit {
+                coord_attrs.push(format!("RealUnit=\"{}\"", escape_attr(ru)));
+            }
+            coord_attrs.push(format!("CharacterCellWidth=\"{}\"", coord.character_cell_width));
+            coord_attrs.push(format!("CharacterCellHeight=\"{}\"", coord.character_cell_height));
+            coord_attrs.push(format!("DefaultFontScaling=\"{}\"", coord.default_font_scaling));
+            let _ = writeln!(out, "    <Coordinate {}/>", coord_attrs.join(" "));
         }
-        if let Some(ru) = &coord.real_unit {
-            coord_attrs.push(format!("RealUnit=\"{}\"", escape_attr(ru)));
-        }
-        coord_attrs.push(format!("CharacterCellWidth=\"{}\"", coord.character_cell_width));
-        coord_attrs.push(format!("CharacterCellHeight=\"{}\"", coord.character_cell_height));
-        coord_attrs.push(format!("DefaultFontScaling=\"{}\"", coord.default_font_scaling));
-        let _ = writeln!(out, "    <Coordinate {}/>", coord_attrs.join(" "));
 
         // Alerts
         for alert in &module.alerts {
@@ -420,10 +422,39 @@ impl FormsXmlWriter {
             })
             .collect();
 
-        if item_trigs.is_empty() {
+        if item_trigs.is_empty() && item.radio_buttons.is_empty() && item.list_elements.is_empty() {
             let _ = writeln!(out, "      <Item {}/>", i_attrs.join(" "));
         } else {
             let _ = writeln!(out, "      <Item {}>", i_attrs.join(" "));
+            for rb in &item.radio_buttons {
+                let mut r_attrs = vec![format!("Name=\"{}\"", escape_attr(&rb.name))];
+                if let Some(lbl) = &rb.label {
+                    r_attrs.push(format!("Label=\"{}\"", escape_attr(lbl)));
+                }
+                if let Some(val) = &rb.value {
+                    r_attrs.push(format!("RadioButtonValue=\"{}\"", escape_attr(val)));
+                }
+                if rb.x_position != 0 {
+                    r_attrs.push(format!("XPosition=\"{}\"", rb.x_position));
+                }
+                if rb.y_position != 0 {
+                    r_attrs.push(format!("YPosition=\"{}\"", rb.y_position));
+                }
+                if let Some(w) = rb.width {
+                    r_attrs.push(format!("Width=\"{}\"", w));
+                }
+                if let Some(h) = rb.height {
+                    r_attrs.push(format!("Height=\"{}\"", h));
+                }
+                let _ = writeln!(out, "        <RadioButton {}/>", r_attrs.join(" "));
+            }
+            for le in &item.list_elements {
+                let mut le_attrs = vec![format!("Name=\"{}\"", escape_attr(&le.name))];
+                if let Some(val) = &le.value {
+                    le_attrs.push(format!("Value=\"{}\"", escape_attr(val)));
+                }
+                let _ = writeln!(out, "        <ListItemElement {}/>", le_attrs.join(" "));
+            }
             for trig in item_trigs {
                 let text = trig
                     .source_text
@@ -464,10 +495,17 @@ impl FormsXmlWriter {
             .filter(|g| g.canvas_name.as_deref().map(|c| c.eq_ignore_ascii_case(&canvas.name)).unwrap_or(false))
             .collect();
 
-        if canvas_graphics.is_empty() {
+        if canvas_graphics.is_empty() && canvas.tab_pages.is_empty() {
             let _ = writeln!(out, "    <Canvas {}/>", c_attrs.join(" "));
         } else {
             let _ = writeln!(out, "    <Canvas {}>", c_attrs.join(" "));
+            for tp in &canvas.tab_pages {
+                let mut t_attrs = vec![format!("Name=\"{}\"", escape_attr(&tp.name))];
+                if let Some(lbl) = &tp.label {
+                    t_attrs.push(format!("Label=\"{}\"", escape_attr(lbl)));
+                }
+                let _ = writeln!(out, "      <TabPage {}/>", t_attrs.join(" "));
+            }
             for g in canvas_graphics {
                 let mut g_attrs = vec![format!("Name=\"{}\"", escape_attr(&g.name))];
                 if !g.graphics_type.is_empty() {
@@ -488,7 +526,21 @@ impl FormsXmlWriter {
                 if g.height != 0 {
                     g_attrs.push(format!("Height=\"{}\"", g.height));
                 }
-                let _ = writeln!(out, "      <Graphics {}/>", g_attrs.join(" "));
+                if g.points.is_empty() {
+                    let _ = writeln!(out, "      <Graphics {}/>", g_attrs.join(" "));
+                } else {
+                    let _ = writeln!(out, "      <Graphics {}>", g_attrs.join(" "));
+                    for pt in &g.points {
+                        let _ = writeln!(
+                            out,
+                            "        <Point Name=\"{}\" XPosition=\"{}\" YPosition=\"{}\"/>",
+                            escape_attr(&pt.name),
+                            pt.x_position,
+                            pt.y_position
+                        );
+                    }
+                    out.push_str("      </Graphics>\n");
+                }
             }
             out.push_str("    </Canvas>\n");
         }

@@ -1108,6 +1108,41 @@
       });
     }
 
+    const exportBinaryBtn = document.getElementById('exportBinaryBtn');
+    if (exportBinaryBtn) {
+      exportBinaryBtn.addEventListener('click', async () => {
+        if (!currentPayload || !currentPayload.moduleIndex) return showBanner('No module open to build.');
+        try {
+          await syncModuleToServer();
+          const modName = currentPayload.moduleIndex.key.name;
+          const mType = (currentPayload.moduleIndex.key.type || 'FORM').toUpperCase();
+          const ext = mType === 'MENU' ? 'mmb' : (mType === 'OBJECT_LIBRARY' ? 'olb' : (mType === 'LIBRARY' ? 'pll' : 'fmb'));
+          const res = await fetch('/api/forms/export-binary', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ moduleName: modName })
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Export binary failed');
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${modName.toLowerCase()}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showBanner(`Built native Rust ROS.60050 binary: ${modName.toLowerCase()}.${ext} (${blob.size} bytes). Use Oracle 14c Build & Compile for Fusion Middleware .fmx.`);
+          setTimeout(hideBanner, 5000);
+        } catch (err) {
+          showBanner('Failed to build Rust binary: ' + err.message);
+        }
+      });
+    }
+
     const convertArtifactXmlBtn = document.getElementById('convertArtifactXmlBtn');
     if (convertArtifactXmlBtn) {
       convertArtifactXmlBtn.addEventListener('click', async () => {
@@ -3202,6 +3237,9 @@
             <text x="${gx + gw / 2}" y="${gy + gh / 2 + 4}" text-anchor="middle" font-family="Segoe UI, Tahoma, sans-serif" font-size="10" fill="#555">[${escapeHtml(g.name)}]</text>
           </g>
         `;
+      } else if (Array.isArray(g.points) && g.points.length > 1) {
+        const ptsAttr = g.points.map(pt => `${gx + scale(pt.xPosition || 0)},${gy + scale(pt.yPosition || 0)}`).join(' ');
+        svgHtml += `<polygon points="${ptsAttr}" style="cursor:pointer;" onclick="window.selectSvgGraphic('${escapeHtml(g.name)}')" fill="${fillCol}" stroke="${isSelGraphic ? '#38bdf8' : edgeCol}" stroke-width="${lw}"/>`;
       } else {
         svgHtml += `<rect x="${gx}" y="${gy}" width="${gw}" height="${gh}" style="cursor:pointer;" onclick="window.selectSvgGraphic('${escapeHtml(g.name)}')" fill="${fillCol}" stroke="${isSelGraphic ? '#38bdf8' : edgeCol}" stroke-width="${lw}"/>`;
       }
@@ -3451,9 +3489,12 @@
           const itemSize = normalizeOracleFontSize(item.fontSize, 10);
           const textWeight = item.fontWeight || (displayVal != null ? '500' : 'normal');
 
+          const listDefault = (isList && !textToShow && Array.isArray(item.listElements) && item.listElements.length > 0)
+            ? item.listElements[0].name
+            : textToShow;
           svgHtml += `
             ${renderSvgBevelBox(x, rowY, w, h, itemBevel, bgBox)}
-            <text x="${x + 6}" y="${rowY + Math.min(14, h - 4)}" font-family="${escapeHtml(itemFont)}" font-size="${itemSize}" ${isNonEnterable ? 'font-style="italic"' : ''} font-weight="${escapeHtml(textWeight)}" fill="${escapeHtml(textColor)}">${escapeHtml(textToShow)}</text>
+            <text x="${x + 6}" y="${rowY + Math.min(14, h - 4)}" font-family="${escapeHtml(itemFont)}" font-size="${itemSize}" ${isNonEnterable ? 'font-style="italic"' : ''} font-weight="${escapeHtml(textWeight)}" fill="${escapeHtml(textColor)}">${escapeHtml(listDefault)}</text>
           `;
           if (isList) {
             svgHtml += `

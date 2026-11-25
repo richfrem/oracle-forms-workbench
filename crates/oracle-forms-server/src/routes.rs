@@ -31,6 +31,7 @@ pub fn app_router_with_security(service: FormsService, security_cfg: SecurityCon
         .route("/api/db/describe", post(describe_table))
         .route("/api/forms/query-block", post(query_form_block))
         .route("/api/forms/export-xml", post(export_form_xml))
+        .route("/api/forms/export-binary", post(export_form_binary))
         .route("/api/artifacts/convert-to-xml", post(convert_artifact_to_xml))
         .route("/api/forms/save", post(save_form_file))
         .route("/api/forms/oracle-preview", post(start_oracle_preview))
@@ -566,6 +567,36 @@ async fn export_form_xml(
         )
             .into_response()
     }
+}
+
+async fn export_form_binary(
+    State(service): State<FormsService>,
+    Json(payload): Json<ExportXmlRequest>,
+) -> Response {
+    let module = if let Some(name) = payload.module_name {
+        match service.get_module(&name) {
+            Some(m) => m,
+            None => return session_error(404, format!("Module '{}' not found", name)),
+        }
+    } else if let Some(m) = payload.module {
+        m
+    } else {
+        return session_error(400, "Either 'moduleName' or 'module' must be provided".into());
+    };
+
+    let bytes = oracle_forms_binary::RosBinaryWriter::write_module(&module);
+    let ext = module.key.module_type.extension();
+    let filename = format!("{}.{}", module.key.name.to_ascii_lowercase(), ext);
+    let disp = format!("attachment; filename=\"{}\"", filename);
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disp),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

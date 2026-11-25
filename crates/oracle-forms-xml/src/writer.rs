@@ -273,11 +273,10 @@ impl FormsXmlWriter {
             b_attrs.push(format!("QueryDataSourceName=\"{}\"", escape_attr(src)));
         }
         if let Some(pc) = &block.property_class {
-            b_attrs.push(format!(
-                "ParentModule=\"{}\" ParentModuleType=\"12\" ParentName=\"{}\" ParentType=\"29\"",
-                escape_attr(&module.key.name),
-                escape_attr(pc)
-            ));
+            b_attrs.push(format!("ParentModule=\"{}\"", escape_attr(&module.key.name)));
+            b_attrs.push("ParentModuleType=\"12\"".to_string());
+            b_attrs.push(format!("ParentName=\"{}\"", escape_attr(pc)));
+            b_attrs.push("ParentType=\"29\"".to_string());
         }
         if block.records_displayed > 1 {
             b_attrs.push(format!("RecordsDisplayCount=\"{}\"", block.records_displayed));
@@ -306,7 +305,6 @@ impl FormsXmlWriter {
         if let Some(qt) = &block.query_data_source_type {
             b_attrs.push(format!("QueryDataSourceType=\"{}\"", escape_attr(qt)));
         }
-        append_extra_attrs(&mut b_attrs, &block.extra_attrs);
 
         if let Some(dml) = &block.dml {
             if let Some(where_c) = &dml.where_clause {
@@ -337,6 +335,7 @@ impl FormsXmlWriter {
                 b_attrs.push(format!("LockMode=\"{}\"", escape_attr(lock)));
             }
         }
+        append_extra_attrs(&mut b_attrs, &block.extra_attrs);
 
         let _ = writeln!(out, "    <Block {}>", b_attrs.join(" "));
 
@@ -427,11 +426,10 @@ impl FormsXmlWriter {
             i_attrs.push(format!("LovName=\"{}\"", escape_attr(lov)));
         }
         if let Some(pc) = &item.property_class {
-            i_attrs.push(format!(
-                "ParentModule=\"{}\" ParentModuleType=\"12\" ParentName=\"{}\" ParentType=\"29\"",
-                escape_attr(&module.key.name),
-                escape_attr(pc)
-            ));
+            i_attrs.push(format!("ParentModule=\"{}\"", escape_attr(&module.key.name)));
+            i_attrs.push("ParentModuleType=\"12\"".to_string());
+            i_attrs.push(format!("ParentName=\"{}\"", escape_attr(pc)));
+            i_attrs.push("ParentType=\"29\"".to_string());
         }
 
         // Coordinates & Dimensions
@@ -480,7 +478,6 @@ impl FormsXmlWriter {
         if item.items_display > 1 {
             i_attrs.push(format!("ItemsDisplay=\"{}\"", item.items_display));
         }
-        append_extra_attrs(&mut i_attrs, &item.extra_attrs);
 
         // Item DML properties
         if let Some(dml) = &item.dml {
@@ -506,6 +503,7 @@ impl FormsXmlWriter {
                 i_attrs.push(format!("MaximumLength=\"{}\"", max_len));
             }
         }
+        append_extra_attrs(&mut i_attrs, &item.extra_attrs);
 
         // Find item-level triggers
         let item_trigs: Vec<&TriggerInfo> = module
@@ -792,7 +790,24 @@ pub(crate) fn normalize_module_version(forms_version: Option<&str>) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{escape_attr, normalize_module_version};
+    use super::{append_extra_attrs, escape_attr, normalize_module_version};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn append_extra_attrs_skips_case_insensitive_duplicates() {
+        let mut attrs = vec![
+            "Name=\"B1\"".to_string(),
+            "ParentModule=\"M1\"".to_string(),
+            "ParentName=\"PC1\"".to_string(),
+        ];
+        let mut extra = BTreeMap::new();
+        extra.insert("name".to_string(), "B1".to_string());
+        extra.insert("ParentName".to_string(), "PC1".to_string());
+        extra.insert("DirtyInfo".to_string(), "true".to_string());
+        append_extra_attrs(&mut attrs, &extra);
+        assert_eq!(attrs.len(), 4);
+        assert!(attrs.iter().any(|a| a == "DirtyInfo=\"true\""));
+    }
 
     #[test]
     fn escape_attr_strips_illegal_xml_control_chars() {

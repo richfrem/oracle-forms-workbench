@@ -3679,6 +3679,10 @@
     if (!currentPayload || !activeCanvas) {
       formsSvg.innerHTML = '<text x="20" y="30" fill="#666">No canvas selected</text>';
       canvasStats.textContent = 'Dimensions: -';
+      if (oracleWindowTitle) {
+        const modTitle = currentPayload?.summary?.title || currentPayload?.summary?.moduleName || 'Oracle Forms';
+        oracleWindowTitle.textContent = currentPayload ? `${modTitle} — [No Canvas]` : 'Oracle Forms';
+      }
       return;
     }
     const mod = currentPayload.moduleIndex;

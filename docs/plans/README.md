@@ -17,6 +17,7 @@ documents below are 100% complete yet, so none were moved to `completed/`.
 
 - [11: Dual-runtime legacy application parity and session harness](11-DUAL-RUNTIME-DEV-PARITY-AND-SESSION-HARNESS.md)
 - [12: Test-user sign-in, role impersonation, and form launcher](12-ROLE-IMPERSONATION-AND-FORM-LAUNCHER-SPEC.md)
+- [15: JNLP and legacy Oracle Forms launch security risk analysis](15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md) — threat inventory (`JNLP-R1`–`R5`), repo check confirming no `.jnlp` template exists yet, and JNLP vs. FSAL vs. Rust Web UI hardening plan (`S15.1`–`S15.4`).
 
 ## Completed specifications
 

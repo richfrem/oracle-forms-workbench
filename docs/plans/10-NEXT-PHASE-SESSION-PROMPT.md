@@ -53,6 +53,11 @@ complete Forms behavior or parity.
    sequences, synonyms, grants, and DB packages/procedures/functions inside `oracle23ai-lite`
    (`FREEPDB1`) in dependency order, keeping all external SQL/artifacts in `OFW_WORK_DIR` outside
    the repository.
+8. **JNLP & legacy launch security risk analysis ([Plan 15](15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md))**:
+   audit WebStart/JNLP vs. FSAL (`frmsal.jar`) vs. native Rust Web UI risks (`JNLP-R1`–`R5`),
+   decide on adding a sanitized generic `.jnlp` + `formsweb.cfg` reference example (none currently
+   exists in the repo or git history), and verify `formsweb.cfg` / TLS / signing / launcher
+   hardening (`S15.1`–`S15.4`).
 
 The `/api/sessions` implementation is in `crates/oracle-forms-server/src/routes.rs`; the
 standard server port is 7070. The optional Oracle testbed is not started or changed by this

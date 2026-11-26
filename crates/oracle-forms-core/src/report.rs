@@ -1,3 +1,7 @@
+//! Purpose: Report definition and execution data models.
+//! Key Input Dependencies: serde
+//! Index: ReportDefinition, ReportDataModel, ReportDataSource, ReportGroup, ReportDataItem, SummaryFunction, ReportSummary, ReportFormula, ReportLink, ReportParameter, ReportLayout, ReportSection, ReportLayoutNode, ReportFrame, ReportRepeatingFrame, ReportField, ReportText, ReportGeometry, from_str_name
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

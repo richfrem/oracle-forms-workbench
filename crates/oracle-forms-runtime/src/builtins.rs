@@ -7,6 +7,10 @@
 //!
 //! Built-ins this runtime cannot provide (OS access, OLE, file I/O, reports, multi-form
 //! navigation) are reported as unsupported instead of silently doing nothing.
+//!
+//! Purpose: Module implementation (builtins.rs).
+//! Key Input Dependencies: None (std/crate-internal only)
+//! Index: BuiltinResult, is_forms_constant, arg_text, dispatch
 
 use crate::interpreter::{InteractionRequest, InteractionResponse};
 use crate::session::FormSession;

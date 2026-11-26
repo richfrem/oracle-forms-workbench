@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (parser.rs).
+//! Key Input Dependencies: None (std/crate-internal only)
+//! Index: ParseError, Parser, new, source_between, try_parse_variable_decl, is_word, is_word_at, take_until_semicolon, current, peek_kind, peek_ahead, advance, check, match_token, expect, synchronize_statement, parse_all_units, parse_unit, parse_procedure, parse_function, parse_package_spec, parse_package_body, parse_parameters, parse_data_type, parse_declarations (+23 more)
+
 use crate::ast::*;
 use crate::lexer::{Lexer, Token, TokenKind};
 

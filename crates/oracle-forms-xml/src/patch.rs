@@ -5,6 +5,10 @@
 //! copied unchanged. An unedited document therefore round-trips byte-for-byte, and
 //! properties this tool does not model (fonts, colours, LOV settings, triggers, ...) are
 //! never lost.
+//!
+//! Purpose: Lossless in-place XML attribute patcher.
+//! Key Input Dependencies: quick_xml
+//! Index: ItemPatch, PatchError, set_attribute, name_attr, patch_items, no_patches_is_byte_identical, changes_only_the_targeted_attributes, adds_missing_attribute_and_keeps_children, unknown_item_is_an_error
 
 use quick_xml::events::Event;
 use quick_xml::Reader;

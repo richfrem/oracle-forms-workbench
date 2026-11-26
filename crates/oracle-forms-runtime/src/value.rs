@@ -7,6 +7,10 @@
 //! * Character comparison and `LIKE` are case-sensitive.
 //! * Mixing a number and a string converts the string with `TO_NUMBER`; an invalid
 //!   string raises `VALUE_ERROR`, and division by zero raises `ZERO_DIVIDE`.
+//!
+//! Purpose: Module implementation (value.rs).
+//! Key Input Dependencies: bigdecimal, oracle_forms_db, oracle_forms_plsql, serde
+//! Index: OracleValue, ValueError, invalid, parse_number, format_number, round_to_oracle_precision, varchar2, number, int, number_from_str, boolean, null_boolean, is_null, is_truthy, as_str, as_text, as_decimal, as_number, as_i64, to_decimal_strict, from_literal, to_sql_value, from_sql_value, to_json, from_json (+16 more)
 
 use bigdecimal::{BigDecimal, ToPrimitive, Zero};
 use oracle_forms_db::model::SqlValue;

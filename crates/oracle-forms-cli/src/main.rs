@@ -1,3 +1,7 @@
+//! Purpose: Binary entrypoint and CLI/server bootstrap.
+//! Key Input Dependencies: clap, oracle_forms_binary, oracle_forms_core, oracle_forms_xml
+//! Index: Cli, Commands, ReportAction, parse_file, main
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};

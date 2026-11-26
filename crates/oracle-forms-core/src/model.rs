@@ -1,3 +1,7 @@
+//! Purpose: Core data structures, DTOs, and domain models.
+//! Key Input Dependencies: serde
+//! Index: RawXmlNode, ModuleType, ModuleKey, ModuleFingerprint, CoordinateInfo, TextEncoding, SourceRef, InheritanceRef, BlockDml, ItemDml, ItemGeometry, RelationInfo, RadioButtonInfo, VisualStyle, VisualAttributeInfo, ListItemElementInfo, PointInfo, ItemInfo, BlockInfo, TabPageInfo, CanvasInfo, GraphicInfo, TextSegmentInfo, CompoundTextInfo, ObjectGroupChildInfo (+50 more)
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (recovery.rs).
+//! Key Input Dependencies: oracle_forms_binary, oracle_forms_core
+//! Index: resolve_fmb, test_direct_binary_fmb_parsing, test_simple_module_binary_parsing
+
 use std::fs;
 use std::path::PathBuf;
 use oracle_forms_binary::BinaryFmbParser;

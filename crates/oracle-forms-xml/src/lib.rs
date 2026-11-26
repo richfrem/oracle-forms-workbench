@@ -1,3 +1,7 @@
+//! Purpose: Crate root module exports and public API surface.
+//! Key Input Dependencies: patch, pld, reader, reports_parser, writer
+//! Index: (module re-exports / constants)
+
 pub mod patch;
 pub mod pld;
 pub mod reader;

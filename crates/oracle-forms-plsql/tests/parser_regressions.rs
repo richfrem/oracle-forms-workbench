@@ -1,4 +1,9 @@
 //! Regression tests for parser bugs found in review.
+//!
+//! Purpose: Integration/conformance tests (parser_regressions.rs).
+//! Key Input Dependencies: oracle_forms_plsql
+//! Index: stmts, is_null_is_a_two_valued_test_not_equality_with_null, select_into_keeps_exact_sql_text_including_quotes, dml_and_transaction_control_statements_are_recognised, builtin_calls_named_like_sql_keywords_stay_calls, exit_when_in_loop, out_and_in_out_parameter_modes, package_function_call_has_dotted_name, in_list_between_not_like_and_attributes, cursors_open_fetch_close_and_cursor_for_loops, case_statement_and_expression_and_named_args
+
 use oracle_forms_plsql::ast::*;
 use oracle_forms_plsql::Parser;
 

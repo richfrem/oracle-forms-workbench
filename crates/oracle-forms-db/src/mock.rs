@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (mock.rs).
+//! Key Input Dependencies: oracle_forms_core
+//! Index: MockDriver, new, test_connection, query, query_block, backend, supports_transactions, execute, savepoint, rollback_to_savepoint, commit, rollback
+
 use crate::driver::DatabaseDriver;
 use crate::model::{BoundSql, DbBackend, DbError, QueryRecord, QueryResult};
 use crate::sqlite::SqliteDriver;

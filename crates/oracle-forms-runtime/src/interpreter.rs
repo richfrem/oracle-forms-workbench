@@ -16,6 +16,10 @@
 //! `SHOW_ALERT` asks the session's interaction handler synchronously, so an alert can
 //! appear anywhere (inside loops, handlers, or the commit pipeline) and execution
 //! continues exactly where it left off.
+//!
+//! Purpose: Module implementation (interpreter.rs).
+//! Key Input Dependencies: oracle_forms_db, oracle_forms_plsql, serde
+//! Index: InteractionRequest, InteractionResponse, ExecutionStatus, RaisedException, Flow, OpenCursor, Frame, Interpreter, is_success, new, from_value_error, from_db_error, default, unsupported, upper, dotted, execute_unit, call_procedure, tick, current_package, visible_frames, lookup_var, set_var, declare_typed, declare (+26 more)
 
 use crate::builtins::{self, BuiltinResult, ALERT_BUTTON1, ALERT_BUTTON2, ALERT_BUTTON3, PROPERTY_FALSE, PROPERTY_TRUE};
 use crate::program_units::Routine;

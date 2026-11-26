@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (trigger.rs).
+//! Key Input Dependencies: oracle_forms_core, serde
+//! Index: ExecutionHierarchy, TriggerResult, ResolvedTrigger, TriggerResolver, is_success, resolve
+
 use oracle_forms_core::model::{TriggerInfo, TriggerLevel};
 use serde::{Deserialize, Serialize};
 

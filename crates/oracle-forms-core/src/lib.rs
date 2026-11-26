@@ -1,3 +1,7 @@
+//! Purpose: Crate root module exports and public API surface.
+//! Key Input Dependencies: diff, error, model, report, sidecars
+//! Index: (module re-exports / constants)
+
 pub mod diff;
 pub mod error;
 pub mod geometry;

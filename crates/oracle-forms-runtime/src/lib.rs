@@ -1,3 +1,7 @@
+//! Purpose: Crate root module exports and public API surface.
+//! Key Input Dependencies: builtins, interpreter, program_units, master_detail, record, report_evaluator, report_renderer, session, system, trigger
+//! Index: (module re-exports / constants)
+
 pub mod builtins;
 pub mod interpreter;
 pub mod master_detail;

@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (generator.rs).
+//! Key Input Dependencies: oracle_forms_core
+//! Index: GeneratedQuery, BindRef, RewrittenSql, SqlGenerator, resolve_binds, null_binds, rewrite_binds, rewrite_where_binds, generate_select, dml_table, is_database_item, generate_lock, generate_insert, generate_update, generate_delete, test_generate_oracle_select, rewrite_binds_handles_case_literals_and_comments, rewrite_binds_ignores_assignment_and_escaped_quotes, test_empty_block_columns_returns_error
+
 use crate::model::{BoundSql, DbBackend, DbError, SqlValue};
 use oracle_forms_core::model::{BlockInfo, ItemInfo};
 use std::collections::HashMap;

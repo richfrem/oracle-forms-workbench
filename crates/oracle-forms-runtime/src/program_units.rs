@@ -4,6 +4,10 @@
 //! Name resolution follows Forms: the form's own units first, then attached libraries
 //! in attach order. Inside a package body, unqualified names resolve to the same
 //! package first.
+//!
+//! Purpose: Module implementation (program_units.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_plsql
+//! Index: Routine, PackageDef, ProgramRegistry, from_module, attach_library, add_units, insert, add_unit, resolve, package, is_package, routine_names
 
 use oracle_forms_core::model::{ModuleIndex, ProgramUnitInfo};
 use oracle_forms_plsql::ast::{

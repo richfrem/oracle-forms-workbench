@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (conformance_query_cascade.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_plsql, oracle_forms_runtime, oracle_forms_xml
+//! Index: block_on, resolve_sample, test_conf_03_query_cascade_and_post_query_calculations, test_conf_03_resumable_alert_suspension_and_continuation, test_conf_03_alert_answered_with_button2_skips_branch, test_conf_03_oracle_value_semantics_and_three_valued_logic, test_conf_03_tier1_builtins_and_dynamic_access, test_conf_03_step_budget_guardrail
+
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_db::{BoundSql, DatabaseDriver, SqliteDriver};
 

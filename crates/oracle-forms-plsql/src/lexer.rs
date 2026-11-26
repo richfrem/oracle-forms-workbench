@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (lexer.rs).
+//! Key Input Dependencies: serde
+//! Index: TokenKind, Token, Lexer, new, unescape_xml, peek, peek_next, advance, skip_whitespace_and_comments, source, next_token, next_token_inner, tokenize
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

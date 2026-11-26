@@ -1,3 +1,7 @@
+//! Purpose: PL/SQL library (.pld) text parser and exporter.
+//! Key Input Dependencies: oracle_forms_core, regex
+//! Index: PldParser, UnitHeader, parse, read_lines, chrono_iso_now
+
 use std::fs;
 use std::path::Path;
 use oracle_forms_core::error::Result;

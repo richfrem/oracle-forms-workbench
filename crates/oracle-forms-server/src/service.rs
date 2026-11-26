@@ -1,3 +1,7 @@
+//! Purpose: Server-side form loading, caching, saving, and diff service.
+//! Key Input Dependencies: oracle_forms_binary, oracle_forms_core, oracle_forms_xml
+//! Index: ServiceState, ExportMode, FormsService, BrowsedFileItem, ReportSampleItem, ClassChain, ResolvedPc, new, with_env_credentials, apply_credential_policy, samples_dir, extra_forms_dirs, get_sample_list, load_sample, load_module, find_sibling_xml, find_menu_xml, get_module, query_block, read_source, get_source_file, read_xml_slice, resolve_effective_item, create_module, save_module (+37 more)
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};

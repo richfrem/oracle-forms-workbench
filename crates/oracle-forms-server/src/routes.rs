@@ -1,3 +1,7 @@
+//! Purpose: Axum HTTP API routes for the workbench server.
+//! Key Input Dependencies: axum, serde, oracle_forms_core, oracle_forms_db, tower
+//! Index: SourceQuery, XmlQuery, EffectiveItemQuery, QueryBlockRequest, TestDbRequest, TestDbResponse, DescribeTableRequest, StartSessionRequest, AlertAnswer, ExportXmlRequest, ExportXmlResponse, SaveFormRequest, ConvertArtifactRequest, DiffRequest, UpdateItemRequest, AttachMenuRequest, RunReportRequest, RunReportResponse, app_router, app_router_with_security, get_samples, open_sample, get_source, get_xml, get_effective_item (+60 more)
+
 use std::path::{Path, PathBuf};
 use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path as AxumPath, Query, Request, State};
 use axum::http::StatusCode;

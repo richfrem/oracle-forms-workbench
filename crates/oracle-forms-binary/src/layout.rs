@@ -1,3 +1,7 @@
+//! Purpose: Synthetic 2-column canvas layout generator for unpositioned forms.
+//! Key Input Dependencies: oracle_forms_core
+//! Index: GeneratedLayout, generate_2column_layout, prettify_name
+
 use std::collections::{BTreeMap, BTreeSet};
 use oracle_forms_core::model::{BlockInfo, CanvasInfo, GraphicInfo, ItemInfo, WindowInfo};
 

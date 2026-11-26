@@ -1,3 +1,7 @@
+//! Purpose: Core data structures, DTOs, and domain models.
+//! Key Input Dependencies: serde
+//! Index: SqlValue, BoundSql, DbBackend, DbConfig, QueryRecord, QueryResult, DbError, from, new, with_binds, parse, fmt, default, oracle_default, oracle_thin_default, sqlite_memory, mock, with_env_credentials, require_credentials
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

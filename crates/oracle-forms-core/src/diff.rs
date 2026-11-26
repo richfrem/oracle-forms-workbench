@@ -1,3 +1,7 @@
+//! Purpose: Structural and property diffing across form modules.
+//! Key Input Dependencies: serde
+//! Index: PropertyChange, ItemGeometryDiff, ItemDiff, TriggerDiff, BlockDiff, CanvasDiff, WindowDiff, ModuleDiff, FormDiffer, new, is_changed, has_changes, has_differences, to_text_report, diff, same_trigger, same, strip_locations
+
 use crate::model::*;
 use serde::{Deserialize, Serialize};
 

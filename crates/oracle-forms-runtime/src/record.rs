@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (record.rs).
+//! Key Input Dependencies: oracle_forms_db, serde
+//! Index: FormsRecordStatus, ValidationStatus, FormRecord, BlockBuffer, as_str, default, new, with_query_values, get_value, set_value, is_dirty, is_item_dirty, mark_item_valid, reset_to_queried, mark_record_valid, current_record, current_record_mut, record_count, set_cursor, create_record, delete_record, clear_record, clear_block, status, populate_from_query_result
+
 use oracle_forms_db::QueryResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

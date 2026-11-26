@@ -1,3 +1,7 @@
+//! Purpose: Serializer for Forms2XML or ROS.60050 binary output.
+//! Key Input Dependencies: oracle_forms_core
+//! Index: FormsXmlWriter, write_string, write_to_file, write_form_module, write_block, write_item, write_canvas, write_menu_module, write_object_library, append_extra_attrs, write_raw_xml_node, is_valid_xml_char, escape_attr, normalize_module_version, append_extra_attrs_skips_case_insensitive_duplicates, escape_attr_strips_illegal_xml_control_chars, normalize_module_version_requires_numeric_xsd_long
+
 use oracle_forms_core::model::*;
 use std::collections::BTreeMap;
 use std::fmt::Write;

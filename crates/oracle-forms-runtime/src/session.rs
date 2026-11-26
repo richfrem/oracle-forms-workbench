@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (session.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_plsql, serde
+//! Index: RuntimeError, AlertDefinition, FormSession, block_on_future, new, attach_library, set_validation_hook, set_database_driver, set_interaction_handler, active_block, block_info, is_database_block, get_bind_value, set_bind_value, erase_global, get_item_property, set_item_property, set_block_property, get_block_property, clear_block, clear_form, parse_trigger, focus, fire_when_new, settle_focus (+34 more)
+
 use crate::interpreter::{ExecutionStatus, InteractionRequest, InteractionResponse, Interpreter};
 use crate::master_detail::MasterDetailLink;
 use crate::program_units::ProgramRegistry;

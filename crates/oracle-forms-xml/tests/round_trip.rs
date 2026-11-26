@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (round_trip.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_xml
+//! Index: ItemExt, resolve_sample, test_xml_round_trip_and_diff_fidelity, y_item_position_or_coord
+
 use oracle_forms_core::diff::FormDiffer;
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_xml::{FormsXmlParser, FormsXmlWriter};

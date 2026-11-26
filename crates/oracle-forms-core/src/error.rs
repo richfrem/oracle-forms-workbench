@@ -1,3 +1,7 @@
+//! Purpose: Error types and result aliases.
+//! Key Input Dependencies: thiserror
+//! Index: FormsError
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]

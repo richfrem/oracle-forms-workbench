@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (ros_roundtrip_tests.rs).
+//! Key Input Dependencies: oracle_forms_binary, oracle_forms_core
+//! Index: repo_root, ros60050_decodes_all_sample_fmb_mmb_olb_pll_and_rdf, ros_binary_writer_roundtrips_module_index_cleanly
+
 use std::path::Path;
 use oracle_forms_binary::{
     decode_ros60050_module, decode_ros60050_pll, parse_rdf_report, write_rdf_report,

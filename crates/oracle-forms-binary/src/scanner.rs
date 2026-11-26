@@ -1,3 +1,7 @@
+//! Purpose: Binary FMB/MMB/OLB parser combining ROS.60050 decoding with regex fallback.
+//! Key Input Dependencies: regex, oracle_forms_core
+//! Index: BinaryFmbParser, parse, safe_slice, find_code_in_chunk, extract_complete_code_block, clean_code_string, is_readable_text
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::Path;

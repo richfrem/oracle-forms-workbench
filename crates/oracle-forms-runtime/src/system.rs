@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (system.rs).
+//! Key Input Dependencies: serde
+//! Index: OperationalMode, SystemVariables, as_str, default, get_var, set_var
+
 use crate::record::FormsRecordStatus;
 use serde::{Deserialize, Serialize};
 

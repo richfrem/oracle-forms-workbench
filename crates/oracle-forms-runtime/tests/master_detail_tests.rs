@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (master_detail_tests.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml
+//! Index: resolve_sample, test_master_detail_coordination_orders
+
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_db::MockDriver;
 use oracle_forms_runtime::{FormSession, FormsRecordStatus};

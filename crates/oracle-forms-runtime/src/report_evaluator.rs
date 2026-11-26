@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (report_evaluator.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, serde
+//! Index: ReportExecutionResult, ReportRecord, ReportDataEvaluator, evaluate, evaluate_formula, extract_operand_value, calculate_summary, calculate_numeric_sum
+
 use std::collections::HashMap;
 use oracle_forms_core::error::{FormsError, Result};
 use oracle_forms_core::report::*;

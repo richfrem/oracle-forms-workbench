@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (integration_tests.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db
+//! Index: test_sqlite_in_memory_crud, test_sqlite_bound_parameter_query, test_mock_driver_block_query, test_factory_creation, test_oracle_live_container_query, test_oracle_thin_live_container_query, test_oracle_thin_parameterized_query, default_config_has_no_credentials, require_credentials_rejects_missing_values, explicit_credentials_are_not_overridden_by_env, debug_output_redacts_password, oracle_drivers_fail_fast_without_credentials, testbed_driver_rejects_script_injection_in_credentials, unknown_backend_name_is_an_error
+
 use oracle_forms_core::model::{BlockDml, BlockInfo, ItemInfo};
 use oracle_forms_db::{create_driver, BoundSql, DatabaseDriver, DbConfig, MockDriver, SqlValue, SqliteDriver};
 

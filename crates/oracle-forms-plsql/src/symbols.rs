@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (symbols.rs).
+//! Key Input Dependencies: oracle_forms_core, serde
+//! Index: SymbolKind, Symbol, SymbolTable, default, new, register_builtins, populate_from_module, resolve, all_symbols
+
 use oracle_forms_core::model::ModuleIndex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

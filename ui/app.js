@@ -450,7 +450,10 @@
     const saveBtn = document.getElementById('saveFormBtn');
     if (saveBtn) saveBtn.hidden = isReport || !isForm;
     const exportBtn = document.getElementById('exportXmlBtn');
-    if (exportBtn) exportBtn.hidden = isReport || modType === 'LIBRARY';
+    if (exportBtn) {
+      exportBtn.hidden = false;
+      exportBtn.textContent = modType === 'LIBRARY' ? '🦀 Export PLD (Rust)' : '🦀 Export XML (Rust)';
+    }
   }
 
   // Tab switching
@@ -1077,7 +1080,13 @@
 
     if (exportXmlBtn) {
       exportXmlBtn.addEventListener('click', async () => {
-        if (!currentPayload) return showBanner('No module open to export.');
+        if (!currentPayload) {
+          if (currentReportPayload?.report || reportDefinition) {
+            document.getElementById('exportReportXmlBtn')?.click();
+            return;
+          }
+          return showBanner('No module open to export.');
+        }
         try {
           await syncModuleToServer();
           const res = await fetch('/api/forms/export-xml', {
@@ -1087,22 +1096,34 @@
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Export XML failed');
-          const blob = new Blob([data.xml], { type: 'application/xml' });
+          const modType = (currentPayload?.summary?.moduleType || '').toUpperCase();
+          const isLib = modType === 'LIBRARY';
+          const extSuffix = isLib
+            ? '.pld'
+            : (modType === 'MENU'
+                ? '_mmb.xml'
+                : (modType === 'OBJECT_LIBRARY'
+                    ? '_olb.xml'
+                    : (modType === 'REPORT' ? '_rdf.xml' : '_fmb.xml')));
+          const blob = new Blob([data.xml], { type: isLib ? 'text/plain' : 'application/xml' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `${currentPayload.moduleIndex.key.name}_fmb.xml`;
+          a.download = `${currentPayload.moduleIndex.key.name}${extSuffix}`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          if (xmlTitle) xmlTitle.textContent = `${currentPayload.moduleIndex.key.name} (Rust XML — ${data.mode || 'export'})`;
+          if (xmlTitle) xmlTitle.textContent = `${currentPayload.moduleIndex.key.name} (Rust ${isLib ? 'PLD' : 'XML'} — ${data.mode || 'export'})`;
           if (xmlSliceDisplay) xmlSliceDisplay.textContent = data.xml;
           if (xmlLinesBadge) xmlLinesBadge.textContent = `${data.xml.split('\n').length} lines`;
-          if (data.mode === 'summary') {
+          if (isLib) {
+            showBanner(`Exported ${currentPayload.moduleIndex.key.name}.pld via native Rust ROS.60050 decoder.`);
+            setTimeout(hideBanner, 4000);
+          } else if (data.mode === 'summary') {
             showBanner(`Exported a SUMMARY of ${currentPayload.moduleIndex.key.name} (regenerated from the parsed model; unmodelled properties are omitted). Open the form from its Forms2XML file for a lossless export.`);
           } else {
-            showBanner(`Exported ${currentPayload.moduleIndex.key.name}_fmb.xml: the original XML with only your edits applied.`);
+            showBanner(`Exported ${currentPayload.moduleIndex.key.name}${extSuffix}: the original XML with only your edits applied.`);
             setTimeout(hideBanner, 4000);
           }
         } catch (err) {
@@ -1149,14 +1170,12 @@
     const convertArtifactXmlBtn = document.getElementById('convertArtifactXmlBtn');
     if (convertArtifactXmlBtn) {
       convertArtifactXmlBtn.addEventListener('click', async () => {
-        const isReportActive = moduleBadge?.textContent?.endsWith('(REPORT)') && reportSelect?.value;
-        if (!isReportActive && (!currentPayload || !currentPayload.moduleIndex || !currentPayload.moduleIndex.key)) {
+        const moduleName = currentPayload?.moduleIndex?.key?.name
+          || (reportSelect?.value ? reportSelect.value.replace(/\.(rdf|rpt|xml)$/i, '') : '');
+        if (!moduleName) {
           showBanner('Open a form, menu, library, or report first.');
           return;
         }
-        const moduleName = isReportActive
-          ? reportSelect.value.replace(/\.(rdf|rpt|xml)$/i, '')
-          : currentPayload.moduleIndex.key.name;
         const originalText = convertArtifactXmlBtn.textContent;
         convertArtifactXmlBtn.disabled = true;
         convertArtifactXmlBtn.textContent = 'Converting via Oracle...';
@@ -2209,7 +2228,10 @@
     if (!listEl) return;
     const triggers = mod.triggers || [];
     const units = mod.programUnits || [];
-    if (triggers.length === 0 && units.length === 0) {
+    const menuItems = (mod.menus || []).flatMap(m =>
+      (m.items || []).filter(it => it.commandRef?.file).map(it => ({ menuName: m.name, item: it }))
+    );
+    if (triggers.length === 0 && units.length === 0 && menuItems.length === 0) {
       listEl.innerHTML = '<div class="empty-state">No triggers or PL/SQL program units in this module.</div>';
       if (plsqlCodeDisplay) {
         const isLib = (currentPayload?.summary?.moduleType || '').toUpperCase() === 'LIBRARY';
@@ -2219,12 +2241,18 @@
       }
       return;
     }
+    if (codeTabBadge && menuItems.length > 0) {
+      codeTabBadge.textContent = triggers.length + units.length + menuItems.length;
+    }
     const firstUnit = units.find(u => u.textRef?.file);
     const firstTrig = triggers.find(t => t.textRef?.file);
+    const firstMenu = menuItems[0];
     if (firstUnit) {
       loadCode(firstUnit.name, firstUnit.textRef.file, 'PROGRAM_UNIT', null, false);
     } else if (firstTrig) {
       loadCode(firstTrig.name, firstTrig.textRef.file, 'TRIGGER', null, false);
+    } else if (firstMenu) {
+      loadCode(`${firstMenu.menuName}.${firstMenu.item.name}`, firstMenu.item.commandRef.file, 'MENU_ITEM', null, false);
     }
     let html = '';
     for (const t of triggers) {
@@ -2249,6 +2277,18 @@
             <span class="code-unit-meta">${escapeHtml(pu.unitType || 'Program Unit')}</span>
           </div>
           <span class="tree-badge">${pu.lineCount || 0}L</span>
+        </div>
+      `;
+    }
+    for (const { menuName, item } of menuItems) {
+      const file = item.commandRef?.file || '';
+      html += `
+        <div class="code-unit-item" data-code-name="${escapeHtml(`${menuName}.${item.name}`)}" data-code-file="${escapeHtml(file)}" data-code-scope="MENU ITEM">
+          <div>
+            <strong>🍔 ${escapeHtml(`${menuName}.${item.name}`)}</strong>
+            <span class="code-unit-meta">${escapeHtml(item.label || 'PL/SQL')}</span>
+          </div>
+          <span class="tree-badge">PL/SQL</span>
         </div>
       `;
     }

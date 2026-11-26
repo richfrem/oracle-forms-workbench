@@ -338,6 +338,22 @@ impl BinaryFmbParser {
                 program_units.push(pu);
             }
 
+            for menu in &mut ros_mod.menus {
+                for mi in &mut menu.items {
+                    if let Some(body) = mi.command_text.as_deref() {
+                        if !body.trim().is_empty() {
+                            if let Ok(tref) = sidecars.write(
+                                PlsqlSidecars::MENU_ITEMS,
+                                &format!("{}.{}", menu.name, mi.name),
+                                body,
+                            ) {
+                                mi.command_ref = Some(tref);
+                            }
+                        }
+                    }
+                }
+            }
+
             let has_positioned_item = ros_mod
                 .blocks
                 .iter()

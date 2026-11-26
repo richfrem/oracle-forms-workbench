@@ -1047,6 +1047,8 @@ pub struct MenuItemInfo {
     pub menu_item_type: Option<String>,
     pub command_ref: Option<SourceRef>,
     #[serde(default)]
+    pub command_text: Option<String>,
+    #[serde(default)]
     pub text_encoding: TextEncoding,
 }
 

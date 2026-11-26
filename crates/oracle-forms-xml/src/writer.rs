@@ -739,6 +739,9 @@ impl FormsXmlWriter {
                 if let Some(sub) = &item.sub_menu_name {
                     mi_attrs.push(format!("SubMenuName=\"{}\"", escape_attr(sub)));
                 }
+                if let Some(code) = &item.command_text {
+                    mi_attrs.push(format!("MenuItemCode=\"{}\"", escape_attr(code)));
+                }
                 let _ = writeln!(out, "      <MenuItem {}/>", mi_attrs.join(" "));
             }
             out.push_str("    </Menu>\n");

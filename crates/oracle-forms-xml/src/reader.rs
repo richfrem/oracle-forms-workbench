@@ -1095,6 +1095,7 @@ impl FormsXmlParser {
                         sub_menu_name: get_attr(e, "SubMenuName"),
                         menu_item_type: get_attr(e, "MenuItemType"),
                         command_ref,
+                        command_text: command.as_ref().map(|c| c.text.clone()),
                         text_encoding: command.map(|c| c.encoding).unwrap_or_default(),
                     });
                 }

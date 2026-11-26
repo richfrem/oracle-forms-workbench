@@ -1,6 +1,6 @@
 # Oracle reference stack (Podman)
 
-The Podman recipe, installer templates, configuration and provisioning scripts, and seed SQL for the optional Oracle reference environment: **Oracle Forms 14c with WebLogic** and **Oracle Database Free**, in containers, on macOS and on Windows 11 (inside Ubuntu WSL2, x86-64). The Rust workbench does not need any of it; Preview in Oracle, the converters, and the FSAL runner do.
+The Podman recipe, installer templates, configuration and provisioning scripts, and seed SQL for the optional Oracle reference environment: **Oracle Forms 14c with WebLogic** and **Oracle Database Free**, in containers, on macOS and on Windows 11 (inside Ubuntu WSL2, x86-64). The Rust workbench does not need any of it for native authoring/preview; **Convert via Oracle (14c)**, **Compile Only (14c)**, **Build & Compile (14c)**, **Launch in 14c**, and the skill converters/compilers do.
 
 **How to set it up, run it, and fix it lives once, in the setup skill's references** (not here):
 
@@ -19,7 +19,7 @@ The Podman recipe, installer templates, configuration and provisioning scripts, 
 | `installer/`, `oracle_home_14c/`, `oracle_home/` | **Git-ignored, never commit:** the downloaded installers, the installed Oracle Home (5+ GB, holds the WebLogic domain and all configuration; its location is the setting `OFW_ORACLE_HOME`; on Windows set it to Ubuntu's disk before installing and never install here), and the 12c Oracle Home |
 | `apply_forms14c_config.sh`, `forms14c-config/` | Apply every post-install adjustment to the Oracle Home |
 | `provision_oracle_home.sh` | Create, copy, verify, and back up the Oracle Home on a chosen disk (`--dry-run` first) |
-| `sql/seed_test_schema.sql` | Test schema owner, tablespace, and tables |
+| `sql/seed_test_schema.sql`, `ofw_demo_employees.sql`, `ofw_demo_sales.sql` | Test schema owner, tablespace (`FORMS_DATA`), tables, and sample demo SQL seeds |
 | `compose.yaml` | Declarative description of the containers and install steps (the original macOS route; not used on Windows) |
 
-The skills that run against this stack are in `plugins/oracle-forms/.apm/skills/`: `setting-up-oracle-testbed`, `converting-oracle-artifacts`, `compiling-and-running-oracle-forms`, `testing-forms-parity`, and `comparing-forms-features`.
+Compiled runtime executables (`.plx`, `.mmx`, `.fmx`) publish to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/` (ahead of `/oracle_home_14c/forms` on `FORMS_PATH`), while external batch builds stage under `OFW_WORK_DIR` (outside the repository). The skills that run against this stack are in `plugins/oracle-forms/.apm/skills/`: `setting-up-oracle-testbed`, `converting-oracle-artifacts`, `compiling-and-running-oracle-forms`, `testing-forms-parity`, and `comparing-forms-features`.

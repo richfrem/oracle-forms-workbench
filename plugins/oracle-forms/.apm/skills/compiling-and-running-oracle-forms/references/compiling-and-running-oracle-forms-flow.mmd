@@ -1,0 +1,24 @@
+flowchart TD
+    Dev["1. Author or Modify Source<br/>(*_fmb.xml, *_mmb.xml, *_olb.xml, *.pld, *_report.xml)"] --> Inner
+
+    subgraph Inner["2. Rust Native Inner Loop (Offline / Zero Containers)"]
+        direction TB
+        RustUI["Rust Workbench UI (:7070) & CLI<br/>Inspect ROS.60050 / XML, SVG Designer, PL/SQL Studio"]
+        RustRun["Preview in Rust (FormSession / Reports)<br/>Oracle Thin, SQLite, or Mock"]
+        RustBin["Build Binary (Rust) & Parity Check<br/>RosBinaryWriter (ROS.60050 round-trip only)"]
+        RustUI --> RustRun --> RustBin
+    end
+
+    Inner -->|Revise XML / PLD as needed| Dev
+    Inner -->|Ready for Oracle 14c| Xsd
+
+    Xsd["3. Stage 1: Schema Validation<br/>validate_forms_xml.py (forms-14c.xsd / reports.dtd)"] --> Stage2["4. Stage 2: Build 14c Source Binaries (logon=no)<br/>XML2Forms / build_dependency_manifest.py<br/>-> .olb, .pll, .mmb, .fmb in OFW_WORK_DIR/stage/"]
+
+    Stage2 --> TargetChoice{Target DB for Stage 3<br/>frmcmp_batch?}
+
+    TargetChoice -->|Local Testbed| LocalDB["5a. Local Compile & Preview<br/>Target: FREEPDB1 (oracle23ai-lite)<br/>Web UI: Build & Compile (14c)<br/>CLI: run_form.py / compile_form.py"]
+    TargetChoice -->|Non-Local Dev DB| DevDB["5b. Dev Server Compile<br/>Target: TNS alias or host:port/service<br/>Web UI: Target database field (#oracleCompileTarget)<br/>CLI: compile_form.py -u user@db / compile_from_manifest.py<br/>(Container TNS_ADMIN + sqlplus -L preflight)"]
+
+    LocalDB --> Publish["6. Publish to forms_apps/&lt;app_name&gt;/<br/>(.plx, .mmx, .fmx + Linux case symlinks)"]
+    DevDB --> Publish
+    Publish --> FSAL["7. Live Oracle Execution<br/>Launch in 14c / launch_fsal.py (FSAL desktop client)"]

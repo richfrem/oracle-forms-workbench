@@ -456,6 +456,7 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--interactive", action="store_true", help="Prompt for credentials via native GUI Logon dialog")
     parser.add_argument("--compile-from-env", action="store_true", help="Read compile logon from OFW_PREVIEW_DB_LOGON (FSAL remains interactive)")
     parser.add_argument("--offline", action="store_true", help="Compile without database connection (logon=no)")
+    parser.add_argument("--no-launch", action="store_true", help="Convert, compile, and publish only; do not launch FSAL")
     parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="URL-encoded Forms module parameter (repeatable)")
     parser.add_argument("--app-name", default=None, help="Dedicated app directory name under <OFW_ORACLE_HOME>/forms_apps/<app_name>/ (default: OFW_APP_NAME or 'default')")
     parser.add_argument("--config", default=None, help="formsweb.cfg config section name (default: OFW_FORMS_CONFIG or 'standaloneapp')")
@@ -511,6 +512,9 @@ def main() -> int:
             print(f"Error: Unsupported file format '{suffix}'. Expected .xml, .fmb, or .fmx", file=sys.stderr)
             return 1
 
+        if args.no_launch:
+            print(f"[3/3] Compiled and published {fmx_file.name} (compile-only; FSAL not launched).")
+            return 0
         return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive, args.param, args.config)
     except Exception as err:
         print(f"\nExecution error: {err}", file=sys.stderr)

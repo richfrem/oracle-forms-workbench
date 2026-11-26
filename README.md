@@ -12,34 +12,49 @@ The native workbench requires **no JVM, Node.js, Oracle Forms installation, or O
 2. **Create or modify.** Use the Data Block & Layout Wizard to create a named form or add/replace a block, discover database table columns, and generate form or tabular layouts. Edit supported geometry, labels, colors, and properties in Layout mode. Author XML and PL/SQL directly with your editor or an AI coding agent.
 3. **Save the definition.** **Save Form** updates the form's one XML file, `samples/<module>_fmb.xml`, in place. Binary `.fmb` sources are never modified. **Save Record** is a separate database action during runtime.
 4. **Preview in Rust (standalone).** Use **Preview in Rust** (above the form) or **▶ Rust Preview** (in the form toolbar) to run a standalone single-form session against Oracle Thin, SQLite, or Mock. An upfront limitations dialog notes what Rust preview does not support (external `.pll` libraries, `CALL_FORM`/`OPEN_FORM`/`NEW_FORM`, and unimplemented Forms built-ins) and links directly to **Launch in 14c** when full Oracle Forms behavior is needed.
-5. **Launch or build in Oracle 14c.** Choose **Launch in 14c** (above the form or **🚀 14c** in the form toolbar) to run an already-compiled `.fmx` from `OFW_FORMS_APPS_DIR/<OFW_APP_NAME>/` or `<OFW_ORACLE_HOME>/forms/` directly via FSAL (no XML2Forms or compile; runtime login happens inside the form). Choose **Build & Compile (14c)** to save XML, convert to FMB, compile FMX, deploy to WebLogic (`forms_apps/<app_name>/`), and launch FSAL.
+5. **Compile or launch in Oracle 14c.** Use **Build → Compile Only (14c)** to save XML, convert to FMB, compile `.fmx` against local `FREEPDB1` or a non-local **Target database**, and deploy to WebLogic (`forms_apps/<app_name>/`) without opening FSAL. Choose **Build → Build & Compile (14c)** to also launch FSAL immediately, or **Run / Preview → Launch in 14c** to open an already-compiled `.fmx` directly via FSAL.
 6. **Compare and iterate.** Compare a baseline with multiple forms or uploaded versions in Form Diff, review structural and layout changes, and compare the Rust preview with the real Oracle window.
 
 ```mermaid
-flowchart LR
-    A["Existing Forms / Menus / Libraries"] --> B["Native inspection or official XML conversion"]
-    B --> C["XML + PL/SQL"]
-    AI["AI-assisted authoring"] --> C
-    C --> D["Rust designer + Save Form"]
-    D --> E["Native Rust runtime + database"]
-    D --> F["Optional Oracle XML2Forms → FMB → FMX"]
-    F --> G["Fusion Middleware + FSAL desktop client"]
+flowchart TD
+    Dev["1. Author or Modify Source<br/>(*_fmb.xml, *_mmb.xml, *_olb.xml, *.pld, *_report.xml)"] --> Inner
+
+    subgraph Inner["2. Rust Native Inner Loop (Zero Containers)"]
+        direction TB
+        Designer["Web IDE (:7070) & CLI<br/>ROS.60050 / XML inspect, SVG Designer, PL/SQL Studio"]
+        RustPreview["Preview in Rust (FormSession / Reports)<br/>Oracle Thin, SQLite, or Mock"]
+        RustBin["Build Binary (Rust) & Parity Check<br/>RosBinaryWriter (offline round-trip only)"]
+        Designer --> RustPreview --> RustBin
+    end
+
+    Inner -->|Revise XML / PLD| Dev
+    Inner -->|Ready for Oracle 14c| S1
+
+    S1["3. Stage 1: Validate XML (forms-14c.xsd)<br/>validate_forms_xml.py"] --> S2["4. Stage 2: Build 14c Binaries (logon=no)<br/>XML2Forms / build_dependency_manifest.py"]
+    S2 --> DBChoice{Target DB for Stage 3<br/>frmcmp_batch?}
+
+    DBChoice -->|Local Testbed| Local["5a. Compile / Preview vs. FREEPDB1<br/>Web UI: Compile Only (14c) / Build & Compile (14c)<br/>CLI: run_form.py / compile_form.py"]
+    DBChoice -->|Dev DB Server| DevDB["5b. Compile vs. Dev Database<br/>Web UI: Target database field<br/>CLI: compile_form.py -u user@db / compile_from_manifest.py"]
+
+    Local --> Publish["6. Deploy to forms_apps/&lt;app_name&gt;/<br/>(.plx, .mmx, .fmx)"]
+    DevDB --> Publish
+    Publish --> FSAL["7. Live Oracle Desktop<br/>Launch in 14c / launch_fsal.py (FSAL)"]
 ```
 
 ## Capabilities and formats
 
 | Area | Available workflow |
 |---|---|
-| Forms (`.fmb`, Forms2XML `.xml`) | Direct binary extraction or XML parsing; SVG preview, property/layout editing, wizard authoring, XML saves, native execution, and optional Oracle compilation/launch. |
-| Menus (`.mmb`, menu XML) | Inspect extracted structure and PL/SQL; attach menu modules to forms; official XML conversion. A dedicated standalone menu canvas remains outstanding. |
-| Object libraries (`.olb`, object-library XML) | Native extraction/inspection and modeled previews; official XML conversion. Editing coverage depends on the extracted model. |
-| PL/SQL libraries (`.pld`, `.pll`) | Native PLD parsing and source inspection; supported library routines in native sessions. Official tooling handles PLL/PLD conversion. |
-| Reports (report XML, `.rdf`, `.rpt`) | Official binary-to-XML conversion, native XML data-model inspection, parameterized execution, HTML report preview, themes, and browser print/PDF. Native export covers the modeled data definition, rather than the full Oracle paper layout. |
+| Forms (`.fmb`, Forms2XML `.xml`) | Contiguous `ROS.60050` binary decoding (`ros_props.rs`, `parent_vptr` + `0x0c` wrappers, `0x0505` B-tree PL/SQL) or schema-preserving XML (`RawXmlNode`, `extra_attrs`/`extra_children`); SVG preview, property/layout editing, wizard authoring, in-place XML saves, offline `ROS.60050` binary build (`export-binary`), native execution, and Oracle 14c `XML2Forms`→`frmcmp_batch`→FSAL deployment. |
+| Menus (`.mmb`, menu XML) | Parse/inspect structure, attach menu modules to forms, view `MenuItem` PL/SQL (`0x01d0` / `MenuItemCode`) in PL/SQL Studio, export `_mmb.xml` / offline `ROS.60050` `.mmb`, or convert via Oracle 14c (`Forms2XML`). A dedicated standalone visual menu-tree editor/inspector and UI `Save Form` for `.mmb` remain outstanding. |
+| Object libraries (`.olb`, object-library XML) | Native `ROS.60050` extraction/inspection (including compact 8 KB `.olb`), inheritance resolution, `_olb.xml` / offline `ROS.60050` `.olb` export, and Oracle 14c conversion. No standalone visual OLB editor. |
+| PL/SQL libraries (`.pld`, `.pll`) | Native `ROS.60050` `.pll` & `.pld` parsing, source inspection in PL/SQL Studio, `.pld` export (`export-xml`), and Oracle 14c `convert_pll.py` conversion. Authoring/refactoring edits `.pld` text directly (UI `Save Form` is form-only). |
+| Reports (report XML, `.rdf`, `.rpt`) | Native `ROS.60050` `.rdf` parsing (`parse_rdf_report`), `_rdf.xml` export, offline `write_rdf_report` via CLI (`export-binary`), Oracle 14c `rwconverter` conversion (`convert_rpt.py`), parameterized data-model execution, HTML5 report preview, and browser print/PDF. Native export covers the modeled data definition rather than full Oracle paper-layout editing. |
 | Form Diff | Baseline versus multiple targets/uploads, scoped trigger and model changes, and geometry comparison at a shared scale. CLI supports pairwise diffs. |
-| PL/SQL Studio | Source browsing, split view, code analysis, and runtime diagnostics for the implemented PL/SQL subset. |
+| PL/SQL Studio | Source browsing (`Form`, `Block`, `Item`, `PropertyClass`, `MenuItem` triggers & program units), split view, code analysis, and runtime diagnostics for the implemented PL/SQL subset. |
 | Database access | Pure-native Oracle Thin, embedded SQLite, and explicit Mock backend. An optional SQL*Plus testbed driver is also available. |
 
-Direct binary parsing uses ROS 60050 extraction heuristics; it cannot reconstruct every Oracle property or layout. Prefer official XML exports when fidelity matters. Native execution interprets the supported form model and PL/SQL subset; it does not produce Oracle executables.
+Native `ROS.60050` binary parsing (`oracle-forms-binary`) is structurally accurate across most sample forms/menus, while `Forms2XML` (`Convert via Oracle (14c)`) remains authoritative when complete Oracle XML attribute fidelity is required. `RosBinaryWriter` (`Build Binary (Rust)` / `export-binary`) emits `ROS.60050` binaries for **offline Rust round-trip testing**—it does not emit Oracle's `0x3000..0x8000` internal dictionary tables, so deploying to Oracle Fusion Middleware always compiles from XML/PLD through Oracle 14c (`XML2Forms` → `frmcmp_batch`). Native execution interprets the supported form model and PL/SQL subset; it does not produce `.fmx` executables.
 
 ## Quickstart: native design and execution
 
@@ -57,8 +72,9 @@ For server configuration, environment credential opt-in, custom ports, and runti
 
 ## Compile and launch in Oracle 14c
 
-- **Launch in 14c** (`🚀 Launch in 14c` above the form or `🚀 14c` in the form toolbar) runs an already-compiled `.fmx` deployed under `OFW_FORMS_APPS_DIR/<OFW_APP_NAME>/` or `<OFW_ORACLE_HOME>/forms/` directly via FSAL. It shows whether the currently open source form matches a deployed `.fmx` or needs compilation first.
-- **Build & Compile (14c)** (`🔨 Build & Compile (14c)`) saves the current form XML, converts to FMB, compiles FMX, deploys to WebLogic, and launches the Java desktop window **on the computer running the Rust server**.
+- **Compile Only (14c)** (`Build → ⚡ Compile Only (14c)`) saves the current form XML, converts to FMB, compiles `.fmx` against local `FREEPDB1` or any container-reachable **Target database** (TNS alias or `host:port/service`), and deploys to WebLogic (`forms_apps/<app_name>/`) without launching FSAL.
+- **Build & Compile (14c)** (`Build → 🔨 Build & Compile (14c)`) runs the same build/compile/deploy pipeline and launches the FSAL Java desktop window **on the computer running the Rust server**.
+- **Launch in 14c** (`Run / Preview → 🚀 Launch in 14c` or **🚀 14c**) runs an already-compiled `.fmx` deployed under `OFW_FORMS_APPS_DIR/<OFW_APP_NAME>/` or `<OFW_ORACLE_HOME>/forms/` directly via FSAL. It shows whether the currently open source form matches a deployed `.fmx` or needs compilation first.
 
 This optional path needs Python 3, Podman, a provisioned and running Forms 14c/WebLogic installation, host Java 17+, the FSAL launcher JAR, and access to any referenced database schema, menus, or libraries. Oracle installers must be supplied separately. The dialog includes a dependency checklist and setup/startup instructions; it does not install the stack automatically. See the [Oracle automation plugin](plugins/oracle-forms/README.md) and [Forms & Reports testing guide](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md).
 
@@ -120,7 +136,7 @@ cargo run -p oracle-forms-cli -- report inspect samples/ofw_employee_directory_r
 cargo run -p oracle-forms-cli -- report run samples/ofw_employee_directory_report.xml --backend mock -o ./report.html
 ```
 
-`export-xml` is also available for model-based XML export. It can omit unmodeled Oracle content; use the UI's original-XML patch path or official converters when preservation matters.
+`export-xml` (summary XML, `.pld`, or `_rdf.xml`) and `export-binary` (offline `ROS.60050` `.fmb`/`.mmb`/`.olb`/`.rdf` round-trip binaries) are also available in the CLI and the UI's grouped **Export / Convert**, **Build**, and **Run / Preview** menus. Use the UI's original-XML patch path (`Save Form`) or official converters (`Convert via Oracle (14c)`) when full attribute preservation is required, and use **Build & Compile (14c)** (`XML2Forms` → `frmcmp_batch`) to produce Fusion Middleware `.fmx` executables.
 
 ## Screenshots
 
@@ -264,6 +280,7 @@ Node is only used here for frontend regression tests; the native application has
 - **[Running Official Forms Builder GUI](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-builder-gui.md)**: Launching native Oracle Forms Builder (`frmbld`) for visual ground-truth comparison: verified on Windows 11 inside WSL2 (WSLg), original method on macOS via XQuartz (12c; the 14c command is not yet verified on a Mac).
 - **[Forms & Reports 14c Testing Guide](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md)**: Full verification blueprint for Forms 14c, Reports Server, FSAL live execution, and 23ai Database integration.
 - **[System Architecture](architecture.md)**: Data pipelines, crate contracts, coordinate math, and sequence diagrams.
+- **[Dual-Engine Vision & Plan 14](docs/plans/vision.md)**: Positioning the Rust workbench as a modern `frmbld` replacement alongside the Oracle 14c outer loop ([Plan 14](docs/plans/14-MODERN-IDE-DUAL-ENGINE-PLAN.md)).
 - **[Agent Guidelines](AGENTS.md)**: Rules and invariants for automated coding agents.
 - **[Setup index](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/index.md)**: Every setup, run, test, and troubleshooting page in one list.
 

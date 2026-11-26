@@ -1301,7 +1301,7 @@
     let oraclePreviewBusy = false;
     let oraclePreviewReady = false;
 
-    function resetOraclePreview(moduleName) {
+    function resetOraclePreview(moduleName, compileOnlyDefault = false) {
       if (oraclePreviewModule !== moduleName) {
         oraclePreviewGeneration++;
         oraclePreviewModule = moduleName;
@@ -1311,19 +1311,137 @@
         document.getElementById('oracleCompileCredentials').hidden = false;
         document.getElementById('oracleCompilePassword').value = '';
         document.getElementById('oraclePreviewLog').textContent = 'No launch output yet.';
-        document.getElementById('oraclePreviewSummary').textContent = `No preview launched for ${moduleName}.`;
+        document.getElementById('oraclePreviewSummary').textContent = compileOnlyDefault
+          ? `Ready to compile ${moduleName} in Oracle 14c (FSAL not launched).`
+          : `No preview launched for ${moduleName}.`;
         document.getElementById('oraclePreviewDiagnostics').open = false;
       }
-      document.getElementById('oraclePreviewTitle').textContent = `Preview ${moduleName} in Oracle`;
+      document.getElementById('oraclePreviewTitle').textContent = compileOnlyDefault
+        ? `Compile ${moduleName} in Oracle 14c`
+        : `Preview ${moduleName} in Oracle`;
+    }
+
+    async function runOraclePreviewJob(button, compileOnly) {
+      if (!currentPayload || oraclePreviewBusy) return;
+      const sourceModule = currentPayload.moduleIndex.key.name;
+      const compile = {
+        offline: document.getElementById('oracleCompileMode').value === 'offline',
+        username: (document.getElementById('oracleCompileUser').value || '').trim(),
+        password: document.getElementById('oracleCompilePassword').value || '',
+        database: (document.getElementById('oracleCompileTarget').value || '').trim() || 'FREEPDB1',
+      };
+      if (!compile.offline && (!compile.username || !compile.password)) {
+        const missing = !compile.username ? 'username' : 'password';
+        document.getElementById('oraclePreviewSummary').textContent = `Enter the database ${missing} for connected compilation. No ${compileOnly ? 'compile' : 'preview'} was started.`;
+        document.getElementById(missing === 'username' ? 'oracleCompileUser' : 'oracleCompilePassword').focus();
+        return;
+      }
+      const generation = oraclePreviewGeneration;
+      const isCurrent = () => generation === oraclePreviewGeneration && currentPayload?.moduleIndex.key.name === sourceModule;
+      const log = document.getElementById('oraclePreviewLog');
+      const summary = document.getElementById('oraclePreviewSummary');
+      const launchBtn = document.getElementById('launchOraclePreviewBtn');
+      const compileBtn = document.getElementById('compileOnlyOraclePreviewBtn');
+      oraclePreviewBusy = true;
+      if (launchBtn) launchBtn.disabled = true;
+      if (compileBtn) compileBtn.disabled = true;
+      if (button) button.disabled = true;
+      try {
+        summary.textContent = `Saving ${sourceModule}…`;
+        log.textContent = compileOnly
+          ? 'Saving XML and starting Oracle 14c compilation (compile-only, no FSAL launch)…'
+          : 'Saving XML and starting the Oracle reference toolchain…';
+        const positioned = await persistDesignerAutoLayout();
+        if (!isCurrent()) return;
+        if (positioned) log.textContent += `\nPersisted designer geometry and captions for ${positioned} items.`;
+        await syncModuleToServer();
+        if (!isCurrent()) return;
+        const response = await checkedSave('/api/forms/oracle-preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            moduleName: sourceModule,
+            offline: compile.offline,
+            compileOnly,
+            username: compile.offline ? null : compile.username,
+            password: compile.offline ? null : compile.password,
+            database: compile.offline ? null : compile.database,
+          })
+        });
+        compile.password = '';
+        if (isCurrent()) document.getElementById('oracleCompilePassword').value = '';
+        const result = await response.json();
+        if (!isCurrent()) return;
+        const heading = `Source form: ${sourceModule}\nSaved ${result.path || ('samples/' + result.fileName)} (${result.mode}).\n`;
+        summary.textContent = compileOnly
+          ? `Compiling ${sourceModule} in Oracle 14c…`
+          : `Preparing ${sourceModule} for Oracle…`;
+        for (let poll = 0; poll < 300; poll++) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          if (!isCurrent()) return;
+          const response = await fetch(`/api/forms/oracle-preview/${encodeURIComponent(result.jobId)}`);
+          const status = await response.json();
+          if (!isCurrent()) return;
+          if (!response.ok) throw new Error(status.error || 'Preview status unavailable');
+          log.textContent = heading + status.log;
+          if (!status.running) {
+            if (compileOnly) {
+              summary.textContent = status.success
+                ? `Compiled and published ${sourceModule} in Oracle 14c (FSAL not launched).`
+                : status.log.includes('logon=no') && status.log.includes('must be declared')
+                  ? `Offline compilation cannot resolve database objects in ${sourceModule}. Select database-connected compilation and enter credentials.`
+                  : `Could not compile ${sourceModule}. Open diagnostics for details.`;
+            } else {
+              summary.textContent = status.success ? `Oracle preview for ${sourceModule} has closed.`
+                : status.log.includes('logon=no') && status.log.includes('must be declared')
+                  ? `Offline compilation cannot resolve database objects in ${sourceModule}. Select database-connected compilation and enter credentials.`
+                  : `Could not launch ${sourceModule}. Open diagnostics for details.`;
+            }
+            document.getElementById('oraclePreviewDiagnostics').open = !status.success;
+            return;
+          }
+          const step = status.log.includes('[3/3]') ? 3 : status.log.includes('[2/3]') ? 2 : 1;
+          for (const n of [1, 2, 3]) {
+            const el = document.getElementById(`oracleStep${n}`);
+            if (el?.classList) {
+              el.classList.toggle('active', n === step);
+              el.classList.toggle('done', n < step);
+            }
+          }
+          summary.textContent = compileOnly
+            ? (status.log.includes('[2/3]') ? `Compiling ${sourceModule}…` : `Converting ${sourceModule} to FMB…`)
+            : (status.log.includes('Forms Session ID') ? `${sourceModule} opened in Oracle. Continue in the desktop window.`
+              : status.log.includes('[3/3]') ? `Opening ${sourceModule} in the Oracle desktop client…`
+              : status.log.includes('[2/3]') ? `Compiling ${sourceModule}…` : `Converting ${sourceModule} to FMB…`);
+          if (status.log.includes('[compatibility]')) summary.textContent += ' A compatibility copy is used; see diagnostics for changes.';
+        }
+        summary.textContent = compileOnly
+          ? `Monitoring ended for ${sourceModule} compile.`
+          : `Monitoring ended for ${sourceModule}. The Oracle window can continue running.`;
+      } catch (error) {
+        if (isCurrent()) {
+          summary.textContent = compileOnly ? `Could not compile ${sourceModule}.` : `Could not launch ${sourceModule}.`;
+          log.textContent += `\n${error.message}`;
+          document.getElementById('oraclePreviewDiagnostics').open = true;
+        }
+      } finally {
+        if (isCurrent()) {
+          oraclePreviewBusy = false;
+          if (launchBtn) launchBtn.disabled = !oraclePreviewReady;
+          if (compileBtn) compileBtn.disabled = !oraclePreviewReady;
+          if (button) button.disabled = !oraclePreviewReady;
+        }
+      }
     }
 
     async function checkOracleReadiness() {
       const button = document.getElementById('checkOracleReadinessBtn');
       const launch = document.getElementById('launchOraclePreviewBtn');
+      const compileOnlyBtn = document.getElementById('compileOnlyOraclePreviewBtn');
       const status = document.getElementById('oracleReadinessStatus');
       const list = document.getElementById('oracleReadinessChecks');
       button.disabled = true;
       launch.disabled = true;
+      if (compileOnlyBtn) compileOnlyBtn.disabled = true;
       oraclePreviewReady = false;
       const generation = oraclePreviewGeneration;
       status.textContent = 'Checking the server computer and local Oracle testbed…';
@@ -1343,6 +1461,7 @@
         document.getElementById('oracleCheckDetails').open = !result.ready;
         oraclePreviewReady = result.ready;
         launch.disabled = !result.ready || oraclePreviewBusy;
+        if (compileOnlyBtn) compileOnlyBtn.disabled = !result.ready || oraclePreviewBusy;
       } catch (error) { if (generation === oraclePreviewGeneration) status.textContent = error.message; }
       finally { button.disabled = false; }
     }
@@ -1357,95 +1476,8 @@
       document.getElementById('oracleCompilePassword').value = '';
     });
 
-    document.getElementById('launchOraclePreviewBtn').addEventListener('click', async event => {
-      if (!currentPayload || oraclePreviewBusy) return;
-      const sourceModule = currentPayload.moduleIndex.key.name;
-      const compile = {
-        offline: document.getElementById('oracleCompileMode').value === 'offline',
-        username: (document.getElementById('oracleCompileUser').value || '').trim(),
-        password: document.getElementById('oracleCompilePassword').value || '',
-        database: (document.getElementById('oracleCompileTarget').value || '').trim() || 'FREEPDB1',
-      };
-      if (!compile.offline && (!compile.username || !compile.password)) {
-        const missing = !compile.username ? 'username' : 'password';
-        document.getElementById('oraclePreviewSummary').textContent = `Enter the database ${missing} for connected compilation. No preview was started.`;
-        document.getElementById(missing === 'username' ? 'oracleCompileUser' : 'oracleCompilePassword').focus();
-        return;
-      }
-      const generation = oraclePreviewGeneration;
-      const isCurrent = () => generation === oraclePreviewGeneration && currentPayload?.moduleIndex.key.name === sourceModule;
-      const button = event.target;
-      const log = document.getElementById('oraclePreviewLog');
-      const summary = document.getElementById('oraclePreviewSummary');
-      oraclePreviewBusy = true;
-      button.disabled = true;
-      try {
-        summary.textContent = `Saving ${sourceModule}…`;
-        log.textContent = 'Saving XML and starting the Oracle reference toolchain…';
-        const positioned = await persistDesignerAutoLayout();
-        if (!isCurrent()) return;
-        if (positioned) log.textContent += `\nPersisted designer geometry and captions for ${positioned} items.`;
-        await syncModuleToServer();
-        if (!isCurrent()) return;
-        const response = await checkedSave('/api/forms/oracle-preview', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            moduleName: sourceModule,
-            offline: compile.offline,
-            username: compile.offline ? null : compile.username,
-            password: compile.offline ? null : compile.password,
-            database: compile.offline ? null : compile.database,
-          })
-        });
-        compile.password = '';
-        if (isCurrent()) document.getElementById('oracleCompilePassword').value = '';
-        const result = await response.json();
-        if (!isCurrent()) return;
-        const heading = `Source form: ${sourceModule}\nSaved ${result.path || ('samples/' + result.fileName)} (${result.mode}).\n`;
-        summary.textContent = `Preparing ${sourceModule} for Oracle…`;
-        for (let poll = 0; poll < 300; poll++) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          if (!isCurrent()) return;
-          const response = await fetch(`/api/forms/oracle-preview/${encodeURIComponent(result.jobId)}`);
-          const status = await response.json();
-          if (!isCurrent()) return;
-          if (!response.ok) throw new Error(status.error || 'Preview status unavailable');
-          log.textContent = heading + status.log;
-          if (!status.running) {
-            summary.textContent = status.success ? `Oracle preview for ${sourceModule} has closed.`
-              : status.log.includes('logon=no') && status.log.includes('must be declared')
-                ? `Offline compilation cannot resolve database objects in ${sourceModule}. Select database-connected compilation and enter credentials.`
-                : `Could not launch ${sourceModule}. Open diagnostics for details.`;
-            document.getElementById('oraclePreviewDiagnostics').open = !status.success;
-            return;
-          }
-          const step = status.log.includes('[3/3]') ? 3 : status.log.includes('[2/3]') ? 2 : 1;
-          for (const n of [1, 2, 3]) {
-            const el = document.getElementById(`oracleStep${n}`);
-            if (el?.classList) {
-              el.classList.toggle('active', n === step);
-              el.classList.toggle('done', n < step);
-            }
-          }
-          summary.textContent = status.log.includes('Forms Session ID') ? `${sourceModule} opened in Oracle. Continue in the desktop window.`
-            : status.log.includes('[3/3]') ? `Opening ${sourceModule} in the Oracle desktop client…`
-            : status.log.includes('[2/3]') ? `Compiling ${sourceModule}…` : `Converting ${sourceModule} to FMB…`;
-          if (status.log.includes('[compatibility]')) summary.textContent += ' A compatibility copy is used; see diagnostics for changes.';
-        }
-        summary.textContent = `Monitoring ended for ${sourceModule}. The Oracle window can continue running.`;
-      } catch (error) {
-        if (isCurrent()) {
-          summary.textContent = `Could not launch ${sourceModule}.`;
-          log.textContent += `\n${error.message}`;
-          document.getElementById('oraclePreviewDiagnostics').open = true;
-        }
-      } finally {
-        if (isCurrent()) {
-          oraclePreviewBusy = false;
-          button.disabled = !oraclePreviewReady;
-        }
-      }
-    });
+    document.getElementById('launchOraclePreviewBtn').addEventListener('click', event => runOraclePreviewJob(event.target, false));
+    document.getElementById('compileOnlyOraclePreviewBtn')?.addEventListener('click', event => runOraclePreviewJob(event.target, true));
 
     document.getElementById('exportXml14cBtn')?.addEventListener('click', () => {
       document.getElementById('convertArtifactXmlBtn')?.click();
@@ -1637,10 +1669,10 @@
         button.disabled = false;
       }
     });
-    document.getElementById('oracleReferenceBtn')?.addEventListener('click', () => {
+    function openOracleBuildDialog(compileOnlyDefault = false) {
       if (!currentPayload) return showBanner('Open a form first.');
       const modName = currentPayload.moduleIndex.key.name;
-      resetOraclePreview(modName);
+      resetOraclePreview(modName, compileOnlyDefault);
       document.getElementById('oracleCompileMode').value = 'connected';
       document.getElementById('oracleCompileCredentials').hidden = false;
       document.getElementById('oracleCompileUser').value = dbUserInput?.value.trim() || '';
@@ -1655,7 +1687,9 @@
       document.getElementById('oracleReferenceDialog').showModal();
       document.querySelector('#oracleReferenceDialog .modal-body').scrollTop = 0;
       checkOracleReadiness();
-    });
+    }
+    document.getElementById('oracleCompileOnlyBtn')?.addEventListener('click', () => openOracleBuildDialog(true));
+    document.getElementById('oracleReferenceBtn')?.addEventListener('click', () => openOracleBuildDialog(false));
     referenceForm?.addEventListener('input', updateOracleReference);
     document.getElementById('copyOracleReferenceBtn')?.addEventListener('click', async () => {
       try {

@@ -105,12 +105,11 @@ Conversion notes still mention temp/convert-stage despite the external work-dire
 Architecture diagrams/status sections retain versioned-save descriptions and deleted test-file
 landmarks. Reconcile these in a separate documentation pass without rewriting historical evidence.
 
-### M2 — Open: macOS Python test canonicalization
+### M2 — Resolved on macOS (PR #44): macOS Python test canonicalization
 
-The parent-chain staging test compares a resolved /private/var path with an unresolved /var
-Oracle Home. Normalize both before checking ancestry, while preserving real containment checks.
-The offline-error test also needs an explicit valid external work directory so it tests its
-intended compiler diagnostic. Current review evidence is 34/36 Python tests passing.
+`tests/test_reference_pipeline.py` now isolates the offline compiler test work directory and
+resolves canonical `/private/var` vs `/var` paths (`36/36` passing on macOS). Kept here as
+historical follow-up evidence while **M1** (default `work_dir` alignment) remains open.
 
 ### S3 — Open: concurrent save temporary-file collision
 
@@ -176,7 +175,8 @@ Startup follow-up: R2 and R3 were addressed in `start_testbed.py`. The Mac launc
 
 The Mac now has a local ignored `.env` derived from `example.env`. The configured checkout-local Oracle Home cannot satisfy the external work-directory rule. The running Forms container records mount sources from an older checkout path that is absent on the Mac host. The recovery plan is to provision a verified copy of Oracle Home outside the checkout and recreate the Forms container with that mount. Set `OFW_WORK_DIR` beneath the external Home after the new mount is in place. Migration and live compilation remain pending.
 
-## macOS recovery & sample builds follow-up (PR #44)
+## macOS recovery & sample builds follow-up (PR #44–#51 reconciliation)
 
 - Recovered macOS Forms 14c launch and compilation, restored `podman exec -i -u oracle` in `run_form.py`, fixed 14c XML attributes in `writer.rs` and `prepare_oracle_preview_xml`, moved sample `.sql` seeds to `oracle-reference-stack/sql/` with full DDL/seed coverage in `seed_test_schema.sql`, and verified 22/22 Stage 1 XML validation, 18/18 Stage 2 builds, and 17/17 Stage 3 `frmcmp_batch` compiles.
-- Open items remaining from this plan: **D4** (broken links in `setting-up-oracle-testbed`), **R1** (scoped Rust restart in `start_testbed.py`), **S1–S3**, and **M1–M2**.
+- **M2 resolved (`36/36` Python tests pass)**; current macOS checks on `main` (`dd7f17b`) pass `137` Rust tests (`cargo test --workspace`, 0 warnings), `32` frontend tests (`node --test tests/ui_*.test.cjs`), and `36` Python pipeline tests (`tests/test_reference_pipeline.py`). `audit_skill.py` still fails on `setting-up-oracle-testbed` (**D4**).
+- Open items remaining from this plan: **D2**, **D3**, **D4** (broken links in `setting-up-oracle-testbed`), **R1** (scoped Rust restart in `start_testbed.py`), **R4** (Rust minimum version in `DEPENDENCIES.md`), **R5** (startup guidance/timings in `start_testbed.py`), **S1–S3**, and **M1**.

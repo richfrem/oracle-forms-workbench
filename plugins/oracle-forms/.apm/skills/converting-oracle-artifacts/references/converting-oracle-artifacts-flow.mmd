@@ -1,0 +1,11 @@
+flowchart TD
+    In["Input Artifacts<br/>(.fmb, .mmb, .olb, .pll, .rdf, or XML / .pld)"] --> Choice{Conversion & Build Engine}
+
+    Choice -->|Rust Native Offline| RustPath["oracle-forms-cli / Web UI (:7070)<br/>ROS.60050 reader (ros.rs, ros_props.rs, 0x0505 PL/SQL)<br/>export-xml (summary XML / .pld / _rdf.xml)<br/>export-binary (RosBinaryWriter offline round-trip)"]
+    RustPath --> Parity["Offline Parity Check<br/>compare_artifacts.py / run_roundtrip.py<br/>(xml-vs-xml, bin-vs-bin, bin-vs-xml)"]
+
+    Choice -->|Oracle 14c Container| Check["Check Stack: python3 start_testbed.py --status<br/>or convert_fmb.py --check"]
+    Check --> S1["Stage 1: Authoritative Decompile (14c)<br/>Single: convert_fmb.py / convert_pll.py / convert_rpt.py<br/>Web UI: Convert via Oracle (14c) (/api/artifacts/convert-to-xml)<br/>Batch: build_dependency_manifest.py --decompile-binaries"]
+    S1 --> XSD["Validate XML (forms-14c.xsd / reports.dtd)<br/>(compiling-and-running-oracle-forms)"]
+    XSD --> S2["Stage 2: Build 14c Source Binaries (logon=no)<br/>XML2Forms / build_dependency_manifest.py<br/>-> .olb, .pll, .mmb, .fmb in OFW_WORK_DIR/stage/"]
+    S2 --> Handoff["Hand Off to Stage 3 Compile & Run<br/>Option 1 (Chat/CLI): compile_form.py / compile_from_manifest.py<br/>Option 2 (Web UI): Build & Compile (14c) (run_form.py)"]

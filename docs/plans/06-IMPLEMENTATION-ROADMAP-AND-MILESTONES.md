@@ -5,9 +5,11 @@
 
 ---
 
-## Review follow-up after Windows preview improvements
+## Review follow-up & recent parity milestones (`#44`–`#51`, `Plan 13`, `Plan 14`)
 
-[Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) tracks three open issues: lossy summary overwrite, external-source save destinations, and conflicting work-directory defaults. It preserves the delivered preview improvements and does not reopen archived design specifications. Mac review checks passed 134 Rust and 32 frontend tests; Python passed 34/36. Live 14c comparison was not run.
+- [Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) tracks open save-safety and portability defects (**S1–S3**, **M1**, **D2–D4**, **R1/R4/R5**; **M2** resolved with `36/36` Python tests passing).
+- [Plan 14](14-MODERN-IDE-DUAL-ENGINE-PLAN.md) and [vision.md](vision.md) track the dual-engine IDE and binary/XML parity work grounded in the `experiments/fmb-re-test/` reverse-engineering study (`ROS.60050` 4 KB page framing, `libfrmjapi.so.0` 43 object types / 665 property IDs, `.fmx` compiled runtime boundary). Delivered across `#46`–`#51`: contiguous `0x00010000` virtual stream (`+0x10` header skip across all `0xffffffd4` pages), `ros_props.rs` static PID table, `0x72000001`/`0x0505` B-tree PL/SQL (`0x01d0` `MenuItem`, `0x01d1` Trigger, `0x01d3` ProgramUnit, `PropertyClass` triggers), `CompoundText`/`TextSegment`, `ObjectGroup`, `RawXmlNode` + `extra_attrs`/`extra_children` XSD preservation, `RosBinaryWriter` + `rdf.rs` (`export-binary` CLI/API), `.pll`→`.pld` & `.rdf` export, `convert_rpt.py` 14c `rwconverter` fix, and grouped dual-engine UI menus (`Export / Convert`, `Build`, `Run / Preview`).
+- Current verified checks on `main`: `137` Rust tests (`cargo test --workspace`, 0 warnings), `32` frontend tests (`node --test tests/ui_*.test.cjs`), `36` Python reference-pipeline tests (`python3 tests/test_reference_pipeline.py`), and `20` staged binaries exercised via `experiments/fmb-re-test/run_roundtrip.py`. Live Oracle behavioral parity (Track K) remains open.
 
 ## 1. Unified Phased Delivery Sequence
 
@@ -63,16 +65,31 @@ The current continuation items are:
    `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
    `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
    blocking child forms when a staged parent `.fmb` binary is present), and warning-only
-   `Created form/menu/library file` success handling (36 Python pipeline tests pass). Full
+   `Created form/menu/library file` success handling (`36` Python pipeline tests pass). Full
    end-to-end verification of the latest warning-only and staged-parent fixes remains open.
 3. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`
    preflight, batch compilation, and live JNLP/WebStart launch of an entry/login form through
    to a protected main-module form (`otherparams`, `envFile`, and `<component-desc/>` JAR
    extension) have been exercised in `forms-server-14c`. Track 2 (native Rust persistent
    session pinning and multi-form transitions) remains unimplemented.
-4. **UI parity**: continue font persistence, native theme/zoom/DPI comparison, tab/overlay
-   behavior, and runtime behavior checks. Compilation or session establishment alone is not
-   visual or behavioral parity.
+4. **Plan 13 & Plan 14 follow-ups**: close save-safety/portability items (**S1–S3**, **M1**,
+   **D2–D4**, **R1/R4/R5**) in [Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md), plus
+   remaining [Plan 14](14-MODERN-IDE-DUAL-ENGINE-PLAN.md) parity gaps (extend Web UI
+   **Compile Only (14c)** to `.mmb`/`.pll` and app manifest batches, one-click Form Diff
+   binary-vs-`Forms2XML` shortcut, `preview.js` `<ListItemElement>` options, default XML attribute
+   alignment, and `RosBinaryWriter` `0x3000..0x8000` tables if native `frmcmp_batch` input is ever
+   targeted).
+5. **UI parity**: continue font persistence, native theme/zoom/DPI comparison, tab/overlay
+   behavior, and runtime behavior checks ([UI-REVIEW-BACKLOG.md](UI-REVIEW-BACKLOG.md)).
+   Compilation or session establishment alone is not visual or behavioral parity.
+6. **External DB DDL & PL/SQL schema reconstruction skill (`plugins/oracle-forms/.apm/skills/`)**:
+   add a dedicated skill (e.g., `rebuilding-oracle-schemas`) so a user can supply DDL and stored
+   PL/SQL exports from an external system (dev/legacy DB server) and rebuild tablespaces/schemas,
+   tables, views, indexes, sequences, synonyms, grants, and DB packages/procedures/functions inside
+   the local Podman `oracle23ai-lite` container (`FREEPDB1`) in dependency order with invalid-object
+   recompilation—strictly staging external SQL under `OFW_WORK_DIR` outside the repository per
+   `.agent/rules/cross-project-isolation.md`. Currently `database-23ai.md` only seeds the built-in
+   repo sample tables.
 
 Use the [current session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) for the active checklist. The completed
 [implementation plan](completed/IMPLEMENTATION-PLAN.md) is historical design material.

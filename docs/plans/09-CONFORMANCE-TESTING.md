@@ -13,7 +13,7 @@ is in [completed/03](completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md) and
 
 ## Current regression follow-up
 
-[Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) defines save-preservation, read-only-source, work-directory, and macOS path regression gates. On the reviewed Mac revision, 134 Rust and 32 frontend tests passed; the Python suite passed 34/36. These are automated regression results, not Oracle golden-trace certification. Track K remains open.
+[Plan 13](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md) defines save-preservation, read-only-source, work-directory, and macOS path regression gates, while [Plan 14](14-MODERN-IDE-DUAL-ENGINE-PLAN.md) tracks offline `ROS.60050` binary/XML parity. Current verified workspace checks: `137` Rust tests (including `ros_layout_tests.rs` and `ros_roundtrip_tests.rs` across sample `.fmb`/`.mmb`/`.olb`/`.pll`/`.rdf`), `32` frontend tests (`tests/ui_*.test.cjs`), and `36` Python pipeline tests (`tests/test_reference_pipeline.py`), plus `experiments/fmb-re-test/run_roundtrip.py` across `20` staged binaries. These are automated unit/format regression results, not Oracle golden-trace runtime certification. Track K remains open.
 
 ## 1. Concept: The Container Testbed as the Conformance Oracle
 

@@ -50,3 +50,4 @@ Eval cases are in [evals/evals.json](evals/evals.json). Run `compare_features.py
 - [testing-forms-reference.md](references/testing-forms-reference.md): Forms, 14c FSAL vs native Rust
 - [testing-reports-reference.md](references/testing-reports-reference.md): Reports, 14c server vs native engine
 - [feature-catalog.md](references/feature-catalog.md): feature catalog and built-in mapping
+- [acceptance-criteria.md](references/acceptance-criteria.md): skill validation criteria

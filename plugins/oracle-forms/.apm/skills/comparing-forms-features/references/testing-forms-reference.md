@@ -23,7 +23,7 @@ podman start oracle23ai-lite forms-server-14c
 ```
 
 Database connection details:
-- **Host / Port**: `localhost:1521` (Host) or `10.88.0.93:1521` (Container network)
+- **Host / Port**: `localhost:1521` (Host) or `oracle-db-23ai:1521` (Container network `oracle-net`)
 - **Service / PDB**: `FREEPDB1`
 - **Developer User**: `$DB_USER` / `$DB_PASSWORD`
 
@@ -50,28 +50,21 @@ podman exec forms-server-14c /bin/bash -c "
 "
 ```
 
-Compile `.fmb` to executable `.fmx` via `frmcmp_batch`:
+Compile `.fmb` to executable `.fmx` (published into `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`) via `compile_form.py`:
 ```bash
-python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/ofw_demo_employees.fmb
-```
-
-Stage generated `.fmx` into WebLogic Forms home:
-```bash
-cp samples/ofw_demo_employees.fmx oracle-reference-stack/oracle_home_14c/forms/
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/ofw_demo_employees.fmb --use-local-env
 ```
 
 ### Step 3: Launch Live Forms on Desktop (FSAL)
 Run the native Forms Standalone Launcher desktop client:
 ```bash
 # Employee Directory:
-java -jar oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar \
-  -url "http://localhost:7001/forms/frmservlet?config=standaloneapp&form=ofw_demo_employees.fmx"
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py ofw_demo_employees.fmx --interactive
 
 # Sales Order Entry:
-java -jar oracle-reference-stack/oracle_home_14c/forms/java/frmsal.jar \
-  -url "http://localhost:7001/forms/frmservlet?config=standaloneapp&form=ofw_sales.fmx"
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py ofw_sales.fmx --interactive
 ```
-Logon prompt: `$DB_USER` / `$DB_PASSWORD` @ `10.88.0.93:1521/FREEPDB1`
+Logon prompt: `$DB_USER` / `$DB_PASSWORD` @ `FREEPDB1` (resolved inside `forms-server-14c` via `tnsnames.ora` to `oracle-db-23ai:1521/FREEPDB1`).
 
 ---
 

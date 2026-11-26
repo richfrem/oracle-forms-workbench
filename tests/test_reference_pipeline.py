@@ -74,8 +74,24 @@ class FsalParameters(unittest.TestCase):
             fsal_runner.build_fsal_url('sample.fmx', 7001, 'none', True, ['MISSING'])
 
     def test_run_form_accepts_repeatable_module_parameters(self):
-        args = runner.parse_cli_args(['sample.fmx', '--param', 'P_ONE=1', '--param', 'P_TWO=2'])
+        args = runner.parse_cli_args(['sample.fmx', '--param', 'P_ONE=1', '--param', 'P_TWO=2', '--no-launch'])
         self.assertEqual(args.param, ['P_ONE=1', 'P_TWO=2'])
+        self.assertTrue(args.no_launch)
+
+    def test_run_form_no_launch_skips_fsal(self):
+        with TemporaryDirectory() as directory:
+            fmb = Path(directory) / 'orders.fmb'
+            fmb.write_bytes(b'fmb')
+            fmx = Path(directory) / 'orders.fmx'
+            fmx.write_bytes(b'fmx')
+            cf = runner._compile_form()
+            with patch.object(cf, 'stage_module', return_value=fmb), \
+                 patch.object(runner, 'compile_fmb_to_fmx', return_value=fmx), \
+                 patch.object(runner, 'launch_fsal_desktop') as launch_mock:
+                with patch.object(runner.sys, 'argv', ['run_form.py', str(fmb), '--offline', '--no-launch']):
+                    rc = runner.main()
+            self.assertEqual(rc, 0)
+            launch_mock.assert_not_called()
 
 class ParentFormStaging(unittest.TestCase):
     def test_binary_parent_chain_is_staged_with_source_case_and_without_unrelated_forms(self):

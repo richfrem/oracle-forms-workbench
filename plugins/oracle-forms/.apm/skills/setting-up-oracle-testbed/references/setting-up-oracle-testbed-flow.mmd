@@ -1,0 +1,16 @@
+flowchart TD
+    Host{Host Platform} -->|macOS Apple Silicon| Mac["1a. Podman Machine + Rosetta 2 + XQuartz<br/>(podman-setup-guide.md)"]
+    Host -->|Windows 11| Win["1b. Ubuntu WSL2 + Podman + WSLg<br/>(windows-podman-setup.md)"]
+
+    Mac --> Env["2. Create .env (create_env.py)<br/>Set OFW_ORACLE_HOME & OFW_WORK_DIR outside repo"]
+    Win --> Env
+
+    Env --> Image["3. Build oracle-forms-14c:latest<br/>(oracle-reference-stack/Containerfile.14c)"]
+    Image --> Install["4. Provision & Install 14c Oracle Home<br/>Silent Infra + Forms/Reports install or provision_oracle_home.sh"]
+    Install --> Domain["5. Create WebLogic Domain & Apply Config<br/>create_forms_domain.py (WLST) + apply_forms14c_config.sh"]
+
+    Env --> DB["6. Start & Seed oracle23ai-lite (FREEPDB1)<br/>seed_test_schema.sql + sample SQL"]
+
+    Domain --> Start["7. Start & Confirm Whole Stack<br/>python3 start_testbed.py & health_check.py"]
+    DB --> Start
+    Start --> Rust["8. Run Rust Workbench (:7070)<br/>cargo run -p oracle-forms-server (native or WSL2)"]

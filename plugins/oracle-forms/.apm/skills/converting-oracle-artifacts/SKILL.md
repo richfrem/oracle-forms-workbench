@@ -5,84 +5,61 @@ description: "Converts Oracle Forms (.fmb, .mmb, .olb to and from XML), PL/SQL l
 
 # Converting Oracle Artifacts
 
-Runs Oracle's own conversion tools inside the Forms 14c container image (`oracle-forms-14c:latest`, Oracle Home mounted at `/oracle_home_14c`). Works on macOS, Linux, WSL, and Windows PowerShell (through WSL). On Windows run everything inside WSL2.
+Runs Oracle's conversion tools inside the Forms 14c container (`oracle-forms-14c:latest` / `forms-server-14c`, Oracle Home at `/oracle_home_14c`) on macOS, Linux, and Windows (run everything in WSL2). Flow diagram: [references/converting-oracle-artifacts-flow.mmd](references/converting-oracle-artifacts-flow.mmd).
 
 ## Contents
 
-- [Constraints](#constraints)
-- [Quick start](#quick-start)
-- [Workflow](#workflow)
-- [Interactive guided workflow (agent protocol)](#interactive-guided-workflow-agent-protocol)
-- [Scripts](#scripts)
-- [Verified conversion paths](#verified-conversion-paths)
-- [Verification](#verification)
+- [Constraints](#constraints) • [Quick start](#quick-start) • [Workflow](#workflow) • [Interactive guided workflow (agent protocol)](#interactive-guided-workflow-agent-protocol) • [Scripts and references](#scripts-and-references) • [Verified conversion paths](#verified-conversion-paths) • [Verification](#verification)
 
 ## Constraints
 
-1. Needs the testbed image and Oracle Home from `setting-up-oracle-testbed`; check with `convert_fmb.py --check`.
-2. Test on copies in the work folder (`OFW_WORK_DIR`, default `<Oracle Home>/ofw-work`), never in `samples/` or the repository.
-3. In 14c the `bin/*.sh` wrappers are templates; the scripts call the Java classes and binaries directly. Details and limits: [references/conversion-notes.md](references/conversion-notes.md).
-4. Keep every attached library, object library and menu in the input's folder; the scripts stage them automatically. Details: [references/conversion-notes.md](references/conversion-notes.md) and `setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`.
-5. Validate hand-written XML before XML to binary (`validate_forms_xml.py`, `compiling-and-running-oracle-forms` skill). Do not call a path working unless `test_conversions.py` shows PASS.
+1. Needs the stack from `setting-up-oracle-testbed`: check with `python3 start_testbed.py --status` (repo root) and `convert_fmb.py --check`.
+2. Keep test outputs and manifests in `OFW_WORK_DIR` (default `<Oracle Home>/ofw-work`), never in `samples/` or the repo.
+3. In 14c, `bin/*.sh` scripts are templates; the scripts call the Java classes and binaries (`rwconverter`, `frmcmp_batch`) directly ([references/conversion-notes.md](references/conversion-notes.md)).
+4. Keep attached `.pll`, `.olb`, and `.mmb` files beside inputs; the scripts stage dependencies automatically (`setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`).
+5. Validate XML before `XML2Forms` (`validate_forms_xml.py` in `compiling-and-running-oracle-forms`). Only claim PASS when `test_conversions.py` or a recorded run verifies it.
 
 ## Quick start
 
-From the repo root:
-
 ```bash
+python3 start_testbed.py --status
 python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/convert_fmb.py --check
 python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/test_conversions.py
 ```
 
 ## Workflow
 
-1. **Binary to XML:** `convert_fmb.py form.fmb` (also `.mmb`, `.olb`; output `<name>_<ext>.xml`); `convert_pll.py lib.pll` (to `lib.pld`; prints FAILED when no file is written); `convert_rpt.py report.rdf` (to `report_rdf.xml`).
-2. **XML to binary:** run XML2Forms in the container (`oracle.forms.util.xmltools.XML2Forms`); `test_conversions.py` shows the exact command per type.
-3. **Check the schema** when a conversion rejects XML: `references/forms-xml-schema.md` (what it is, where it came from) and `extract_forms_schema.py` (re-extract and compare).
-4. **Whole project:** `build_dependency_manifest.py --source-dir <folder> --build-dir <external>` analyzes, orders and converts every module, then compile with the other skill's `compile_from_manifest.py`.
-5. **Test every path** with `test_conversions.py` (`--only forms|menus|libraries|olb|reports`, `--offline`) and report its table.
+1. **Fast offline inspect/export (Rust):** Use `oracle-forms-cli export-xml` or Web UI `Export XML (Rust)` ([references/rust-native-binary-conversion.md](references/rust-native-binary-conversion.md)).
+2. **Authoritative 14c decompile:** `convert_fmb.py` (`.fmb`/`.mmb`/`.olb` → `*_xml`), `convert_pll.py` (`.pll` → `.pld`), `convert_rpt.py` (`.rdf` → `_rdf.xml`), or Web UI **Convert via Oracle (14c)** (`/api/artifacts/convert-to-xml`).
+3. **XML/PLD to 14c binaries (Stage 2):** `XML2Forms` / `build_dependency_manifest.py --source-dir <folder> --build-dir <external>`, then hand off to `compiling-and-running-oracle-forms` (`compile_form.py` / `compile_from_manifest.py`) or Web UI **Build & Compile (14c)**.
+4. **Schema check:** [references/forms-xml-schema.md](references/forms-xml-schema.md) and `extract_forms_schema.py`.
 
 ## Interactive guided workflow (agent protocol)
 
-The agent drives the whole pipeline; the user never has to guess the next step. At each gate: summarize the result in a short table, then ask one direct question (use the interactive question tool) and wait. Run everything in WSL2 on Windows. All generated files (`build-manifest.json`, `stage/`) go only under `OFW_WORK_DIR`.
+At each gate, summarize counts in a table and ask one direct question; all outputs go under `OFW_WORK_DIR`. **Gate 0 (intake):** confirm read-only primary XML/PLD and secondary binary folders, external `OFW_WORK_DIR`, duplicate policy, and permission to copy to `<OFW_WORK_DIR>/source/`. **Gate 1 (analysis):** run `--analyze-only`, report module counts, `unresolvedDependencies`, `cycles`, and duplicates; confirm cleanup or `--allow-missing` and `--normalize`. **Decompile rule:** never re-decompile existing server XML or `.txt`/`.pld` exports—rename library `.txt` to `.pld`, decompile only binary-only gaps (`--decompile-binaries` / `--validate-xml`), and keep one merged `<build-dir>/decompiled/out/` folder. **Gate 2 (Stage 2):** convert in dependency order, report converted/failed, and hand off to Stage 3 in `compiling-and-running-oracle-forms` ([references/batch-dependency-conversion.md](references/batch-dependency-conversion.md)).
 
-**Gate 0, intake (ask first):**
-1. Primary read-only source folder(s) (XML exports) and any secondary fallback folder(s) for missing `.fmb`, `.pll`, `.mmb`, `.olb`.
-2. The external `OFW_WORK_DIR` outside the repository (default `<OFW_ORACLE_HOME>/ofw-work`).
-3. Duplicates across folders. Recommended default: prefer the primary XML exports, fill in missing binaries and libraries from the secondary folder, exclude compiled `.fmx`/`.plx`/`.err` and backup copies.
-4. Ask: "Shall I copy the sources into `<OFW_WORK_DIR>/source/` (a copy; originals untouched) and run Stage 1 analysis?"
+## Scripts and references
 
-**Gate 1, analysis (`--analyze-only`):** run it, then show modules by type (`OLB`, `PLL`, `MMB`, `FMB`), the ordered count, `unresolvedDependencies` and true `cycles`. List unresolved items and scratch or duplicate files (for example `* - Copy.*`, test forms) and ask whether to clean up, supply the missing files, or continue with `--allow-missing`. Ask: "Shall I run Stage 2 (XML2Forms into `<OFW_WORK_DIR>/build/stage/`)? Is `--normalize` needed for hand-authored XML?"
-
-**Decompile rule (read before any decompile):** the server export (XML plus library text, which is often `.txt`) is already converted; use it as is. Rename exported library `.txt` to `.pld` first, decompile **only** binaries with no export, and keep one folder (`<build-dir>/decompiled/out/`) with the full text set, exported and decompiled together. Do not decompile everything, and do not clear or move folders unannounced. Details: [references/batch-dependency-conversion.md](references/batch-dependency-conversion.md).
-
-**Gate 2, conversion:** run Stage 2 in order, report converted and failed counts, then hand off to Stage 3 in the `compiling-and-running-oracle-forms` skill and ask for the target database alias and whether to publish compiled output to `<OFW_ORACLE_HOME>/forms_apps/<app_name>/`.
-
-## Scripts
-
-| Script | Purpose |
+| File | Purpose |
 |---|---|
-| `converter_runtime.py` | Shared: image name, Oracle Home path (`OFW_ORACLE_HOME`), Podman command for macOS, WSL, Windows, and the `--check` probe. `OFW_CONVERTER_IMAGE=forms-converter:latest` selects the 12c image |
-| `convert_fmb.py`, `convert_pll.py`, `convert_rpt.py` | Forms/menus/object libraries, PL/SQL libraries, and Reports conversions |
-| `test_conversions.py` | Runs every path for the five types and prints a PASS, FAIL, BLOCKED, SKIP table |
-| `extract_forms_schema.py` | Runs Oracle's `SchemaGenerator` in a container, compares the result with `assets/forms-14c.xsd`, `--update` refreshes the copies. **Not verified:** the generator's arguments (`--usage`) |
-| `build_dependency_manifest.py` | Batch: scans a read-only source folder (prompts for it if `--source-dir` is omitted), writes `<build-dir>/build-manifest.json` in dependency order, then stages and converts XML to binary. `--analyze-only`, `--allow-missing`, `--convert-only` (Stage 2 only, from the existing manifest), `--normalize`. Build dir must be outside the repo. [references/batch-dependency-conversion.md](references/batch-dependency-conversion.md) |
-| `references/rust-native-binary-conversion.md` | When to use Rust native `oracle-forms-cli export-xml` (offline `ROS.60050` `.fmb`/`.mmb`/`.olb`/`.pll`/`.rdf`) vs. Oracle 14c `Forms2XML` |
-| `assets/build-manifest.template.json` | The one manifest shape for the whole pipeline (a worked example; each stage fills only its own record per module) |
+| `scripts/converter_runtime.py` | Shared 14c/12c image, `OFW_ORACLE_HOME`, Podman wrapper, `--check` |
+| `scripts/convert_fmb.py`, `convert_pll.py`, `convert_rpt.py` | Forms/menus/OLBs, PL/SQL libraries, and Reports (`rwconverter`) conversions |
+| `scripts/build_dependency_manifest.py` | Stage 0–2 dependency analyzer, decompiler, and `XML2Forms` batch builder (`build-manifest.json`) |
+| `scripts/test_conversions.py`, `extract_forms_schema.py` | Conversion matrix runner (`--only`); 14c `SchemaGenerator` extractor (`--usage` unverified) |
+| `references/converting-oracle-artifacts-flow.mmd` | Flowchart: Rust offline conversion vs. Oracle 14c Stage 1–2 pipeline |
+| `references/rust-native-binary-conversion.md` | Rust `ROS.60050` (`export-xml`/`export-binary`) vs. Oracle 14c `Forms2XML` & Web UI routes |
+| `references/batch-dependency-conversion.md`, `conversion-notes.md`, `forms-xml-schema.md` | Batch Stage 0–2 protocol, Windows/WSL limits, XSD provenance |
+| `assets/forms-14c.xsd`, `assets/build-manifest.template.json` | Forms 14.1.2 schema and manifest template |
 
 ## Verified conversion paths
 
-Windows 11 in WSL2, 14.1.2 image, 2026-11-14: 9 PASS, 2 BLOCKED (PLD to PLL; XML to RDF, since fixed by the `libnsl2` image rebuild, owner reported 2 PASS), 1 SKIP. macOS not re-run.
-
 | Type | Path | Status |
 |---|---|---|
-| Forms | FMB to XML, XML to FMB, compile FMB to FMX | PASS |
-| Menus | MMB to XML, XML to MMB, compile MMB to MMX | PASS |
-| Libraries | PLL to PLD | PASS, only when the attached libraries are in the same folder (otherwise silent: exit 0, no file) |
-| Libraries | PLD to PLL | BLOCKED: no command-line route on 14c |
-| OLB | OLB to XML, XML to OLB (14c-format XML) | PASS |
-| Reports | XML to RDF, RDF to XML | Reported PASS by the owner; re-run to confirm |
+| Forms / Menus / OLB | Binary ↔ XML (14c XML), compile to `.fmx`/`.mmx` | PASS (`18/18` Stage 2, `17/17` Stage 3 samples on macOS; WSL verified) |
+| Libraries | `.pll` → `.pld` | PASS when attached libraries sit in same folder |
+| Libraries | `.pld` → `.pll` | `SKILL.md` baseline `BLOCKED` vs `parse=yes` batch note (open reconciliation, Plan 13 D2) |
+| Reports | `.rdf` → `_rdf.xml` (`convert_rpt.py`) / `XML` → `.rdf` | `.rdf` → `_rdf.xml` verified (`#51`, `29,083`B); `XML` → `.rdf` (`12 PASS` WSL run) |
 
 ## Verification
 
-Run `test_conversions.py` after any change to the converter scripts or the image and report the table it prints. Eval cases: `evals/evals.json`.
+Run `test_conversions.py` after converter or image changes and report its table. Criteria: [acceptance-criteria.md](references/acceptance-criteria.md); evals: `evals/evals.json`.

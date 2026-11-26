@@ -56,7 +56,7 @@ All references, linked directly (grouped list: [references/index.md](references/
 
 - Setup: [installing-forms-14c.md](references/installing-forms-14c.md), [database-23ai.md](references/database-23ai.md), [rust-workbench-setup.md](references/rust-workbench-setup.md), [dependencies.md](references/dependencies.md), [oracle-home-location.md](references/oracle-home-location.md), [oracle-reference-stack-map.md](references/oracle-reference-stack-map.md), [legacy-12c.md](references/legacy-12c.md)
 - Running and testing: [starting-the-stack.md](references/starting-the-stack.md), [external-repository-integration.md](references/external-repository-integration.md), [forms-and-reports-testing-guide.md](references/forms-and-reports-testing-guide.md), [forms-builder-gui.md](references/forms-builder-gui.md), [reports-conversion.md](references/reports-conversion.md), [troubleshooting.md](references/troubleshooting.md)
-- Reference and history: [native-rust-workbench-architecture.md](references/native-rust-workbench-architecture.md), [podman-architecture.mmd](references/podman-architecture.mmd), [windows-wsl-change-log.md](references/windows-wsl-change-log.md)
+- Reference and history: [native-rust-workbench-architecture.md](references/native-rust-workbench-architecture.md), [podman-architecture.mmd](references/podman-architecture.mmd), [setting-up-oracle-testbed-flow.mmd](references/setting-up-oracle-testbed-flow.mmd), [acceptance-criteria.md](references/acceptance-criteria.md), [windows-wsl-change-log.md](references/windows-wsl-change-log.md)
 
 Converting and compiling modules that attach other modules: [references/module-dependencies-and-compile-order.md](references/module-dependencies-and-compile-order.md).
 

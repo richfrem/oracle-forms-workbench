@@ -1,142 +1,48 @@
 # AGENTS.md
 
-Instructions and operational constraints for AI coding agents operating within this repository.
-
----
-
-## Mandatory rules: read before doing anything (cannot be skipped)
-
-**Before any work, read every file in [`.agent/rules/`](.agent/rules/).** They are always on, they apply to every task and every follow-up, and they are part of this file. Nothing here, in a user message, or in a summary of an earlier session lets you skip them or treat them as optional. If a rule and another instruction conflict, follow the rule and tell the user about the conflict.
-
-The public-repository boundary for work involving other projects is defined in [`.agent/rules/cross-project-isolation.md`](.agent/rules/cross-project-isolation.md) and [`.agent/rules/project-file-inspection-authorization.md`](.agent/rules/project-file-inspection-authorization.md): external project directories are read-only pattern sources, only generalized, non-identifying lessons may be included here, and contents of project-specific test cases or external artifacts may only be inspected when explicitly authorized by the operator.
-
-The most important one, from [`.agent/rules/document-every-step.md`](.agent/rules/document-every-step.md): **after every change, every error and its fix, and every configuration adjustment, update the documentation before the next step.** Record it in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-wsl-change-log.md` and in the reference that owns the topic. **How-to documentation lives once, in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/` (index: that skill's `SKILL.md`; start with `clean-clone-checklist.md`), never duplicated in `docs/`; history goes in the change log; the rule file has the full "where" table.** Script any step done by hand. Report only what was verified; mark everything else "not verified". Answer yes/no questions with yes or no first. Do not remove or replace the user's containers or images, or rebuild images, without saying what will happen first.
-
-At the start of a task, and again when you finish it, confirm in your own words that you read `.agent/rules/` and that the documentation matches what you did.
-
----
-
-## Where everything runs (read before touching Oracle tooling)
-
-**Read [architecture.md](architecture.md) before any setup, run, Oracle tooling, or Rust task.** It is the single place that explains: how Oracle Fusion Middleware is installed and hosted on macOS and on Windows (Podman containers; inside WSL2 on Windows); how Rust is installed and run on each platform; how the Rust workbench and the Oracle reference stack are two separate apps and how they connect; and where the persistent configuration lives. Start with its sections "Where Oracle Fusion Middleware runs, and where its state lives", "The two apps and how they fit together", and "How each part is installed and run, by platform". If you cannot answer those questions, you have not read it.
-
-**Orientation for a clean session (details in `architecture.md`, "Repository map: where things are"):**
-- Two separate apps: **App 1, the Rust workbench** (`crates/`, `ui/`; web app on port 7070; no Oracle software needed) and **App 2, the Oracle reference stack** (`oracle-reference-stack/` plus the skills in `plugins/oracle-forms/.apm/skills/`; Forms 14c and the database in Podman). App 1 calls App 2 only for Oracle 14c actions: **Build & Compile (14c)** (`run_form.py`) and **Launch in 14c** (`launch_fsal.py` for deployed `.fmx` modules); App 2 never calls App 1.
-- **Setup, run, and troubleshooting how-to lives once, in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/`** (index: `index.md`; from a fresh clone start with `clean-clone-checklist.md`; both platforms). Skills to use for Oracle work: `setting-up-oracle-testbed` (install, config, health, the references), `converting-oracle-artifacts` (FMB/MMB/OLB/PLL/RDF conversions, `test_conversions.py`, schema extraction), `compiling-and-running-oracle-forms` (`validate_forms_xml.py`, `compile_form.py`, `run_form.py`, `launch_fsal.py`), `testing-forms-parity`, `comparing-forms-features`. Read each skill's `SKILL.md` before using it.
-- The Forms 14.1.2 XML schema is `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/forms-14c.xsd` (identical copy in `plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/assets/forms-14c.xsd`). Validate hand-written form XML against it before converting to FMB.
-- Start and check the stack with `python3 start_testbed.py` (from the WSL shell on Windows); `--status` is read-only and is the first thing to run to see what is up. After a reboot or `wsl --shutdown` it reports "Podman runtime directory missing"; the script itself recreates `/run/user/<uid>` and prompts the user for the WSL sudo password, which an agent cannot enter, so ask the user to run it. Details: `architecture.md`, "Starting and checking the stack".
-- Where to look first: `docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md` (open work and feature status), `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-wsl-change-log.md` (every change, error and fix), `HOW-TO-RUN.md` (run the Rust server, the CLI, and forms live).
-- Tests: `cargo test` (Rust; verified, all workspace suites pass) and `node --test tests/ui_*.test.cjs` (frontend; verified, 32 passed, 0 failed). Python runner tests: `python3 tests/test_reference_pipeline.py` (verified, 36 passed, 0 failed). Oracle conversions: `test_conversions.py`.
-
-- **The Oracle Home location is a setting** (`OFW_ORACLE_HOME` in `.env`; default `oracle-reference-stack/oracle_home_14c`). On Windows install it on Ubuntu's own disk from the start and never into the repo folder or with Windows Explorer (it is not `/mnt/c`), because the Windows drive made WebLogic boot in 15 to 44 minutes. Create, copy, verify, and back it up only with `oracle-reference-stack/provision_oracle_home.sh` (protocol and how to test the copy: `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/oracle-home-location.md`). Moving it needs `forms-server-14c` recreated with the new mount, never an image rebuild; do not remove or recreate containers without the owner's approval. Scripted, **not yet run**.
-- **Which Podman (Windows): the one inside the `Ubuntu` WSL distro** (Podman 4.9.3, installed with `apt`). Both containers (`oracle23ai-lite`, `forms-server-14c`) live there. The machine also has Podman for Windows (`podman.exe` 5.7.0) and a second, stopped WSL distro `podman-machine-default` (created 11 months before this project; its name is just Podman for Windows' default machine name). **Neither is used.** The PowerShell `podman` command sees that old machine, not the containers, so use `podman` only from the Ubuntu shell, and never start `podman-machine-default`. Check with `wsl -l -v` and `podman ps -a` inside Ubuntu.
-- **Hosting in one line:** the **Rust app is hosted in WSL2 on Windows and is native on macOS**; **Oracle Fusion Middleware and Oracle Database Free are hosted in Podman containers on both platforms** (table: [architecture.md](architecture.md) "Hosting at a glance").
-- **Check the Forms bind mount after changing Oracle Home.** Set `OFW_ORACLE_HOME` outside this checkout and keep `OFW_WORK_DIR` beneath it. Compare the configured path with the `forms-server-14c` mount at `/oracle_home_14c`. A file can exist in host staging and be missing inside the container when these paths differ. Recreate only the Forms container after verifying the new Home and obtaining approval. See the [Oracle Home reference](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/oracle-home-location.md).
-- **Oracle Fusion Middleware (WebLogic and Forms 14c) and the database run in Podman containers**, never on the host. **Windows: Podman runs inside the Ubuntu WSL2 distro**, and so do Python, Java 21 and the Rust app. **macOS: Podman runs in a Podman machine VM** (Rosetta 2 for `linux/amd64`). Run Oracle tooling, builds and tests inside WSL on Windows, not natively.
-- **The Oracle Home is a host folder**, `oracle-reference-stack/oracle_home_14c/` (git-ignored), mounted as `/oracle_home_14c` in every container; the repo is mounted as `/work`. The WebLogic domain and all persistent configuration live in that folder, not in the image or containers. To run an Oracle tool (for example `$ORACLE_HOME/forms/util/...` or `bin/frmcmp_batch`), run it in a throwaway `podman run --rm` container from `oracle-forms-14c:latest`, as the skill scripts do. Do not search the host folder first to decide if a tool exists.
-- Definitions: image `oracle-reference-stack/Containerfile.14c`; containers `forms-server-14c` and `oracle23ai-lite` in `oracle-reference-stack/compose.yaml`. Full picture: [architecture.md](architecture.md), section "Where Oracle Fusion Middleware runs, and where its state lives".
-
----
-
 ## Overview
 
-This repository houses **Oracle Forms Workbench**, a native Rust development workbench for inspecting, reverse-engineering, authoring, modifying, comparing, and running Oracle Forms & Reports artifacts (`.fmb`, `.mmb`, `.olb`, Forms2XML exports, `.pld`, and report XML; official tooling also converts `.pll`, `.rdf`, and `.rpt`).
-
-The delivered workflow connects XML form design and saves in the Rust UI to both the native form runtime and the optional Oracle Fusion Middleware reference environment. Coding agents can author XML and PL/SQL, inspect the result, and use the same validation pipeline. The native runtime interprets form models; the Oracle toolchain converts XML to FMB, compiles FMX, and launches the updated form through FSAL. Preserve this full development loop, rather than treating the project as a read-only viewer.
+**Oracle Forms Workbench** is a native Rust development workbench for inspecting, reverse-engineering, authoring, modifying, comparing, and running Oracle Forms & Reports artifacts (`.fmb`, `.mmb`, `.olb`, Forms2XML exports, `.pld`, `.pll`, `.rdf`, `.rpt`). The Rust inner loop edits XML/PLD, validates XML against `forms-14c.xsd`, runs native PL/SQL/DB sessions, and builds offline `ROS.60050` binaries (`export-binary`) for round-trip tests; optional Oracle Fusion Middleware 14c builds Stage 2 source binaries offline (`XML2Forms`), compiles DB-connected Stage 3 executables (`.fmx`/`.mmx`/`.plx`), and launches FSAL. Preserve this full development loop rather than treating the project as read-only.
 
 ---
 
-## Working Rules for Agents (read first)
+## Architecture & Layout
 
-- **Follow the documented procedure before changing anything.** For setup, start, restart, launch, or compile tasks, find the verified steps in [HOW-TO-RUN.md](HOW-TO-RUN.md), the setup skill, and `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-podman-status-log.md`, and run them as written. Report what happened. Change code or scripts only when a documented step fails, and say which step failed.
-- **Reproduce the user's exact path first.** When the user reports a blocker, run or check the same thing they ran. Read what the app itself reports (for example `GET /api/forms/oracle-preview/readiness`) before theorizing.
-- **Shared code works on macOS. Do not edit it for Windows unless asked.** Add Windows support as separate files or Windows-only branches, and say in the change which macOS behavior could differ. Never replace a documented credential or command in a shared script without saying it changes the existing flow.
-- **Do not present guesses as findings.** Anything not run is "not verified". Boot times, readiness, and server phases come from logs, not memory.
-- **Never start, stop, or replace the user's containers on your own initiative**, including to test a script. Ask first.
-- **Update one file per form; never create copies.** The app saves a form by updating its one XML file, `samples/<form>_fmb.xml`, in place. Do not create `_edited_N`, `_copy`, `_v2`, or similar duplicates of a file, in `samples/` or anywhere else, and do not add code or scripts that do. Change the one file. The only exception is the app's own fallback for a lossy model summary, which may write a numbered `_edited_N_fmb.xml` so a complete XML is never replaced by a partial one. If you find untracked `_edited_*` files, tell the user, and delete them only when told. Do not use Build & Compile (14c) / Save & launch to test, because it rewrites the form's XML; use the manual steps in [HOW-TO-RUN.md](HOW-TO-RUN.md) section 7, which save nothing.
-- **Keep answers short when the user is blocked.** State what is verified, what is not, and the single next step.
-
----
-
-## Invariants & Rules
-
-### Architecture & Dependencies
-
-- **Zero JVM in Rust Workspace**: Never introduce Java, JVM, Javalin, or Node.js runtime/build dependencies into the Rust workspace (`crates/`).
-- **Zero Oracle Runtime Dependency**: Native parsing, extraction, PL/SQL interpretation, form sessions, and the Oracle Thin/SQLite/Mock database paths MUST work without Oracle Forms Builder, Oracle Client libraries, or Windows DLLs. The optional testbed SQL*Plus driver and Oracle compilation/FSAL bridge remain explicitly separate.
-- **Portability**: NEVER hardcode absolute machine paths in code, configuration, or documentation. Use workspace-relative paths (`./`, `samples/`, `docs/`) and configurable connection settings.
-- **Data Privacy & Git Hygiene**: `temp/` and `context/` are for repository-internal scratch work only; never place external project artifacts there, even temporarily. Never commit or stage files from these folders. Proprietary binaries, internal form files, and session memories must remain outside repository outputs. **Hard rule**: only forms/samples that originated in `samples/` may be saved or converted into `samples/`; external or `OFW_FORMS_PATH_EXTRA` sources are read-only and their outputs must go to an `OFW_WORK_DIR` or separate output directory outside this repository. Follow [`.agent/rules/cross-project-isolation.md`](.agent/rules/cross-project-isolation.md).
-- **Save Semantics**: ALWAYS distinguish **Save Form** (updates the form's one XML file, `samples/<form>_fmb.xml`, in place; never a copy per edit) from **Save Record** (database data). NEVER imply a form save rewrites the source FMB. Preserve unknown source XML for item patches; identify regenerated model summaries as potentially lossy.
-- **Oracle Preview Boundary**: MUST stage conversion/compilation in ignored job directories, preserve source artifacts, and show setup/compile failures. Oracle preview launches a Java desktop window on the server host and requires the optional reference stack. Readiness or compilation success MUST NOT be presented as visual or behavioral parity.
-- **Database & Credentials**: MUST retain read-only native sessions by default and explicit DML opt-in. NEVER persist passwords in source, saved XML, browser storage, or logs. Missing compile credentials MUST produce a useful error unless offline compilation was explicitly selected.
-- **Honest Capability Claims**: MUST distinguish direct binary heuristics, modeled XML support, and official Oracle conversion. Do not claim exhaustive Oracle built-in coverage, lossless structural regeneration, persisted UI-only font settings, or full report paper-layout round trips. AI-assisted authoring uses coding agents and the artifact/tooling workflow; do not invent an in-app AI service.
-
-### Coding Standards
-
-- **Direct In-Place Execution**: When implementing tasks, make changes directly to affected files in place. Do not artificially bottleneck or route code proposals through intermediate buffers or temporary files unless requested.
-- **Verification Gates**: After any modification, always verify from the repository root that:
-  ```bash
-  cargo check
-  cargo test
-  ```
-  All tests must compile and pass with zero warnings.
-
----
-
-## Architecture & Landmarks
-
-See [architecture.md](architecture.md) for crate boundaries, data flows, APIs, and the two-runtime design. The eight crates are `core`, `xml`, `binary`, `db`, `plsql`, `runtime`, `cli`, and `server` under `crates/oracle-forms-*`. `ui/` contains embedded vanilla HTML/CSS/JavaScript/SVG. `samples/` contains shared fixtures and the one saved XML per form. `plugins/oracle-forms/` holds optional reference automation; `oracle-reference-stack/` holds its container configuration.
+Read [architecture.md](architecture.md) before any setup, run, Oracle tooling, or Rust task. Two separate apps exist: **App 1** is the Rust workbench (`crates/oracle-forms-*`, `ui/`, `samples/`, port `7070`, zero JVM or Oracle runtime requirement); **App 2** is the optional Podman stack (`oracle-reference-stack/Containerfile.14c`, `compose.yaml` with `oracle23ai-lite` + `forms-server-14c`, and skills under `plugins/oracle-forms/.apm/skills/`). App 1 invokes App 2 only for **Compile Only (14c)** (`run_form.py --no-launch`), **Build & Compile (14c)** (`run_form.py`), and **Launch in 14c** (`launch_fsal.py`). On macOS, Rust runs natively and Podman runs in a VM with Rosetta; on Windows, **all** tooling (Podman in the `Ubuntu` WSL2 distro—never `podman.exe` or `podman-machine-default`—Python, Java 21 for FSAL, and Rust) MUST run inside Ubuntu WSL2, with `OFW_ORACLE_HOME` and `OFW_WORK_DIR` outside this checkout on Ubuntu's disk (never `/mnt/c`; native Windows Visual Studio builds are unsupported).
 
 ---
 
 ## Core Commands
 
-### Starting the Whole Stack (all platforms)
-
 ```bash
-python start_testbed.py              # database + Forms (Fusion Middleware) server + Rust app
-python start_testbed.py --no-forms   # database + Rust app only
-python start_testbed.py --status     # what is running
+python3 start_testbed.py [--no-forms|--status|--stop-rust|--stop-forms]  # stack lifecycle (needs user for sudo)
+cargo run -p oracle-forms-server                                         # native Rust UI on http://127.0.0.1:7070
+cargo check && cargo test                                                # required Rust gate (0 warnings)
+node --test tests/ui_*.test.cjs && python3 tests/test_reference_pipeline.py  # UI + pipeline test suites
+cargo run -p oracle-forms-cli -- inspect samples/orders_fmb.xml          # CLI: inspect | query | dump-sql | export-binary
 ```
 
-Prefer this script over hand-typed `podman start` and `cargo run` sequences. It starts existing containers only, waits for the database and the Forms server (15 to 45 minutes), and builds and starts the Rust app in the background if it is not already running; it never stops a running app unless you pass `--restart-rust` (log: `<OFW_WORK_DIR>/logs/oracle-forms-server.log`). Run inside WSL (recommended on Windows) it builds in WSL; from Windows PowerShell it runs Podman through WSL. It may prompt for the WSL `sudo` password, which an agent cannot enter. Do not run it, or start containers, on your own initiative. It is documented in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/starting-the-stack.md`.
+On Windows WSL2, launch Rust with `. "$HOME/.cargo/env"; export XDG_RUNTIME_DIR=/run/user/$(id -u) CARGO_TARGET_DIR=$HOME/ofw-target`. Check status with `start_testbed.py --status` first; if WSL reboots, let the user enter `sudo` to recreate `/run/user/<uid>`. Run Oracle utilities (`frmcmp_batch`, `rwconverter`) inside throwaway `podman run --rm` containers from `oracle-forms-14c:latest`, and provision, copy, or verify `OFW_ORACLE_HOME` (and verify the `forms-server-14c` `/oracle_home_14c` mount) only via `oracle-reference-stack/provision_oracle_home.sh`.
 
-### Running the Native Viewer
+---
 
-```bash
-cargo run -p oracle-forms-server
-# Serves http://127.0.0.1:7070
-```
+## Non-Negotiable Rules & Invariants
 
-### Windows: run everything inside WSL
+- **Mandatory Rules**: ALWAYS read all files in `.agent/rules/` (including [cross-project-isolation.md](.agent/rules/cross-project-isolation.md) and [document-every-step.md](.agent/rules/document-every-step.md)) first; if instructions conflict, follow the rule, tell the user, answer yes/no first, and confirm rule and change-log compliance at start and end.
+- **Document Every Step**: MUST log every change, error, and fix immediately in the change log and owning reference; keep how-to docs once in testbed references, script hand work, and mark anything unverified; see [document-every-step.md](.agent/rules/document-every-step.md).
+- **Cross-Project Isolation**: NEVER place external files or outputs in this repo (`samples/`, `temp/`, `context/`); keep `OFW_FORMS_PATH_EXTRA` read-only and direct external outputs to an external `OFW_WORK_DIR`; see [cross-project-isolation.md](.agent/rules/cross-project-isolation.md) and [project-file-inspection-authorization.md](.agent/rules/project-file-inspection-authorization.md).
+- **Coding Conventions**: MUST make edits directly in place, follow language headers and style rules, and run `cargo check` and `cargo test` with zero warnings after every modification; see [coding-conventions.md](.agent/rules/coding-conventions.md).
+- **Zero Runtime Coupling**: NEVER add JVM, Node.js, or Oracle runtime dependencies to `crates/`; native parsing, PL/SQL, sessions, and Thin/SQLite/Mock DB paths MUST work standalone, leaving Oracle compilation and FSAL strictly optional.
+- **Container & Operational Discipline**: NEVER start, stop, remove, or rebuild containers/images without approval; follow documented steps first, reproduce exact blockers (e.g. `GET /api/forms/oracle-preview/readiness`), keep shared macOS code intact, and give concise unblock steps.
+- **Save Semantics & Test Discipline**: ALWAYS distinguish Save Form (updates `samples/<form>_fmb.xml` in place; NEVER create `_edited_N`/`_copy`/`_v2` copies, excepting app lossy-summary fallback) from Save Record, and NEVER click Build & Compile (14c) / Save & launch on `samples/` to test.
+- **Credentials, Paths & Honest Claims**: NEVER hardcode machine paths or persist passwords (use git-ignored `.env`), keep native sessions read-only without DML opt-in, validate XML against `forms-14c.xsd`, and NEVER overstate parity or build/compile equivalence.
 
-On Windows, run the Rust app **inside the Ubuntu WSL distro**, next to the containers. This is the verified setup: it needs no Visual Studio, and it uses almost the same code path as macOS. The steps are in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/rust-workbench-setup.md`.
+---
 
-- Start the app from the Ubuntu shell at the repo root: `. "$HOME/.cargo/env"; export XDG_RUNTIME_DIR=/run/user/$(id -u) CARGO_TARGET_DIR=$HOME/ofw-target; cargo run -p oracle-forms-server`, or `python3 start_testbed.py`. It serves `http://127.0.0.1:7070`. Stop it with `Ctrl + C` or `python3 start_testbed.py --stop-rust`. To stop the Forms container: `python3 start_testbed.py --stop-forms` (graceful; it never kills processes).
-- The database and the Forms server run in containers inside WSL. After a Windows reboot or `wsl --shutdown`, Podman's runtime directory (`/run/user/<uid>`) is gone. Recreating it needs `sudo` in the Ubuntu shell, which an agent cannot enter, so ask the user to run the commands in `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/starting-the-stack.md`, then start `oracle23ai-lite` with `podman start`.
-- Database errors such as `Failed to connect ... actively refused it` mean the container is not running. Do not start or replace user containers on your own initiative.
-- **Launch in 14c** and **Build & Compile (14c)** work when the app runs in WSL. They run `python3` and `podman` natively, and FSAL uses WSL's Java 21. Oracle's FSAL does not run on Java 26 (`java/applet/AppletStub`), which is the Windows default here.
-- A native Windows build of the app (Visual Studio and the C++ requirements) was tried first and was a red herring: it took far more setup and WSL worked much better. Do not use it or suggest it; the record is in `DEPENDENCIES.md` section 3.1 and `references/windows-podman-setup.md` section 12. Do not start both copies; they share port 7070.
-- Credentials come from the git-ignored `.env` (copy `example.env`). Never print or commit its values.
-### Inspecting & Querying Modules via CLI
+## On-Demand Skills & Reference Index
 
-```bash
-# Inspect module structure
-cargo run -p oracle-forms-cli -- inspect samples/orders_fmb.xml
-cargo run -p oracle-forms-cli -- inspect samples/simple_module.fmb
-
-# Execute a live query (provide OFW_DB_USER / OFW_DB_PASSWORD in the environment)
-cargo run -p oracle-forms-cli -- query samples/test_db_fmb.xml --backend oracle-thin
-cargo run -p oracle-forms-cli -- query samples/orders_fmb.xml --backend mock
-
-# Dump extracted PL/SQL
-cargo run -p oracle-forms-cli -- dump-sql samples/orders_fmb.xml -o ./extracted-sql
-```
-
-## On-Demand References
-
-- Read [README.md](README.md) for the complete open/design/save/run/publish workflow and AI-assisted authoring examples.
-- Read [HOW-TO-RUN.md](HOW-TO-RUN.md) for server configuration, CLI usage, and database connections.
-- Read [Oracle automation](plugins/oracle-forms/README.md) and the relevant `.apm/skills/` instructions when converting, compiling, provisioning, or comparing with Oracle. The Preview dialog also provides dependency checks and startup guidance. The reference stack is validated on macOS (Podman machine with Rosetta) and Windows 11, where **everything runs inside WSL2**: the containers, Python, Java 21, and the Rust app. See `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-podman-status-log.md` and `plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/clean-clone-checklist.md` for the steps. Verified in WSL: `Launch in 14c` (pre-compiled `.fmx`), `Build & Compile (14c)`, `launch_fsal.py`, `health_check.py`, `compile_form.py`, `convert_fmb.py --check`, `ofw_sales.fmb`, the `frmbld` GUI through WSLg, `node --test tests/ui_*.test.cjs` (25 passed, 0 failed), `cargo check`, and `cargo test` (128 passed, 0 failed). Do not claim support for anything not verified there. The native Windows build (Visual Studio) is only an alternative, and is documented in `DEPENDENCIES.md` section 3.1. Do not start or replace user containers merely to update documentation.
-- Read [native architecture](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/native-rust-workbench-architecture.md) for detailed implementation context, and [roadmap](docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md) / [continuation status](docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md) before extending the current implementation. Keep completed work and unverified behavior distinct in status updates.
+- **Setup & Testbed**: `setting-up-oracle-testbed` (`SKILL.md`, `references/index.md`) — start at [`clean-clone-checklist.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/clean-clone-checklist.md), [`starting-the-stack.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/starting-the-stack.md), [`oracle-home-location.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/oracle-home-location.md), [`windows-podman-setup.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-podman-setup.md), [`windows-podman-status-log.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-podman-status-log.md), and [`windows-wsl-change-log.md`](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/windows-wsl-change-log.md).
+- **Conversion, Build & Parity Skills** (under `plugins/oracle-forms/.apm/skills/`): `converting-oracle-artifacts` (FMB/MMB/OLB/PLL/RDF, `test_conversions.py`, schema extraction), `compiling-and-running-oracle-forms` (`validate_forms_xml.py`, `compile_form.py`, `run_form.py` / `--no-launch`, `launch_fsal.py`, `forms-14c.xsd`), `testing-forms-parity`, and `comparing-forms-features`; read each `SKILL.md` and [plugins/oracle-forms/README.md](plugins/oracle-forms/README.md) before using.
+- **Run, Config & Architecture**: Read [README.md](README.md) for the end-to-end workflow, [HOW-TO-RUN.md](HOW-TO-RUN.md) for server/CLI/manual launch steps, [architecture.md](architecture.md) for crate/API boundaries, and [DEPENDENCIES.md](DEPENDENCIES.md) for Rust toolchain prerequisites.
+- **Plans & Parity Testing**: Read [`vision.md`](docs/plans/vision.md), [`14-MODERN-IDE-DUAL-ENGINE-PLAN.md`](docs/plans/14-MODERN-IDE-DUAL-ENGINE-PLAN.md), [`06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md`](docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md), and [`10-NEXT-PHASE-SESSION-PROMPT.md`](docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md) before extending features; run offline binary parity with `experiments/fmb-re-test/run_roundtrip.py`.
 

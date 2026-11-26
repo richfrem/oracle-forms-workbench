@@ -47,7 +47,7 @@ The Track 1 stack has been validated on two hosts. On macOS, Podman runs in a ma
 
 | Path | What it is |
 |---|---|
-| `crates/` | The Rust workspace (App 1): `oracle-forms-core` (model, diff, report types), `-xml` (Forms XML, PLD and report-XML reader/writer/patcher), `-binary` (direct ROS 60050 `.fmb`/`.mmb`/`.olb` extraction), `-db` (Oracle Thin, SQLite, Mock drivers, SQL generator), `-plsql` (lexer, parser, analysis), `-runtime` (form sessions, PL/SQL interpreter, triggers, report evaluator and renderer), `-cli`, `-server` (Axum web app: `routes.rs`, `service.rs`, `oracle_preview.rs`, `runtime_sessions.rs`, `security.rs`) |
+| `crates/` | The Rust workspace (App 1): `oracle-forms-core` (model, diff, report types), `-xml` (Forms XML, PLD and report-XML reader/writer/patcher), `-binary` (native `ROS.60050` `.fmb`/`.mmb`/`.olb`/`.pll` decoding via `ros.rs`/`ros_props.rs`, `.rdf` parsing/writing via `rdf.rs`, offline binary export via `RosBinaryWriter`), `-db` (Oracle Thin, SQLite, Mock drivers, SQL generator), `-plsql` (lexer, parser, analysis), `-runtime` (form sessions, PL/SQL interpreter, triggers, report evaluator and renderer), `-cli`, `-server` (Axum web app: `routes.rs`, `service.rs`, `oracle_preview.rs`, `runtime_sessions.rs`, `security.rs`) |
 | `ui/` | The browser frontend served by the Rust app: vanilla `index.html`, `app.js`, `preview.js`, `runtime.js`, `styles.css`. Embedded in the server binary |
 | `samples/` | Fixtures and the one saved XML per form (`samples/<form>_fmb.xml`, updated in place); `.fmb`, `.mmb`, `.olb`, `.rdf`, `.pld`, `.sql` |
 | `tests/` | Rust conformance tests (`xml_conformance_tests.rs`, `binary_recovery_tests.rs`), Python runner tests (`test_reference_pipeline.py`), and the frontend tests (`ui_*.test.cjs`) |
@@ -147,14 +147,14 @@ The root Cargo workspace contains eight crates:
 
 | Crate | Responsibility |
 |---|---|
-| `oracle-forms-core` | Canonical `ModuleIndex` and report models, blocks/items/canvases/windows, source references, sidecars, property/geometry support, and structural diffs. |
-| `oracle-forms-xml` | Streaming Forms XML and report XML parsing, PLD parsing, modeled XML writing, and original-XML item patching. Accepts supported legacy and Oracle attribute aliases. |
-| `oracle-forms-binary` | ROS 60050 binary extraction, PL/SQL and metadata discovery, and inferred model/layout information. Extraction is heuristic. |
+| `oracle-forms-core` | Canonical `ModuleIndex` (including `CompoundText`, `ObjectGroup`, `FormReportInfo`, `RawXmlNode` / `extra_attrs` / `extra_children`) and report models, blocks/items/canvases/windows, source references, sidecars, property/geometry support, and structural diffs. |
+| `oracle-forms-xml` | Streaming Forms XML and report XML parsing, PLD parsing, schema-aligned modeled XML writing (`FormsXmlWriter`), and original-XML item patching. Accepts supported legacy and Oracle attribute aliases and preserves unmodeled XSD attributes/children. |
+| `oracle-forms-binary` | Contiguous `ROS.60050` binary decoding (`ros.rs` + `ros_props.rs`: `0x00010000` stream with `+0x10` skip across `0xffffffd4` pages, `parent_vptr` + `0x0c` wrappers, `0x0505` B-tree PL/SQL, `MenuItem` `0x01d0`, compact 8 KB `.mmb`/`.olb`, `.pll`), `.rdf` parsing/writing (`rdf.rs`), and offline `ROS.60050` binary serialization (`writer.rs`: `RosBinaryWriter` for `.fmb`/`.mmb`/`.olb`; omits `0x3000..0x8000` tables needed by `frmcmp_batch`). |
 | `oracle-forms-db` | SQL generation and bound values, table description, and database drivers: native Oracle Thin, SQLite, Mock, and optional testbed SQL*Plus. |
 | `oracle-forms-plsql` | PL/SQL lexer/parser, AST, symbols, call graphs, references, and executability analysis. |
 | `oracle-forms-runtime` | PL/SQL interpretation, built-ins, trigger hierarchy, form sessions, record buffers, validation, master-detail behavior, and report evaluation/HTML rendering. |
-| `oracle-forms-cli` | `inspect`, `dump-sql`, `query`, `diff`, `export-xml`, and report inspection/execution. |
-| `oracle-forms-server` | Axum routes, module services/cache, embedded UI, model edits/saves, runtime sessions, reports, and optional Oracle preview job orchestration. |
+| `oracle-forms-cli` | `inspect`, `dump-sql`, `query`, `diff`, `export-xml`, `export-binary` (offline `ROS.60050` `.fmb`/`.mmb`/`.olb`/`.rdf`), and report inspection/execution. |
+| `oracle-forms-server` | Axum routes, module services/cache, embedded UI, model edits/saves, runtime sessions, reports, `export-binary`, and optional Oracle 14c conversion/preview job orchestration. |
 
 `core` supplies shared models. Parsers and database drivers consume those models; `runtime` combines database execution and PL/SQL interpretation. Server and CLI compose these capabilities. Oracle installation details remain in the reference bridge and automation, outside the native parsing/runtime contract.
 
@@ -169,11 +169,11 @@ The root Cargo workspace contains eight crates:
 
 ## Artifact ingestion and representation
 
-Forms XML and PLD text are parsed into the canonical model. Binary FMB/MMB/OLB input can use a sibling XML export where available; direct binary extraction is the fallback. The model carries extracted PL/SQL and sidecar source references for source browsing and analysis. Inferred binary geometry and missing-coordinate layouts are useful previews, not proof of original layout fidelity.
+Forms XML and PLD text are parsed into the canonical model. Binary FMB/MMB/OLB input can use a sibling XML export where available; native `ROS.60050` decoding (`ros.rs` + `ros_props.rs`) is the direct offline path when no sibling XML exists. The model carries extracted PL/SQL (including `MenuItem` `0x01d0`, `PropertyClass` triggers, and `0x0505` B-tree blobs) and sidecar source references for source browsing and analysis. Inferred geometry and missing-coordinate layouts are useful previews, not proof of original layout fidelity.
 
-Menus can be inspected and attached to forms; object libraries expose modeled content. Their inspection support must not be equated with complete visual editing or a dedicated standalone designer. PLL libraries use official export to PLD for native parsing. Reports use their own XML definition, query, parameter, grouping, and rendering pipeline; official `rwconverter` tooling handles binary report conversion.
+Menus can be inspected, attached to forms, exported to `_mmb.xml` or offline `ROS.60050` `.mmb`, and have `MenuItem` PL/SQL inspected in PL/SQL Studio; object libraries expose modeled content and `_olb.xml` / offline `.olb` export. Neither currently has a standalone visual editor in the Rust UI, and UI **Save Form** (`POST /api/forms/save`) is form-only. PLL libraries parse natively via `decode_ros60050_pll` / `.pld` and export to `.pld` (`export-xml`); `.pld` files are edited as text. Reports use their own XML definition, query, parameter, grouping, and HTML5 rendering pipeline (`parse_rdf_report` / `report_to_xml` / `write_rdf_report` exist natively); official `rwconverter` tooling (`convert_rpt.py`) handles authoritative 14c `.rdf` ↔ XML conversion.
 
-Opening, saving, or compiling an artifact does not make every Oracle property, trigger, or external dependency supported. Source coverage, native executability, Oracle compilation, and visual comparison are distinct results.
+Rust-built `ROS.60050` binaries (`RosBinaryWriter` / `export-binary`) support offline Rust round-trip testing; they do not emit Oracle's `0x3000..0x8000` dictionary tables, so Oracle 14c Fusion Middleware compilation (`XML2Forms` → `frmcmp_batch` → `.fmx`) always consumes XML/PLD definitions. Opening, saving, or compiling an artifact does not make every Oracle property, trigger, or external dependency supported. Source coverage, native executability, Oracle compilation, and visual comparison are distinct results.
 
 ## Designer and persistence
 
@@ -271,7 +271,7 @@ AI-assisted authoring uses XML, PL/SQL, CLI JSON inspection, extracted source, a
 | Concern | Routes |
 |---|---|
 | Open/inspect | `/api/samples`, `/api/files/browse`, `/api/open-sample/{name}`, `/api/open-file`, `/api/module/{module_name}/source`, `/api/module/{module_name}/xml` |
-| Author/save | `/api/forms/new`, `/api/forms/module/{module_name}/item`, `/sync`, `/attach-menu`, `/api/forms/export-xml`, `/api/forms/save` (short suffixes share the module prefix) |
+| Author/save/export | `/api/forms/new`, `/api/forms/module/{module_name}/item`, `/sync`, `/attach-menu`, `/api/forms/export-xml`, `/api/forms/export-binary`, `/api/artifacts/convert-to-xml`, `/api/forms/save` (short suffixes share the module prefix) |
 | Database | `/api/db/test`, `/api/db/describe`, `/api/forms/query-block` |
 | Native sessions | `/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/events`, `/api/sessions/{id}/alert` |
 | Oracle preview | `/api/forms/oracle-preview`, `/api/forms/oracle-preview/compiled`, `/api/forms/oracle-preview/{id}`, `/api/forms/oracle-preview/readiness` |

@@ -475,6 +475,8 @@ struct SaveFormRequest {
     offline: bool,
     #[serde(default)]
     precompiled: bool,
+    #[serde(default)]
+    compile_only: bool,
     forms_config: Option<String>,
     launch_params: Option<String>,
 }
@@ -515,8 +517,8 @@ async fn start_oracle_preview(State(service): State<FormsService>, Json(req): Js
         return session_error(400, error);
     }
     match service.save_form_file(&req.module_name) {
-        Ok((saved_path, filename, display_path, mode)) => match crate::oracle_preview::start(&saved_path, &filename, credentials, req.database.as_deref()) {
-            Ok(id) => Json(serde_json::json!({ "jobId": id, "fileName": filename, "path": display_path, "mode": mode })).into_response(),
+        Ok((saved_path, filename, display_path, mode)) => match crate::oracle_preview::start(&saved_path, &filename, credentials, req.database.as_deref(), req.compile_only) {
+            Ok(id) => Json(serde_json::json!({ "jobId": id, "fileName": filename, "path": display_path, "mode": mode, "compileOnly": req.compile_only })).into_response(),
             Err(error) => session_error(400, format!("Saved {}. Oracle preview failed: {}", display_path, error)),
         },
         Err(error) => session_error(400, error.to_string()),
@@ -1200,7 +1202,8 @@ mod tests {
             "moduleName": "orders_fmb.xml",
             "username": "forms_user",
             "password": "secret",
-            "database": "MY_ALIAS;bad"
+            "database": "MY_ALIAS;bad",
+            "compileOnly": true
         });
         let (status, body, _) = send(service, Request::builder().method("POST")
             .uri("/api/forms/oracle-preview").header("content-type", "application/json")
@@ -1208,6 +1211,14 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("Invalid target database"), "{body}");
         let _ = std::fs::remove_dir_all(cache);
+    }
+
+    #[test]
+    fn save_form_request_defaults_compile_only_false_and_accepts_true() {
+        let default_req: SaveFormRequest = serde_json::from_str(r#"{"moduleName":"ORDERS"}"#).unwrap();
+        assert!(!default_req.compile_only);
+        let compile_only_req: SaveFormRequest = serde_json::from_str(r#"{"moduleName":"ORDERS","compileOnly":true}"#).unwrap();
+        assert!(compile_only_req.compile_only);
     }
 
     #[tokio::test]

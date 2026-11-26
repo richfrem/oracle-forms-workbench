@@ -2,6 +2,15 @@
 
 This reference describes how **Oracle Forms Workbench** operates as an authoring, analysis, and containerized testbed for external Oracle Forms applications, how to configure the environment, and how strict workspace isolation is maintained between the public workbench and external project repositories.
 
+## Contents
+
+- [1. Architectural Model & Sibling Layout](#1-architectural-model--sibling-layout)
+- [2. Environment Configuration (`.env`)](#2-environment-configuration-env)
+- [3. Starting All Services (`start_testbed.py`)](#3-starting-all-services-start_testbedpy)
+- [4. The 3-Stage Compilation Pipeline for External Projects](#4-the-3-stage-compilation-pipeline-for-external-projects)
+- [5. Dedicated Runtime Segregation](#5-dedicated-runtime-segregation)
+- [6. Cross-Project Isolation Rules](#6-cross-project-isolation-rules)
+
 ---
 
 ## 1. Architectural Model & Sibling Layout
@@ -124,9 +133,9 @@ python3 "$C" --build-dir "$B" --types PLL,MMB,FMB --skip-compiled --app-name <ap
 
 ---
 
-## 5. Dedicated Runtime Segregation (`forms_apps/<app_name>/`)
+## 5. Dedicated Runtime Segregation
 
-To prevent multiple external applications from colliding or overwriting core product files:
+To prevent multiple external applications from colliding or overwriting core product files (`forms_apps/<app_name>/`):
 1. **Dedicated Application Directory:**
    ```text
    /oracle_home_14c/forms_apps/<app_name>/

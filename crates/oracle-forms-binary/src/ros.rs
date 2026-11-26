@@ -1,13 +1,19 @@
 use std::collections::{BTreeMap, HashMap};
 use oracle_forms_core::model::{
-    AlertInfo, AttachedLibraryInfo, BlockInfo, CanvasInfo, GraphicInfo, ItemInfo,
-    ListItemElementInfo, LovInfo, MenuInfo, MenuItemInfo, ObjectLibraryEntry,
+    AlertInfo, AttachedLibraryInfo, BlockDml, BlockInfo, CanvasInfo, CompoundTextInfo,
+    CoordinateInfo, GraphicInfo, ItemDml, ItemInfo, ListItemElementInfo, LovInfo, MenuInfo,
+    MenuItemInfo, ObjectGroupChildInfo, ObjectGroupInfo, ObjectLibraryEntry,
     ObjectLibraryTabInfo, ParameterInfo, PointInfo, ProgramUnitInfo, ProgramUnitType,
-    RadioButtonInfo, RecordGroupInfo, RelationInfo, TabPageInfo, TextEncoding, TriggerInfo,
-    TriggerLevel, WindowInfo,
+    PropertyClassInfo, RadioButtonInfo, RecordGroupInfo, RelationInfo, TabPageInfo, TextEncoding,
+    TextSegmentInfo, TriggerInfo, TriggerLevel, WindowInfo,
 };
 use oracle_forms_core::sidecars::{first_code_line, line_count_of};
 use crate::layout::GeneratedLayout;
+use crate::ros_props::{
+    enum_str, lookup_ros_prop, RosPropKind, COORD_SYSTEM_ENUM, DATA_SOURCE_TYPE_ENUM,
+    DATA_TYPE_ENUM, DML_DATA_TYPE_ENUM, EXEC_HIERARCHY_ENUM, FONT_SPACING_ENUM, FONT_STYLE_ENUM,
+    FONT_WEIGHT_ENUM, NAV_STYLE_ENUM, REAL_UNIT_ENUM, RECORD_ORIENTATION_ENUM,
+};
 
 const PAGE_SIZE: usize = 4096;
 const VPTR_BASE: u32 = 0x0001_0000;
@@ -26,6 +32,11 @@ struct RosRecord {
 pub struct DecodedRosModule {
     pub forms_version: String,
     pub module_name: Option<String>,
+    pub title: Option<String>,
+    pub console_window: Option<String>,
+    pub first_navigation_block_name: Option<String>,
+    pub runtime_comp: Option<String>,
+    pub coordinate: CoordinateInfo,
     pub menu_module: Option<String>,
     pub blocks: Vec<BlockInfo>,
     pub canvases: Vec<CanvasInfo>,
@@ -40,9 +51,12 @@ pub struct DecodedRosModule {
     pub parameters: Vec<ParameterInfo>,
     pub visual_attributes: Vec<String>,
     pub property_classes: Vec<String>,
+    pub property_class_details: Vec<PropertyClassInfo>,
     pub editors: Vec<String>,
     pub menus: Vec<MenuInfo>,
+    pub object_groups: Vec<ObjectGroupInfo>,
     pub object_library_tabs: Vec<ObjectLibraryTabInfo>,
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
 fn read_u16_be(bytes: &[u8], off: usize) -> u16 {
@@ -61,19 +75,24 @@ fn is_known_ros_obj_type(t: u16) -> bool {
     matches!(
         t,
         0x03 | 0x05 | 0x07 | 0x09 | 0x0b | 0x0c | 0x0d | 0x0f | 0x11 | 0x14 | 0x16 | 0x18
-            | 0x1e | 0x22 | 0x24 | 0x26 | 0x28 | 0x2a | 0x3a | 0x3c | 0x3e | 0x40 | 0x42
-            | 0x44 | 0x4a | 0x4e | 0x52 | 0x58 | 0x62
+            | 0x1e | 0x22 | 0x24 | 0x26 | 0x28 | 0x2a | 0x34 | 0x36 | 0x3a | 0x3c | 0x3e | 0x40
+            | 0x42 | 0x44 | 0x4a | 0x4e | 0x52 | 0x54 | 0x56 | 0x58 | 0x62
     )
 }
 
 fn item_type_from_ros(code: u32) -> Option<String> {
     match code {
+        0 => Some("Chart Item".to_string()),
         1 => Some("Check Box".to_string()),
         2 => Some("Display Item".to_string()),
+        3 => Some("Hierarchical Tree".to_string()),
+        4 => Some("Image".to_string()),
         5 => Some("List Item".to_string()),
         6 => Some("Push Button".to_string()),
         7 => Some("Radio Group".to_string()),
         8 => Some("Text Item".to_string()),
+        9 => Some("User Area".to_string()),
+        10 => Some("Bean Area".to_string()),
         _ => None,
     }
 }
@@ -82,8 +101,8 @@ fn canvas_type_from_ros(code: u32) -> Option<String> {
     match code {
         0 => Some("Content".to_string()),
         1 => Some("Stacked".to_string()),
-        2 => Some("Horizontal Toolbar".to_string()),
-        3 => Some("Vertical Toolbar".to_string()),
+        2 => Some("Vertical Toolbar".to_string()),
+        3 => Some("Horizontal Toolbar".to_string()),
         4 => Some("Tab".to_string()),
         _ => None,
     }
@@ -91,11 +110,14 @@ fn canvas_type_from_ros(code: u32) -> Option<String> {
 
 fn graphic_type_from_ros(code: u32) -> String {
     match code {
+        0 => "Arc".to_string(),
         1 => "Image".to_string(),
         2 => "Line".to_string(),
+        3 => "Polygon".to_string(),
         4 => "Rectangle".to_string(),
         5 => "Rounded Rectangle".to_string(),
         6 => "Text".to_string(),
+        7 => "Group".to_string(),
         8 => "Frame".to_string(),
         _ => "Rectangle".to_string(),
     }
@@ -196,13 +218,136 @@ fn resolve_cstr(vbytes: &[u8], vptr: u32) -> Option<String> {
     }
 }
 
-/// Extract PL/SQL text blobs (`0x0000004f 0x0084`) from data pages before `limit_off`.
+fn decode_latin1_str(slice: &[u8]) -> String {
+    slice.iter().map(|&b| b as char).collect()
+}
+
+fn parse_4f84_chunks(block: &[u8]) -> Vec<String> {
+    let mut chunks = Vec::new();
+    if block.len() < 0x2e || block[..6] != [0x00, 0x00, 0x00, 0x4f, 0x00, 0x84] {
+        return chunks;
+    }
+    let sub_len = read_u32_be(block, 0x24) as usize;
+    let stream_end = (0x28 + sub_len).min(block.len());
+    let mut p = 0x2ausize;
+    while p + 4 <= stream_end {
+        let slen = read_u32_be(block, p) as usize;
+        p += 4;
+        if slen == 0 {
+            break;
+        }
+        if p + slen > block.len() || slen > 256_000 {
+            break;
+        }
+        chunks.push(decode_latin1_str(&block[p..p + slen]));
+        p += slen;
+    }
+    chunks
+}
+
+fn read_var_uint_le(slice: &[u8]) -> u32 {
+    let mut v = 0u32;
+    for (i, &b) in slice.iter().take(4).enumerate() {
+        v |= (b as u32) << (i * 8);
+    }
+    v
+}
+
+fn read_var_uint_be(slice: &[u8]) -> u32 {
+    let mut v = 0u32;
+    for &b in slice.iter().take(4) {
+        v = (v << 8) | (b as u32);
+    }
+    v
+}
+
+/// Extract PL/SQL text blobs from `0x72000001` B-tree leaf `0x0505` rows (keyed by `col0 == 0x01d0`),
+/// falling back to direct `0x0000004f 0x0084` scanning for synthetic writer fixtures.
 fn extract_plsql_blobs(bytes: &[u8], limit_off: usize) -> HashMap<u32, Vec<String>> {
     let mut blobs = HashMap::new();
     let end = bytes.len().min(limit_off);
-    if end < 0x1008 {
+    if end < 0x1020 {
         return blobs;
     }
+
+    // 1. Primary path: 0x72000001 B-tree leaf pages with 0x05 0x05 rows.
+    let mut pg = 0x1000usize;
+    while pg + 0x20 <= end {
+        if bytes[pg + 0x0c..pg + 0x10] == [0x72, 0x00, 0x00, 0x01]
+            && bytes[pg + 0x10..pg + 0x14] == [0xff, 0xff, 0xff, 0xff]
+        {
+            let free = read_u16_be(bytes, pg + 8) as usize;
+            let live_end = if free < PAGE_SIZE {
+                (pg + PAGE_SIZE - free).min(end)
+            } else {
+                (pg + PAGE_SIZE).min(end)
+            };
+            let mut pos = pg + 0x14;
+            while pos + 16 <= live_end {
+                if bytes[pos..pos + 4] == [0xff, 0xff, 0xff, 0xff] {
+                    pos += 4;
+                    continue;
+                }
+                let rsz = read_u16_be(bytes, pos) as usize;
+                if bytes[pos + 2..pos + 4] == [0x05, 0x05]
+                    && rsz >= 16
+                    && pos + rsz <= live_end
+                {
+                    let c0 = ((read_u16_be(bytes, pos + 4) & 0x07ff) + 2) as usize;
+                    let c1 = ((read_u16_be(bytes, pos + 6) & 0x07ff) + 2) as usize;
+                    let c2 = ((read_u16_be(bytes, pos + 8) & 0x07ff) + 2) as usize;
+                    let c3 = ((read_u16_be(bytes, pos + 10) & 0x07ff) + 2) as usize;
+                    let c4 = ((read_u16_be(bytes, pos + 12) & 0x07ff) + 2) as usize;
+                    let eoff = ((read_u16_be(bytes, pos + 14) & 0x07ff) + 2) as usize;
+                    if c0 <= c1 && c1 <= c2 && c2 <= c3 && c3 <= c4 && c4 <= eoff && eoff <= rsz {
+                        let blob_id = read_var_uint_le(&bytes[pos + c0..pos + c1]);
+                        let total_bytes = read_var_uint_be(&bytes[pos + c1..pos + c2]) as usize;
+                        let ext_count = read_var_uint_be(&bytes[pos + c2..pos + c3]);
+                        let payload = &bytes[pos + c4..pos + eoff];
+                        if ext_count == 0 && total_bytes <= payload.len() {
+                            let chunks = parse_4f84_chunks(payload);
+                            if !chunks.is_empty() {
+                                blobs.insert(blob_id, chunks);
+                            }
+                        } else if payload.len() >= 4 {
+                            // External multi-page 0xffffffd4 blob: payload holds u32 page offsets.
+                            let mut assembled = Vec::with_capacity(total_bytes.min(1_000_000));
+                            for chunk_off in payload.chunks_exact(4) {
+                                let ext_pg = u32::from_be_bytes([
+                                    chunk_off[0],
+                                    chunk_off[1],
+                                    chunk_off[2],
+                                    chunk_off[3],
+                                ]) as usize;
+                                if ext_pg + PAGE_SIZE <= bytes.len()
+                                    && bytes[ext_pg + 4..ext_pg + 8] == OBJ_PAGE_TAG
+                                {
+                                    assembled.extend_from_slice(&bytes[ext_pg + 0x10..ext_pg + PAGE_SIZE]);
+                                }
+                            }
+                            if assembled.len() > total_bytes {
+                                assembled.truncate(total_bytes);
+                            }
+                            let chunks = parse_4f84_chunks(&assembled);
+                            if !chunks.is_empty() {
+                                blobs.insert(blob_id, chunks);
+                            }
+                        }
+                    }
+                    pos += rsz;
+                } else {
+                    pos += 2;
+                }
+            }
+        }
+        pg += PAGE_SIZE;
+    }
+
+    if !blobs.is_empty() {
+        return blobs;
+    }
+
+    // 2. Fallback for synthetic RosBinaryWriter output (direct 0x4f 0x84 scan).
     let mut off = 0x1000usize;
     while off + 8 <= end {
         if bytes[off..off + 6] == [0x00, 0x00, 0x00, 0x4f, 0x00, 0x84] {
@@ -214,8 +359,8 @@ fn extract_plsql_blobs(bytes: &[u8], limit_off: usize) -> HashMap<u32, Vec<Strin
                 let slen = read_u32_be(bytes, p) as usize;
                 if (2..=8000).contains(&slen) && p + 4 + slen <= limit {
                     let seg = &bytes[p + 4..p + 4 + slen];
-                    if seg.iter().all(|&b| is_printable_latin1(b)) {
-                        chunks.push(seg.iter().map(|&b| b as char).collect());
+                    if seg.iter().all(|&b| is_printable_latin1(b) || b >= 0x80) {
+                        chunks.push(decode_latin1_str(seg));
                         p += 4 + slen;
                         continue;
                     }
@@ -244,33 +389,42 @@ fn clean_plsql_chunks(chunks: &[String], is_program_unit: bool) -> String {
     } else {
         0
     };
+    let mut end_idx = chunks.len();
+    if !is_program_unit && end_idx > start_idx + 1 {
+        let last_trim = chunks[end_idx - 1].trim();
+        if last_trim.ends_with(')') && last_trim.contains('(') {
+            end_idx -= 1;
+        }
+    }
+    let slice = &chunks[start_idx..end_idx];
     let mut body_parts: Vec<&str> = Vec::new();
-    for (idx, chunk) in chunks.iter().enumerate().skip(start_idx) {
-        // Skip wrapper `BEGIN\n` / `\nEND;` and trailing `TRIGGER_NAME (SCOPE)` tag.
+    for (idx, chunk) in slice.iter().enumerate() {
         let trimmed = chunk.trim();
-        if !is_program_unit && idx == start_idx && trimmed == "BEGIN" && chunks.len() > start_idx + 2 {
-            continue;
-        }
-        if !is_program_unit && idx + 1 == chunks.len() && (trimmed.contains('(') || trimmed == "END;") {
-            continue;
-        }
-        if !is_program_unit
-            && idx + 2 == chunks.len()
-            && trimmed == "END;"
-            && chunks.last().map(|s| s.contains('(')).unwrap_or(false)
-        {
-            continue;
-        }
-        if is_program_unit && idx == start_idx && !trimmed.contains(' ') && chunks.len() > start_idx + 1 {
+        if is_program_unit && idx == 0 && !trimmed.contains(' ') && slice.len() > 1 {
             continue;
         }
         body_parts.push(chunk.as_str());
     }
-    if body_parts.is_empty() {
-        chunks.join("")
+    let mut joined = if body_parts.is_empty() {
+        slice.concat()
     } else {
-        body_parts.join("")
+        body_parts.concat()
+    };
+    if !is_program_unit {
+        let trimmed = joined.trim();
+        if let Some(after_begin) = trimmed
+            .strip_prefix("BEGIN\n")
+            .or_else(|| trimmed.strip_prefix("BEGIN\r\n"))
+        {
+            if let Some(inner) = after_begin
+                .strip_suffix("\nEND;")
+                .or_else(|| after_begin.strip_suffix("\r\nEND;"))
+            {
+                joined = inner.to_string();
+            }
+        }
     }
+    joined
 }
 
 fn scan_records(vbytes: &[u8]) -> Vec<RosRecord> {
@@ -346,8 +500,46 @@ fn resolve_parent_vptr(
     wrappers.get(&pvptr).copied().unwrap_or(pvptr)
 }
 
+fn prop_bool(rec: &RosRecord, pid: u16) -> Option<bool> {
+    prop_u32(rec, pid).map(|v| v != 0)
+}
+
+fn prop_enum(rec: &RosRecord, pid: u16, table: &[(u32, &'static str)]) -> Option<String> {
+    prop_u32(rec, pid)
+        .and_then(|v| enum_str(table, v))
+        .map(|s| s.to_string())
+}
+
+fn collect_extra_attrs(rec: &RosRecord, vbytes: &[u8]) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for &(pid, pval) in &rec.props {
+        let Some((attr_name, kind)) = lookup_ros_prop(rec.obj_type, pid) else {
+            continue;
+        };
+        if attr_name.is_empty() {
+            continue;
+        }
+        let val = match kind {
+            RosPropKind::SkipInternal => continue,
+            RosPropKind::Str => match resolve_cstr(vbytes, pval) {
+                Some(s) => s,
+                None => continue,
+            },
+            RosPropKind::Bool => (pval != 0).to_string(),
+            RosPropKind::UInt => pval.to_string(),
+            RosPropKind::SignedInt => (pval as i32).to_string(),
+            RosPropKind::Enum(table) => match enum_str(table, pval) {
+                Some(s) => s.to_string(),
+                None => continue,
+            },
+        };
+        map.entry(attr_name.to_string()).or_insert(val);
+    }
+    map
+}
+
 /// Decodes a full `ROS.60050` module (`.fmb`, `.mmb`, `.olb`) using the contiguous virtual
-/// object stream, `parent_vptr` + `0x0c` wrapper resolution, and `0x0000004f 0x0084` PL/SQL blobs.
+/// object stream, `parent_vptr` + `0x0c` wrapper resolution, and `0x72000001`/`0x0505` PL/SQL blobs.
 pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
     if bytes.len() < 0x1000 || !bytes.starts_with(b"ROS.") {
         return None;
@@ -358,7 +550,7 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
     } else if let Some(root_off) = find_compact_root_offset(bytes) {
         // Compact 8 KB .mmb / .olb files store records starting at the oid=1 root offset.
         let end = bytes.len().min(0x2010);
-        (bytes[root_off..end].to_vec(), 0x1000)
+        (bytes[root_off..end].to_vec(), root_off)
     } else {
         return None;
     };
@@ -385,7 +577,21 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
         }
     }
 
+    let mut root_vptr: u32 = VPTR_BASE;
+    for rec in &records {
+        if matches!(rec.obj_type, 0x16 | 0x26 | 0x11) {
+            root_vptr = rec.self_vptr;
+            break;
+        }
+    }
+
     let mut module_name: Option<String> = None;
+    let mut title: Option<String> = None;
+    let mut console_window: Option<String> = None;
+    let mut first_navigation_block_name: Option<String> = None;
+    let mut runtime_comp: Option<String> = None;
+    let mut coordinate = CoordinateInfo::default();
+    let mut module_extra_attrs: BTreeMap<String, String> = BTreeMap::new();
     let mut menu_module: Option<String> = None;
     let mut blocks: Vec<BlockInfo> = Vec::new();
     let mut block_idx_by_vptr: HashMap<u32, usize> = HashMap::new();
@@ -406,9 +612,14 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
     let mut parameters: Vec<ParameterInfo> = Vec::new();
     let mut visual_attributes: Vec<String> = Vec::new();
     let mut property_classes: Vec<String> = Vec::new();
+    let mut property_class_details: Vec<PropertyClassInfo> = Vec::new();
+    let mut pc_idx_by_vptr: HashMap<u32, usize> = HashMap::new();
     let mut editors: Vec<String> = Vec::new();
     let mut menus: Vec<MenuInfo> = Vec::new();
     let mut menu_idx_by_vptr: HashMap<u32, usize> = HashMap::new();
+    let mut object_groups: Vec<ObjectGroupInfo> = Vec::new();
+    let mut og_idx_by_vptr: HashMap<u32, usize> = HashMap::new();
+    let mut og_child_pending: Vec<(u32, ObjectGroupChildInfo)> = Vec::new();
     let mut olb_tabs: Vec<ObjectLibraryTabInfo> = Vec::new();
     let mut relations_pending: Vec<(u32, RelationInfo)> = Vec::new();
     let mut radio_pending: Vec<(u32, RadioButtonInfo)> = Vec::new();
@@ -418,6 +629,9 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
     let mut menu_item_pending: Vec<(u32, MenuItemInfo)> = Vec::new();
     let mut list_elem_pending: Vec<(u32, ListItemElementInfo)> = Vec::new();
     let mut point_pending: Vec<(u32, PointInfo)> = Vec::new();
+    let mut cmptxt_pending: Vec<(u32, u32, CompoundTextInfo)> = Vec::new();
+    let mut textseg_pending: Vec<(u32, TextSegmentInfo)> = Vec::new();
+    let mut pc_triggers_pending: Vec<(u32, TriggerInfo)> = Vec::new();
     let mut point_seq: usize = 0;
 
     for rec in &records {
@@ -453,34 +667,88 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
         match rec.obj_type {
             0x16 | 0x26 | 0x11 => {
                 module_name = Some(name);
+                module_extra_attrs = collect_extra_attrs(rec, &vbytes);
                 if rec.obj_type == 0x16 {
                     menu_module = prop_str(rec, &vbytes, 0x0061);
+                    title = prop_str(rec, &vbytes, 0x0133);
+                    console_window = prop_str(rec, &vbytes, 0x003b);
+                    first_navigation_block_name = prop_str(rec, &vbytes, 0x005d);
+                    runtime_comp = prop_str(rec, &vbytes, 0x02e0);
+                    let coord_sys = prop_enum(rec, 0x01d6, COORD_SYSTEM_ENUM);
+                    let real_unit = prop_enum(rec, 0x01d5, REAL_UNIT_ENUM);
+                    let cell_w = prop_u32(rec, 0x01d7).map(|v| v as i32);
+                    let cell_h = prop_u32(rec, 0x01d8).map(|v| v as i32);
+                    let font_scale = prop_bool(rec, 0x0047);
+                    if coord_sys.is_some()
+                        || real_unit.is_some()
+                        || cell_w.is_some()
+                        || cell_h.is_some()
+                        || font_scale.is_some()
+                    {
+                        coordinate = CoordinateInfo {
+                            present: true,
+                            coordinate_system: coord_sys,
+                            real_unit: real_unit.or_else(|| Some("Point".to_string())),
+                            character_cell_width: cell_w.unwrap_or(7),
+                            character_cell_height: cell_h.unwrap_or(14),
+                            default_font_scaling: font_scale.unwrap_or(true),
+                        };
+                    }
                 }
             }
             0x03 => {
-                alerts.push(AlertInfo {
-                    name,
-                    message: prop_str(rec, &vbytes, 0x000b),
-                    title: prop_str(rec, &vbytes, 0x0133),
-                    button1_label: None,
-                    button2_label: None,
-                    button3_label: None,
-                    default_button: None,
-                });
+                if pvptr == root_vptr || pvptr == 0 {
+                    alerts.push(AlertInfo {
+                        name,
+                        message: prop_str(rec, &vbytes, 0x000a),
+                        title: prop_str(rec, &vbytes, 0x0133),
+                        button1_label: prop_str(rec, &vbytes, 0x0006),
+                        button2_label: prop_str(rec, &vbytes, 0x0007),
+                        button3_label: prop_str(rec, &vbytes, 0x0008),
+                        default_button: prop_u32(rec, 0x0009).map(|v| (v + 1) as u8),
+                    });
+                }
             }
             0x05 => {
-                attached_libraries.push(AttachedLibraryInfo {
-                    name,
-                    library_location: prop_str(rec, &vbytes, 0x009c),
-                });
+                if pvptr == root_vptr || pvptr == 0 {
+                    attached_libraries.push(AttachedLibraryInfo {
+                        name,
+                        library_location: prop_str(rec, &vbytes, 0x009c),
+                    });
+                }
             }
             0x07 => {
                 let idx = blocks.len();
                 block_idx_by_vptr.insert(rec.self_vptr, idx);
+                let block_dml = BlockDml {
+                    database_block: prop_bool(rec, 0x0210),
+                    insert_allowed: prop_bool(rec, 0x0086),
+                    update_allowed: prop_bool(rec, 0x0142),
+                    delete_allowed: prop_bool(rec, 0x0041),
+                    query_allowed: prop_bool(rec, 0x0101),
+                    key_mode: None,
+                    lock_mode: None,
+                    dml_data_target_name: prop_str(rec, &vbytes, 0x0217),
+                    where_clause: prop_str(rec, &vbytes, 0x0167),
+                    order_by_clause: prop_str(rec, &vbytes, 0x00f1),
+                    sql_encoding: TextEncoding::Original,
+                };
                 blocks.push(BlockInfo {
                     name,
                     query_data_source_name: prop_str(rec, &vbytes, 0x020a),
                     records_displayed: prop_u32(rec, 0x010c).unwrap_or(1) as i32,
+                    distance_between_records: prop_u32(rec, 0x010e).unwrap_or(0) as i32,
+                    record_orientation: prop_enum(rec, 0x0112, RECORD_ORIENTATION_ENUM)
+                        .unwrap_or_else(|| "Vertical".to_string()),
+                    dml: if block_dml.is_empty() { None } else { Some(block_dml) },
+                    navigation_style: prop_enum(rec, 0x00d6, NAV_STYLE_ENUM),
+                    next_navigation_block_name: prop_str(rec, &vbytes, 0x00dd),
+                    previous_navigation_block_name: prop_str(rec, &vbytes, 0x00f4),
+                    show_scrollbar: prop_bool(rec, 0x0128),
+                    visual_attribute: prop_str(rec, &vbytes, 0x0148),
+                    dml_data_type: prop_enum(rec, 0x0216, DML_DATA_TYPE_ENUM),
+                    query_data_source_type: prop_enum(rec, 0x0208, DATA_SOURCE_TYPE_ENUM),
+                    extra_attrs: collect_extra_attrs(rec, &vbytes),
                     ..Default::default()
                 });
             }
@@ -492,9 +760,20 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                 if let Some(bi) = b_idx {
                     let ii = blocks[bi].items.len();
                     item_idx_by_vptr.insert(rec.self_vptr, (bi, ii));
+                    let item_dml = ItemDml {
+                        database_item: prop_bool(rec, 0x0014),
+                        insert_allowed: prop_bool(rec, 0x0086),
+                        update_allowed: prop_bool(rec, 0x0142),
+                        query_allowed: prop_bool(rec, 0x0101),
+                        required: prop_bool(rec, 0x011b),
+                        primary_key: prop_bool(rec, 0x00f5),
+                        maximum_length: prop_u32(rec, 0x00af).map(|v| v as i32),
+                        ..Default::default()
+                    };
                     blocks[bi].items.push(ItemInfo {
                         name,
                         item_type: prop_u32(rec, 0x008b).and_then(item_type_from_ros),
+                        data_type: prop_enum(rec, 0x008d, DATA_TYPE_ENUM),
                         column_name: prop_str(rec, &vbytes, 0x0158),
                         canvas_name: prop_str(rec, &vbytes, 0x0021),
                         tab_page_name: prop_str(rec, &vbytes, 0x01f2),
@@ -502,12 +781,26 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                         y_position: prop_u32(rec, 0x0175).unwrap_or(0) as i32,
                         width: prop_u32(rec, 0x0169).map(|v| v as i32),
                         height: prop_u32(rec, 0x0079).map(|v| v as i32),
+                        visible: prop_bool(rec, 0x004a).or(Some(true)),
+                        enabled: prop_bool(rec, 0x0056).unwrap_or(true),
+                        required: item_dml.required,
+                        lov_name: prop_str(rec, &vbytes, 0x00a5),
+                        dml: if item_dml.is_empty() { None } else { Some(item_dml) },
                         label: prop_str(rec, &vbytes, 0x0097),
                         prompt: prop_str(rec, &vbytes, 0x018a),
+                        hint: prop_str(rec, &vbytes, 0x007b),
+                        access_key: prop_str(rec, &vbytes, 0x0002),
+                        auto_hint: prop_bool(rec, 0x0011),
+                        keyboard_navigable: prop_bool(rec, 0x0096),
+                        mouse_navigate: prop_bool(rec, 0x00c3),
+                        items_display: prop_u32(rec, 0x008c).unwrap_or(1) as i32,
+                        distance_between_records: prop_u32(rec, 0x010e).unwrap_or(0) as i32,
+                        visual_attribute: prop_str(rec, &vbytes, 0x0148),
                         font_name: prop_str(rec, &vbytes, 0x0067),
                         font_size: prop_u32(rec, 0x0068).map(|v| v as i32),
                         fore_color: prop_str(rec, &vbytes, 0x006c),
                         back_color: prop_str(rec, &vbytes, 0x0013),
+                        extra_attrs: collect_extra_attrs(rec, &vbytes),
                         ..Default::default()
                     });
                 }
@@ -538,17 +831,17 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     canvas_type: prop_u32(rec, 0x002d).and_then(canvas_type_from_ros),
                     window_name: prop_str(rec, &vbytes, 0x016f).or_else(|| prop_str(rec, &vbytes, 0x0164)),
                     property_class: None,
-                    raise_on_enter: None,
+                    raise_on_enter: prop_bool(rec, 0x0107),
                     width: prop_u32(rec, 0x0169).unwrap_or(800) as i32,
                     height: prop_u32(rec, 0x0079).unwrap_or(600) as i32,
                     viewport_width: prop_u32(rec, 0x015f).map(|v| v as i32),
                     viewport_height: prop_u32(rec, 0x015e).map(|v| v as i32),
                     viewport_x_position: prop_u32(rec, 0x004e).unwrap_or(0) as i32,
                     viewport_y_position: prop_u32(rec, 0x004f).unwrap_or(0) as i32,
-                    viewport_x_position_on_canvas: None,
-                    viewport_y_position_on_canvas: None,
+                    viewport_x_position_on_canvas: prop_u32(rec, 0x0160).map(|v| v as i32),
+                    viewport_y_position_on_canvas: prop_u32(rec, 0x0161).map(|v| v as i32),
                     back_color: prop_str(rec, &vbytes, 0x0013),
-                    visual_attribute: None,
+                    visual_attribute: prop_str(rec, &vbytes, 0x0148),
                     inherited: None,
                     tab_pages: Vec::new(),
                 });
@@ -575,16 +868,46 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                 graphics.push(GraphicInfo {
                     name,
                     canvas_name: parent_canvas,
-                    graphics_type: prop_u32(rec, 0x0182)
+                    graphics_type: prop_u32(rec, 0x0093)
+                        .or_else(|| prop_u32(rec, 0x0182))
                         .map(graphic_type_from_ros)
                         .unwrap_or_else(|| "Rectangle".to_string()),
-                    frame_title: prop_str(rec, &vbytes, 0x0133),
+                    graphics_text: prop_str(rec, &vbytes, 0x0147),
+                    frame_title: prop_str(rec, &vbytes, 0x006d).or_else(|| prop_str(rec, &vbytes, 0x0133)),
                     x_position: prop_u32(rec, 0x0174).unwrap_or(0) as i32,
                     y_position: prop_u32(rec, 0x0175).unwrap_or(0) as i32,
                     width: prop_u32(rec, 0x0169).unwrap_or(0) as i32,
                     height: prop_u32(rec, 0x0079).unwrap_or(0) as i32,
+                    extra_attrs: collect_extra_attrs(rec, &vbytes),
                     ..Default::default()
                 });
+            }
+            0x54 => {
+                cmptxt_pending.push((
+                    pvptr,
+                    rec.self_vptr,
+                    CompoundTextInfo {
+                        name,
+                        text_segments: Vec::new(),
+                        extra_attrs: collect_extra_attrs(rec, &vbytes),
+                    },
+                ));
+            }
+            0x56 => {
+                textseg_pending.push((
+                    pvptr,
+                    TextSegmentInfo {
+                        name,
+                        text: prop_str(rec, &vbytes, 0x0147),
+                        font_name: prop_str(rec, &vbytes, 0x0067),
+                        font_size: prop_u32(rec, 0x0068).map(|v| v as i32),
+                        font_weight: prop_enum(rec, 0x006a, FONT_WEIGHT_ENUM),
+                        font_style: prop_enum(rec, 0x0069, FONT_STYLE_ENUM),
+                        font_spacing: prop_enum(rec, 0x006b, FONT_SPACING_ENUM),
+                        foreground_color: prop_str(rec, &vbytes, 0x006c),
+                        extra_attrs: collect_extra_attrs(rec, &vbytes),
+                    },
+                ));
             }
             0x4e => {
                 windows.push(WindowInfo {
@@ -592,8 +915,8 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     title: prop_str(rec, &vbytes, 0x0133),
                     width: prop_u32(rec, 0x0169).map(|v| v as i32),
                     height: prop_u32(rec, 0x0079).map(|v| v as i32),
-                    modal: None,
-                    horizontal_toolbar_canvas_name: None,
+                    modal: prop_bool(rec, 0x00c2),
+                    horizontal_toolbar_canvas_name: prop_str(rec, &vbytes, 0x007e),
                     vertical_toolbar_canvas_name: None,
                 });
             }
@@ -646,8 +969,37 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                 ));
             }
             0x4a => visual_attributes.push(name),
-            0x3c => property_classes.push(name),
+            0x3c => {
+                let idx = property_class_details.len();
+                pc_idx_by_vptr.insert(rec.self_vptr, idx);
+                property_classes.push(name.clone());
+                property_class_details.push(PropertyClassInfo {
+                    name,
+                    extra_attrs: collect_extra_attrs(rec, &vbytes),
+                    ..Default::default()
+                });
+            }
             0x14 => editors.push(name),
+            0x34 => {
+                let idx = object_groups.len();
+                og_idx_by_vptr.insert(rec.self_vptr, idx);
+                object_groups.push(ObjectGroupInfo {
+                    name,
+                    children: Vec::new(),
+                    extra_attrs: collect_extra_attrs(rec, &vbytes),
+                });
+            }
+            0x36 => {
+                og_child_pending.push((
+                    pvptr,
+                    ObjectGroupChildInfo {
+                        name,
+                        subclass_sub_object: prop_bool(rec, 0x0331),
+                        extra_attrs: collect_extra_attrs(rec, &vbytes),
+                        ..Default::default()
+                    },
+                ));
+            }
             0x28 => {
                 let idx = menus.len();
                 menu_idx_by_vptr.insert(rec.self_vptr, idx);
@@ -662,9 +1014,9 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     MenuItemInfo {
                         name,
                         label: prop_str(rec, &vbytes, 0x0097),
-                        command_type: None,
+                        command_type: prop_enum(rec, 0x0036, crate::ros_props::COMMAND_TYPE_ENUM),
                         sub_menu_name: None,
-                        menu_item_type: None,
+                        menu_item_type: prop_enum(rec, 0x00c1, crate::ros_props::MENU_ITEM_TYPE_ENUM),
                         command_ref: None,
                         text_encoding: TextEncoding::Original,
                     },
@@ -685,15 +1037,17 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                         (TriggerLevel::Item, bname, Some(iname.clone()))
                     }
                     Some((0x2a, _, _)) => (TriggerLevel::Menu, None, None),
+                    Some((0x3c, _, _)) => (TriggerLevel::PropertyClass, None, None),
                     _ => (TriggerLevel::Form, None, None),
                 };
-                let body = prop_u32(rec, 0x01d1)
+                let body = prop_u32(rec, 0x01d0)
+                    .or_else(|| prop_u32(rec, 0x01d1))
                     .or_else(|| prop_u32(rec, 0x01d3))
                     .and_then(|id| blobs.get(&id))
                     .map(|chunks| clean_plsql_chunks(chunks, false))
                     .unwrap_or_default();
-                triggers.push(TriggerInfo {
-                    execution_hierarchy: None,
+                let trig = TriggerInfo {
+                    execution_hierarchy: prop_enum(rec, 0x013b, EXEC_HIERARCHY_ENUM),
                     name,
                     level,
                     block_name,
@@ -705,10 +1059,16 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     text_ref: None,
                     xml_ref: None,
                     source_text: (!body.is_empty()).then_some(body),
-                });
+                };
+                if level == TriggerLevel::PropertyClass {
+                    pc_triggers_pending.push((pvptr, trig));
+                } else {
+                    triggers.push(trig);
+                }
             }
             0x3a => {
-                let body = prop_u32(rec, 0x01d3)
+                let body = prop_u32(rec, 0x01d0)
+                    .or_else(|| prop_u32(rec, 0x01d3))
                     .or_else(|| prop_u32(rec, 0x01d1))
                     .and_then(|id| blobs.get(&id))
                     .map(|chunks| clean_plsql_chunks(chunks, true))
@@ -793,6 +1153,37 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
             last_g.points.push(pt);
         }
     }
+    for (ct_pvptr, seg) in textseg_pending {
+        if let Some((_, _, ct)) = cmptxt_pending.iter_mut().find(|(_, sv, _)| *sv == ct_pvptr) {
+            ct.text_segments.push(seg);
+        }
+    }
+    for (g_pvptr, _, ct) in cmptxt_pending {
+        if let Some(&gi) = graphic_idx_by_vptr.get(&g_pvptr) {
+            if graphics[gi].graphics_text.is_none() {
+                let combined: String = ct
+                    .text_segments
+                    .iter()
+                    .filter_map(|s| s.text.as_deref())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !combined.is_empty() {
+                    graphics[gi].graphics_text = Some(combined);
+                }
+            }
+            graphics[gi].compound_texts.push(ct);
+        }
+    }
+    for (pvptr, trig) in pc_triggers_pending {
+        if let Some(&pi) = pc_idx_by_vptr.get(&pvptr) {
+            property_class_details[pi].triggers.push(trig);
+        }
+    }
+    for (pvptr, ch) in og_child_pending {
+        if let Some(&oi) = og_idx_by_vptr.get(&pvptr) {
+            object_groups[oi].children.push(ch);
+        }
+    }
 
     let header_prefix = String::from_utf8_lossy(&bytes[..16.min(bytes.len())]);
     let forms_version = if header_prefix.starts_with("ROS.60050") {
@@ -804,6 +1195,11 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
     Some(DecodedRosModule {
         forms_version,
         module_name,
+        title,
+        console_window,
+        first_navigation_block_name,
+        runtime_comp,
+        coordinate,
         menu_module,
         blocks,
         canvases,
@@ -818,9 +1214,12 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
         parameters,
         visual_attributes,
         property_classes,
+        property_class_details,
         editors,
         menus,
+        object_groups,
         object_library_tabs: olb_tabs,
+        extra_attrs: module_extra_attrs,
     })
 }
 

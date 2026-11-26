@@ -146,8 +146,8 @@ fn item_type_to_ros(item_type: Option<&str>) -> u32 {
 fn canvas_type_to_ros(canvas_type: Option<&str>) -> u32 {
     match canvas_type.unwrap_or("Content") {
         "Stacked" => 1,
-        "Horizontal Toolbar" => 2,
-        "Vertical Toolbar" => 3,
+        "Vertical Toolbar" => 2,
+        "Horizontal Toolbar" => 3,
         "Tab" => 4,
         _ => 0,
     }

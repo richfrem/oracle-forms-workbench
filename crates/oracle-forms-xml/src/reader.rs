@@ -164,6 +164,8 @@ impl FormsXmlParser {
         let mut object_refs: Vec<ObjectRef> = Vec::new();
         let mut first_navigation_block_name: Option<String> = None;
         let mut runtime_comp: Option<String> = None;
+        let mut module_title: Option<String> = None;
+        let mut console_window: Option<String> = None;
         let mut object_groups: Vec<ObjectGroupInfo> = Vec::new();
         let mut form_reports: Vec<FormReportInfo> = Vec::new();
         let mut module_extra_attrs: BTreeMap<String, String> = BTreeMap::new();
@@ -229,6 +231,8 @@ impl FormsXmlParser {
                         &mut current_tab,
                         &mut first_navigation_block_name,
                         &mut runtime_comp,
+                        &mut module_title,
+                        &mut console_window,
                         &mut object_groups,
                         &mut form_reports,
                         &mut module_extra_attrs,
@@ -267,6 +271,8 @@ impl FormsXmlParser {
                         &mut current_tab,
                         &mut first_navigation_block_name,
                         &mut runtime_comp,
+                        &mut module_title,
+                        &mut console_window,
                         &mut object_groups,
                         &mut form_reports,
                         &mut module_extra_attrs,
@@ -383,6 +389,8 @@ impl FormsXmlParser {
             object_refs,
             first_navigation_block_name,
             runtime_comp,
+            title: module_title,
+            console_window,
             object_groups,
             form_reports,
             extra_attrs: module_extra_attrs,
@@ -421,6 +429,8 @@ impl FormsXmlParser {
         current_tab: &mut Option<ObjectLibraryTabInfo>,
         first_navigation_block_name: &mut Option<String>,
         runtime_comp: &mut Option<String>,
+        module_title: &mut Option<String>,
+        console_window: &mut Option<String>,
         object_groups: &mut Vec<ObjectGroupInfo>,
         form_reports: &mut Vec<FormReportInfo>,
         module_extra_attrs: &mut BTreeMap<String, String>,
@@ -465,6 +475,8 @@ impl FormsXmlParser {
                 *menu_module = get_attr(e, "MenuModule");
                 *first_navigation_block_name = get_attr(e, "FirstNavigationBlockName");
                 *runtime_comp = get_attr(e, "RuntimeComp");
+                *module_title = get_attr(e, "Title");
+                *console_window = get_attr(e, "ConsoleWindow");
                 *module_extra_attrs = collect_attrs(e);
             }
             "MenuModule" | "ObjectLibrary" => {
@@ -475,6 +487,7 @@ impl FormsXmlParser {
             }
             "Coordinate" => {
                 *coordinate_info = CoordinateInfo {
+                    present: true,
                     coordinate_system: get_attr(e, "CoordinateSystem"),
                     real_unit: get_attr(e, "RealUnit").or_else(|| Some("Point".to_string())),
                     character_cell_width: get_int_attr(e, "CharacterCellWidth").unwrap_or(7),
@@ -758,6 +771,7 @@ impl FormsXmlParser {
                     inherited,
                     points: Vec::new(),
                     compound_texts: Vec::new(),
+                    children: Vec::new(),
                     extra_attrs: collect_attrs(e),
                 });
             }
@@ -767,6 +781,7 @@ impl FormsXmlParser {
                         g.compound_texts.push(CompoundTextInfo {
                             name: name.clone().unwrap_or_else(|| format!("CMPTXT_{}", g.compound_texts.len() + 1)),
                             text_segments: Vec::new(),
+                            extra_attrs: collect_attrs(e),
                         });
                     }
                 }
@@ -774,15 +789,29 @@ impl FormsXmlParser {
             "TextSegment" => {
                 if parent_element.as_deref() == Some("CompoundText") {
                     if let Some(g) = graphics.last_mut() {
+                        let seg_text = get_attr(e, "Text").map(|s| decode_double_escaped(&s).text);
+                        if let Some(ref st) = seg_text {
+                            match g.graphics_text {
+                                Some(ref mut existing) if !existing.is_empty() => {
+                                    existing.push('\n');
+                                    existing.push_str(st);
+                                }
+                                _ => {
+                                    g.graphics_text = Some(st.clone());
+                                }
+                            }
+                        }
                         if let Some(ct) = g.compound_texts.last_mut() {
                             ct.text_segments.push(TextSegmentInfo {
                                 name: name.clone().unwrap_or_else(|| format!("TEXTSTR_{}", ct.text_segments.len() + 1)),
-                                text: get_attr(e, "Text").map(|s| decode_double_escaped(&s).text),
+                                text: seg_text,
                                 font_name: get_attr(e, "FontName"),
                                 font_size: get_int_attr(e, "FontSize"),
                                 font_weight: get_attr(e, "FontWeight"),
                                 font_style: get_attr(e, "FontStyle"),
+                                font_spacing: get_attr(e, "FontSpacing"),
                                 foreground_color: get_attr(e, "ForegroundColor"),
+                                extra_attrs: collect_attrs(e),
                             });
                         }
                     }
@@ -793,6 +822,7 @@ impl FormsXmlParser {
                     object_groups.push(ObjectGroupInfo {
                         name: name.clone().unwrap_or_default(),
                         children: Vec::new(),
+                        extra_attrs: collect_attrs(e),
                     });
                 }
             }
@@ -802,6 +832,9 @@ impl FormsXmlParser {
                         og.children.push(ObjectGroupChildInfo {
                             name: name.clone().unwrap_or_default(),
                             subclass_sub_object: get_bool_attr(e, "SubclassSubObject"),
+                            object_type: get_attr(e, "Type"),
+                            program_unit_type: get_attr(e, "ProgramUnitType"),
+                            extra_attrs: collect_attrs(e),
                         });
                     }
                 }
@@ -816,6 +849,7 @@ impl FormsXmlParser {
                         destype: get_attr(e, "Destype"),
                         desformat: get_attr(e, "Desformat"),
                         desname: get_attr(e, "Desname"),
+                        extra_attrs: collect_attrs(e),
                     });
                 }
             }
@@ -827,6 +861,7 @@ impl FormsXmlParser {
                     Some("Block") => TriggerLevel::Block,
                     Some("Item") => TriggerLevel::Item,
                     Some("Menu") | Some("MenuItem") => TriggerLevel::Menu,
+                    Some("PropertyClass") => TriggerLevel::PropertyClass,
                     _ => TriggerLevel::Form,
                 };
                 let trigger_name = name.clone().unwrap_or_default();
@@ -860,7 +895,7 @@ impl FormsXmlParser {
                     _ => {}
                 }
 
-                triggers.push(TriggerInfo {
+                let trig = TriggerInfo {
                     name: trigger_name,
                     level,
                     block_name,
@@ -873,7 +908,14 @@ impl FormsXmlParser {
                     xml_ref: None,
                     source_text: Some(text.clone()),
                     execution_hierarchy: get_attr(e, "ExecuteHierarchy").or_else(|| get_attr(e, "ExecutionHierarchy")),
-                });
+                };
+                if level == TriggerLevel::PropertyClass {
+                    if let Some(pc) = property_class_details.last_mut() {
+                        pc.triggers.push(trig);
+                    }
+                } else {
+                    triggers.push(trig);
+                }
             }
             "ProgramUnit" => {
                 let unit_type_str = get_attr(e, "ProgramUnitType").unwrap_or_default();
@@ -1010,6 +1052,9 @@ impl FormsXmlParser {
                         prompt_align: get_attr(e, "PromptAlign"),
                         items_display: get_int_attr(e, "ItemsDisplay").or_else(|| get_int_attr(e, "ItemsDisplayed")),
                         distance_between_records: get_int_attr(e, "DistanceBetweenRecords"),
+                        triggers: Vec::new(),
+                        smart_class: get_bool_attr(e, "SmartClass"),
+                        extra_attrs: collect_attrs(e),
                     });
                 }
             }

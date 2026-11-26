@@ -3260,7 +3260,7 @@
         svgHtml += renderSvgMultilineText(
           gx,
           gy + 12,
-          g.graphicsText || g.name,
+          g.graphicsText || g.compoundTexts?.flatMap(ct => ct.textSegments || []).map(s => s.text).filter(Boolean).join('\n') || g.name,
           `style="cursor:pointer;" onclick="window.selectSvgGraphic('${escapeHtml(g.name)}')" font-family="${escapeHtml(txtFont)}" font-size="${txtSize}" font-weight="${escapeHtml(txtWeight)}" fill="${escapeHtml(txtCol)}"`,
           txtSize + 3
         );

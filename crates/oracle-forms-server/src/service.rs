@@ -687,6 +687,20 @@ impl FormsService {
     /// Otherwise (binary .fmb) a summary is regenerated from the parsed model.
     pub fn export_xml(&self, module_name: &str) -> Result<(String, ExportMode)> {
         let module = self.get_or_load_module(module_name)?;
+        if module.key.module_type == ModuleType::Library {
+            let pld = module
+                .program_units
+                .iter()
+                .filter_map(|pu| pu.source_text.as_deref())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let mode = if module.source_file.to_ascii_lowercase().ends_with(".pld") {
+                ExportMode::PatchedOriginal
+            } else {
+                ExportMode::Summary
+            };
+            return Ok((pld, mode));
+        }
         let key = module.key.name.to_ascii_uppercase();
         if self.state.read().unwrap().model_edited.contains(&key) {
             return Ok((Self::summary_xml(&module), ExportMode::Summary));

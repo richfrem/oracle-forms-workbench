@@ -1013,6 +1013,12 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                 });
             }
             0x2a => {
+                let body = prop_u32(rec, 0x01d0)
+                    .or_else(|| prop_u32(rec, 0x01d1))
+                    .or_else(|| prop_u32(rec, 0x01d3))
+                    .and_then(|id| blobs.get(&id))
+                    .map(|chunks| clean_plsql_chunks(chunks, false))
+                    .unwrap_or_default();
                 menu_item_pending.push((
                     pvptr,
                     MenuItemInfo {
@@ -1022,6 +1028,7 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                         sub_menu_name: None,
                         menu_item_type: prop_enum(rec, 0x00c1, crate::ros_props::MENU_ITEM_TYPE_ENUM),
                         command_ref: None,
+                        command_text: (!body.is_empty()).then_some(body),
                         text_encoding: TextEncoding::Original,
                     },
                 ));

@@ -54,6 +54,8 @@ flowchart TD
 | PL/SQL Studio | Source browsing (`Form`, `Block`, `Item`, `PropertyClass`, `MenuItem` triggers & program units), split view, code analysis, and runtime diagnostics for the implemented PL/SQL subset. |
 | Database access | Pure-native Oracle Thin, embedded SQLite, and explicit Mock backend. An optional SQL*Plus testbed driver is also available. |
 
+> **What is `ROS.60050`?** `ROS` stands for Oracle's **Resource Object Store**, the binary container format whose `ROS.60050` ASCII header sits at offset `0x00` of Oracle Forms source binaries (`.fmb`, `.mmb`, `.olb`, and `.pll`). Although commonly associated with Forms 6i, Oracle Forms 14c (`XML2Forms` / `frmbld`) still writes `ROS.60050` source binaries (distinct from compiled `.fmx`/`.mmx`/`.plx` runtime executables and Oracle Reports `.rdf` files). XML/`PLD` workflows in this workbench do not require binary parsing at all; `crates/oracle-forms-binary` decodes `ROS.60050` (and `.rdf`) directly in Rust so you can inspect legacy or 14c binary files offline with no Oracle install.
+
 Native `ROS.60050` binary parsing (`oracle-forms-binary`) is structurally accurate across most sample forms/menus, while `Forms2XML` (`Convert via Oracle (14c)`) remains authoritative when complete Oracle XML attribute fidelity is required. `RosBinaryWriter` (`Build Binary (Rust)` / `export-binary`) emits `ROS.60050` binaries for **offline Rust round-trip testing**—it does not emit Oracle's `0x3000..0x8000` internal dictionary tables, so deploying to Oracle Fusion Middleware always compiles from XML/PLD through Oracle 14c (`XML2Forms` → `frmcmp_batch`). Native execution interprets the supported form model and PL/SQL subset; it does not produce `.fmx` executables.
 
 ## Quickstart: native design and execution

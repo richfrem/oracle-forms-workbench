@@ -19,6 +19,8 @@ Use this guide to choose between the **Rust native engine** (instant, offline, z
 
 ## Rust native capabilities and honest boundaries
 
+> **What `ROS.60050` means:** `ROS` stands for Oracle's **Resource Object Store**, the binary storage format whose `ROS.60050` ASCII header appears at byte `0x00` of Oracle Forms source binaries (`.fmb`, `.mmb`, `.olb`, and `.pll`) from Forms 6i through Oracle 14c `XML2Forms` (whereas compiled `.fmx`/`.mmx`/`.plx` runtime files use a different little-endian compiled format, and `.rdf` uses Reports' binary layout). XML/`PLD` workflows never depend on `ROS.60050` decoding; `oracle-forms-binary` implements it so the Rust workbench can open binary modules directly without an Oracle install.
+
 - **`.fmb` / `.mmb` / `.olb`**: `decode_ros60050_module` (`ros.rs` + `ros_props.rs`) reads contiguous `0x00010000` virtual object streams (`+0x10` header skip on every `0xffffffd4` page), `parent_vptr` + `0x0c` wrappers, `0x72000001`/`0x0505` B-tree PL/SQL blobs (`0x01d0` `MenuItem`, `0x01d1` Trigger, `0x01d3` ProgramUnit, `PropertyClass` triggers), `CompoundText`, `ObjectGroup`, `ListItemElement` (`0x22`), `Point` (`0x52`), and compact 8 KB `.mmb`/`.olb` modules.
 - **`.pll` → `.pld`**: `decode_ros60050_pll` extracts program units from `ROS.60050` libraries; `export-xml` outputs `.pld` text.
 - **`.rdf` → Report XML**: `parse_rdf_report` extracts report title, `Q_*` data source, `SELECT` SQL, `G_*` group, and `dataItem` columns.

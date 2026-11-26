@@ -106,6 +106,8 @@ impl PldParser {
             object_refs: Vec::new(),
             first_navigation_block_name: None,
             runtime_comp: None,
+            title: None,
+            console_window: None,
             object_groups: Vec::new(),
             form_reports: Vec::new(),
             extra_attrs: Default::default(),

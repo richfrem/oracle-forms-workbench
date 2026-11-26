@@ -118,6 +118,8 @@ pub struct ModuleFingerprint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoordinateInfo {
+    #[serde(default)]
+    pub present: bool,
     pub coordinate_system: Option<String>,
     pub real_unit: Option<String>,
     pub character_cell_width: i32,
@@ -128,6 +130,7 @@ pub struct CoordinateInfo {
 impl Default for CoordinateInfo {
     fn default() -> Self {
         Self {
+            present: false,
             coordinate_system: None,
             real_unit: Some("Point".to_string()),
             character_cell_width: 7,
@@ -770,10 +773,12 @@ pub struct GraphicInfo {
     #[serde(default)]
     pub compound_texts: Vec<CompoundTextInfo>,
     #[serde(default)]
+    pub children: Vec<GraphicInfo>,
+    #[serde(default)]
     pub extra_attrs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextSegmentInfo {
     pub name: String,
@@ -788,34 +793,48 @@ pub struct TextSegmentInfo {
     #[serde(default)]
     pub font_style: Option<String>,
     #[serde(default)]
+    pub font_spacing: Option<String>,
+    #[serde(default)]
     pub foreground_color: Option<String>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompoundTextInfo {
     pub name: String,
     #[serde(default)]
     pub text_segments: Vec<TextSegmentInfo>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectGroupChildInfo {
     pub name: String,
     #[serde(default)]
     pub subclass_sub_object: Option<bool>,
+    #[serde(default)]
+    pub object_type: Option<String>,
+    #[serde(default)]
+    pub program_unit_type: Option<String>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectGroupInfo {
     pub name: String,
     #[serde(default)]
     pub children: Vec<ObjectGroupChildInfo>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormReportInfo {
     pub name: String,
@@ -831,6 +850,8 @@ pub struct FormReportInfo {
     pub desformat: Option<String>,
     #[serde(default)]
     pub desname: Option<String>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
 fn default_graphic_type() -> String { "Rectangle".to_string() }
@@ -842,6 +863,7 @@ pub enum TriggerLevel {
     Block,
     Item,
     Menu,
+    PropertyClass,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1001,6 +1023,12 @@ pub struct PropertyClassInfo {
     pub items_display: Option<i32>,
     #[serde(default)]
     pub distance_between_records: Option<i32>,
+    #[serde(default)]
+    pub triggers: Vec<TriggerInfo>,
+    #[serde(default)]
+    pub smart_class: Option<bool>,
+    #[serde(default)]
+    pub extra_attrs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1109,6 +1137,10 @@ pub struct ModuleIndex {
     pub first_navigation_block_name: Option<String>,
     #[serde(default)]
     pub runtime_comp: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub console_window: Option<String>,
     #[serde(default)]
     pub object_groups: Vec<ObjectGroupInfo>,
     #[serde(default)]

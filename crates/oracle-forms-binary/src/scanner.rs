@@ -271,12 +271,21 @@ impl BinaryFmbParser {
             parameters,
             visual_attributes,
             property_classes,
+            property_class_details,
             editors,
             menu_module,
             menus,
             object_library_tabs,
+            coordinate,
+            title,
+            console_window,
+            first_navigation_block_name,
+            runtime_comp,
+            object_groups,
+            extra_attrs,
         ) = if let Some(mut ros_mod) = decoded_ros {
-            // Merge ROS-decoded triggers with sidecar files
+            // Use ROS-decoded triggers directly (never merge regex-scraped binary fragments)
+            triggers.clear();
             for mut trig in ros_mod.triggers {
                 let scope = match (&trig.block_name, &trig.item_name) {
                     (Some(b), Some(i)) => format!("{}.{}", b, i),
@@ -291,20 +300,24 @@ impl BinaryFmbParser {
                         }
                     }
                 }
-                if let Some(existing) = triggers.iter_mut().find(|t| {
-                    t.name.eq_ignore_ascii_case(&trig.name)
-                        && t.block_name == trig.block_name
-                        && t.item_name == trig.item_name
-                }) {
-                    if trig.source_text.is_some() {
-                        *existing = trig;
+                triggers.push(trig);
+            }
+
+            for pc in &mut ros_mod.property_class_details {
+                for trig in &mut pc.triggers {
+                    let sig = format!("{}.{}", pc.name, trig.name);
+                    if let Some(body) = trig.source_text.as_deref() {
+                        if !body.trim().is_empty() {
+                            if let Ok(tref) = sidecars.write(PlsqlSidecars::TRIGGERS, &sig, body) {
+                                trig.text_ref = Some(tref);
+                            }
+                        }
                     }
-                } else {
-                    triggers.push(trig);
                 }
             }
 
-            // Merge ROS-decoded program units with sidecar files
+            // Use ROS-decoded program units directly
+            program_units.clear();
             for mut pu in ros_mod.program_units {
                 let type_name = format!("{:?}", pu.unit_type).to_ascii_uppercase();
                 if let Some(body) = pu.source_text.as_deref() {
@@ -318,16 +331,7 @@ impl BinaryFmbParser {
                         }
                     }
                 }
-                if let Some(existing) = program_units
-                    .iter_mut()
-                    .find(|p| p.name.eq_ignore_ascii_case(&pu.name))
-                {
-                    if pu.source_text.is_some() {
-                        *existing = pu;
-                    }
-                } else {
-                    program_units.push(pu);
-                }
+                program_units.push(pu);
             }
 
             let has_positioned_item = ros_mod
@@ -355,19 +359,23 @@ impl BinaryFmbParser {
                 ros_mod.graphics,
                 ros_mod.attached_libraries,
                 ros_mod.lovs,
-                if ros_mod.record_groups.is_empty() {
-                    record_groups
-                } else {
-                    ros_mod.record_groups
-                },
+                ros_mod.record_groups,
                 ros_mod.alerts,
                 ros_mod.parameters,
                 ros_mod.visual_attributes,
                 ros_mod.property_classes,
+                ros_mod.property_class_details,
                 ros_mod.editors,
                 ros_mod.menu_module,
                 ros_mod.menus,
                 ros_mod.object_library_tabs,
+                ros_mod.coordinate,
+                ros_mod.title,
+                ros_mod.console_window,
+                ros_mod.first_navigation_block_name,
+                ros_mod.runtime_comp,
+                ros_mod.object_groups,
+                ros_mod.extra_attrs,
             )
         } else {
             let layout = generate_2column_layout(&key.name, &discovered_items_by_block, &text_latin1);
@@ -384,9 +392,17 @@ impl BinaryFmbParser {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 None,
                 Vec::new(),
                 Vec::new(),
+                CoordinateInfo::default(),
+                None,
+                None,
+                None,
+                None,
+                Vec::new(),
+                Default::default(),
             )
         };
 
@@ -407,7 +423,7 @@ impl BinaryFmbParser {
             fingerprint,
             converted_file,
             parsed_at,
-            coordinate: CoordinateInfo::default(),
+            coordinate,
             blocks,
             triggers,
             program_units,
@@ -422,17 +438,19 @@ impl BinaryFmbParser {
             visual_attributes,
             visual_attribute_details: Vec::new(),
             property_classes,
-            property_class_details: Vec::new(),
+            property_class_details,
             editors,
             menu_module,
             menus,
             object_library_tabs,
             object_refs: Vec::new(),
-            first_navigation_block_name: None,
-            runtime_comp: None,
-            object_groups: Vec::new(),
+            first_navigation_block_name,
+            runtime_comp,
+            title,
+            console_window,
+            object_groups,
             form_reports: Vec::new(),
-            extra_attrs: Default::default(),
+            extra_attrs,
             extra_children: Vec::new(),
         })
     }

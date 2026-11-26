@@ -44,11 +44,11 @@ impl FormsXmlWriter {
         let form_name = &module.key.name;
         let mut attrs = vec![format!("Name=\"{}\"", escape_attr(form_name))];
 
-        if let Some(title) = module.windows.iter().find_map(|w| w.title.as_deref()) {
+        if let Some(title) = &module.title {
             attrs.push(format!("Title=\"{}\"", escape_attr(title)));
         }
-        if let Some(first_win) = module.windows.first() {
-            attrs.push(format!("ConsoleWindow=\"{}\"", escape_attr(&first_win.name)));
+        if let Some(cw) = &module.console_window {
+            attrs.push(format!("ConsoleWindow=\"{}\"", escape_attr(cw)));
         }
         if let Some(menu) = &module.menu_module {
             attrs.push(format!("MenuModule=\"{}\"", escape_attr(menu)));
@@ -63,9 +63,9 @@ impl FormsXmlWriter {
 
         let _ = writeln!(out, "  <FormModule {}>", attrs.join(" "));
 
-        // Coordinate Info (only emit when non-default coordinate system or explicitly set)
+        // Coordinate Info
         let coord = &module.coordinate;
-        if coord.coordinate_system.is_some() {
+        if coord.present || coord.coordinate_system.is_some() {
             let mut coord_attrs = Vec::new();
             if let Some(cs) = &coord.coordinate_system {
                 coord_attrs.push(format!("CoordinateSystem=\"{}\"", escape_attr(cs)));
@@ -188,8 +188,31 @@ impl FormsXmlWriter {
         }
 
         // Property Classes
-        for pc in &module.property_classes {
-            let _ = writeln!(out, "    <PropertyClass Name=\"{}\"/>", escape_attr(pc));
+        for pc_name in &module.property_classes {
+            if let Some(pc) = module.property_class_details.iter().find(|d| d.name.eq_ignore_ascii_case(pc_name)) {
+                let mut pc_attrs = vec![format!("Name=\"{}\"", escape_attr(&pc.name))];
+                if let Some(sc) = pc.smart_class {
+                    pc_attrs.push(format!("SmartClass=\"{}\"", sc));
+                }
+                append_extra_attrs(&mut pc_attrs, &pc.extra_attrs);
+                if pc.triggers.is_empty() {
+                    let _ = writeln!(out, "    <PropertyClass {}/>", pc_attrs.join(" "));
+                } else {
+                    let _ = writeln!(out, "    <PropertyClass {}>", pc_attrs.join(" "));
+                    for trig in &pc.triggers {
+                        let text = trig.source_text.as_deref().unwrap_or(&trig.first_line);
+                        let _ = writeln!(
+                            out,
+                            "      <Trigger Name=\"{}\" TriggerText=\"{}\"/>",
+                            escape_attr(&trig.name),
+                            escape_attr(text)
+                        );
+                    }
+                    out.push_str("    </PropertyClass>\n");
+                }
+            } else {
+                let _ = writeln!(out, "    <PropertyClass Name=\"{}\"/>", escape_attr(pc_name));
+            }
         }
 
         // Visual Attributes
@@ -204,15 +227,24 @@ impl FormsXmlWriter {
 
         // Object Groups
         for og in &module.object_groups {
+            let mut og_attrs = vec![format!("Name=\"{}\"", escape_attr(&og.name))];
+            append_extra_attrs(&mut og_attrs, &og.extra_attrs);
             if og.children.is_empty() {
-                let _ = writeln!(out, "    <ObjectGroup Name=\"{}\"/>", escape_attr(&og.name));
+                let _ = writeln!(out, "    <ObjectGroup {}/>", og_attrs.join(" "));
             } else {
-                let _ = writeln!(out, "    <ObjectGroup Name=\"{}\">", escape_attr(&og.name));
+                let _ = writeln!(out, "    <ObjectGroup {}>", og_attrs.join(" "));
                 for ch in &og.children {
                     let mut ch_attrs = vec![format!("Name=\"{}\"", escape_attr(&ch.name))];
                     if let Some(sub) = ch.subclass_sub_object {
                         ch_attrs.push(format!("SubclassSubObject=\"{}\"", sub));
                     }
+                    if let Some(ot) = &ch.object_type {
+                        ch_attrs.push(format!("Type=\"{}\"", escape_attr(ot)));
+                    }
+                    if let Some(put) = &ch.program_unit_type {
+                        ch_attrs.push(format!("ProgramUnitType=\"{}\"", escape_attr(put)));
+                    }
+                    append_extra_attrs(&mut ch_attrs, &ch.extra_attrs);
                     let _ = writeln!(out, "      <ObjectGroupChild {}/>", ch_attrs.join(" "));
                 }
                 out.push_str("    </ObjectGroup>\n");
@@ -240,12 +272,13 @@ impl FormsXmlWriter {
             if let Some(v) = &rep.desname {
                 r_attrs.push(format!("Desname=\"{}\"", escape_attr(v)));
             }
+            append_extra_attrs(&mut r_attrs, &rep.extra_attrs);
             let _ = writeln!(out, "    <Report {}/>", r_attrs.join(" "));
         }
 
-        // Form-level Triggers (no block_name and no item_name)
+        // Form-level Triggers
         for trig in &module.triggers {
-            if trig.block_name.is_none() && trig.item_name.is_none() {
+            if trig.level == TriggerLevel::Form && trig.block_name.is_none() && trig.item_name.is_none() {
                 let text = trig
                     .source_text
                     .as_deref()
@@ -664,9 +697,13 @@ impl FormsXmlWriter {
                                 if let Some(fst) = &ts.font_style {
                                     ts_attrs.push(format!("FontStyle=\"{}\"", escape_attr(fst)));
                                 }
+                                if let Some(fsp) = &ts.font_spacing {
+                                    ts_attrs.push(format!("FontSpacing=\"{}\"", escape_attr(fsp)));
+                                }
                                 if let Some(fg) = &ts.foreground_color {
                                     ts_attrs.push(format!("ForegroundColor=\"{}\"", escape_attr(fg)));
                                 }
+                                append_extra_attrs(&mut ts_attrs, &ts.extra_attrs);
                                 let _ = writeln!(out, "          <TextSegment {}/>", ts_attrs.join(" "));
                             }
                             out.push_str("        </CompoundText>\n");
@@ -690,7 +727,13 @@ impl FormsXmlWriter {
                     mi_attrs.push(format!("Label=\"{}\"", escape_attr(lbl)));
                 }
                 if let Some(cmd) = &item.command_type {
-                    mi_attrs.push(format!("MenuItemType=\"{}\"", escape_attr(cmd)));
+                    mi_attrs.push(format!("CommandType=\"{}\"", escape_attr(cmd)));
+                }
+                if let Some(mit) = &item.menu_item_type {
+                    mi_attrs.push(format!("MenuItemType=\"{}\"", escape_attr(mit)));
+                }
+                if let Some(sub) = &item.sub_menu_name {
+                    mi_attrs.push(format!("SubMenuName=\"{}\"", escape_attr(sub)));
                 }
                 let _ = writeln!(out, "      <MenuItem {}/>", mi_attrs.join(" "));
             }

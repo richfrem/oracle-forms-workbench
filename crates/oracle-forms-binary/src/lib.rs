@@ -1,6 +1,7 @@
 pub mod layout;
 pub mod rdf;
 pub mod ros;
+pub mod ros_props;
 pub mod scanner;
 pub mod writer;
 

@@ -12,8 +12,8 @@ When launching Oracle Forms 14c desktop clients locally or against a remote lega
 2. **Java Web Start / `.jnlp`**: Described in [Plan 11](11-DUAL-RUNTIME-DEV-PARITY-AND-SESSION-HARNESS.md), [Plan 12](12-ROLE-IMPERSONATION-AND-FORM-LAUNCHER-SPEC.md), [Plan 06](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md), and [Plan 10](10-NEXT-PHASE-SESSION-PROMPT.md) for legacy apps requiring `<component-desc/>` custom client JAR extensions, `webstart=enabled`, `allowStaticHTML=true`, `otherparams`, and `envFile`.
 
 > [!NOTE]
-> **Repository Flag — No Checked-In `.jnlp` Example Exists:**
-> A full search across tracked repository files, `oracle-reference-stack/`, and Git history confirms **zero `.jnlp` files or sanitized `.jnlp` templates have ever been committed to this repository**. All references to `.jnlp` are prose notes in Plans 06/10/11/12 and skill troubleshooting logs (and external project `.jnlp` files are intentionally barred by `.agent/rules/cross-project-isolation.md`). Any Windows `.jnlp` launch tested against the local 14c server used domain runtime config (`formsweb.cfg` / external launch descriptor) rather than a checked-in repo template.
+> **Repository Status — Sanitized Generic `.jnlp` & `formsweb.cfg` Templates Added (`S15.1`):**
+> An initial audit confirmed **zero `.jnlp` files or templates** existed in tracked repository files or Git history. A sanitized, generic localhost `.jnlp` example ([`sample_local.jnlp`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/sample_local.jnlp)) and security-annotated `formsweb.cfg` template ([`formsweb.cfg.template`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/formsweb.cfg.template)) have now been added under `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/` and documented in [`jnlp-and-formsweb-launch.md`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/references/jnlp-and-formsweb-launch.md), with all project-specific identifiers stripped per `.agent/rules/cross-project-isolation.md`.
 
 ---
 
@@ -38,9 +38,9 @@ Even when used only against a development or test Oracle Forms 14c server, JNLP 
 
 ## 3. Planned Analysis & Hardening Work Packages
 
-### S15.1 — Author a Synthetic, Annotated `.jnlp` + `formsweb.cfg` Reference Example (Non-Project)
-- Decide whether the repo should include a synthetic, generic `.jnlp` example template (for example under `oracle-reference-stack/forms14c-config/` or skill references, using strictly generic placeholders like `DEPT`/`EMP`/`<app_name>` per `.agent/rules/cross-project-isolation.md`) paired with explicit **do-not-use-in-prod** warnings and secure hardening annotations.
-- Document exact `formsweb.cfg` parameters (`webstart=enabled`, `restrictedURLparams`, `allowStaticHTML`, `envFile`, `FORMS_PATH` isolation) cleanly in one place rather than leaving implicit prose notes across Plans 11/12.
+### S15.1 — Author a Synthetic, Annotated `.jnlp` + `formsweb.cfg` Reference Example (Non-Project) — **Completed**
+- Added sanitized generic templates [`sample_local.jnlp`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/sample_local.jnlp) and [`formsweb.cfg.template`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/formsweb.cfg.template) under `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/` using generic placeholders (`orders`, `orders_entry.fmx`, `app_ext.jnlp`) per `.agent/rules/cross-project-isolation.md`, paired with explicit **local-testbed-only** warnings and hardening annotations.
+- Documented `formsweb.cfg` parameters (`webstart=enabled`, `restrictedURLparams`, `allowStaticHTML=false`, `envFile`, `FORMS_PATH` isolation) and JNLP vs. FSAL guidance in [`jnlp-and-formsweb-launch.md`](../../plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/references/jnlp-and-formsweb-launch.md).
 
 ### S15.2 — Client Vector Threat Audit: JNLP vs. FSAL (`frmsal.jar`) vs. Native Rust Web UI
 - Evaluate where target 14c apps actually require WebStart/JNLP vs. **FSAL (`frmsal.jar`)** on patched Java 17/21 (including handling custom client JAR extensions without WebStart where supported).
@@ -60,7 +60,7 @@ Even when used only against a development or test Oracle Forms 14c server, JNLP 
 
 ## 4. Acceptance Criteria
 
-- [ ] Explicit decision recorded on whether to commit a sanitized generic `.jnlp` example template (confirming zero external project material per `.agent/rules/cross-project-isolation.md`).
+- [x] Explicit decision recorded on whether to commit a sanitized generic `.jnlp` example template (confirming zero external project material per `.agent/rules/cross-project-isolation.md`).
 - [ ] Written risk matrix and hardening checklist covering JNLP (`R1`–`R5`), FSAL (`frmsal.jar`), and `formsweb.cfg` controls.
 - [ ] Verified audit of `launch_fsal.py`, `run_form.py`, and `oracle_preview.rs` confirming zero secret leakage into URLs, CLI process arguments, or launch XML.
 - [ ] Clear guidance mapping when legacy forms can stay on FSAL vs. when migrating execution to Plan 11 Track 2 (native Rust Web UI) removes the thick-client vector entirely.

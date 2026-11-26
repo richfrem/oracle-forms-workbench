@@ -1,0 +1,50 @@
+# Security-Annotated Oracle Forms 14c formsweb.cfg Reference Template (Generic)
+#
+# Use this reference when configuring a Forms 14c named section for FSAL (preferred)
+# or legacy Java Web Start / JNLP (when custom client JAR extensions require it).
+#
+# SECURITY CONTROLS (docs/plans/15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md):
+#   1. Transport (S15.3): Non-loopback servers MUST serve frmservlet and JNLP codebase
+#      over HTTPS (https://). Plain HTTP (:7001) is acceptable only on localhost loopback.
+#   2. Credential Hygiene (JNLP-R3 / S15.3): NEVER set userid= in formsweb.cfg, URLs,
+#      or .jnlp descriptors. Require interactive logon or SSO/OAM.
+#   3. Override Surface Lockdown (JNLP-R4 / S15.3): Set restrictedURLparams so callers
+#      cannot override envFile, userid, serverURL, or otherparams via query strings.
+#   4. Client Vector (S15.2): Prefer FSAL (config=standaloneapp on Java 17/21) or the
+#      native Rust Web UI over JNLP/Web Start wherever possible.
+
+# ---------------------------------------------------------------------------
+# Named application section (replace [orders] and orders_entry.fmx with
+# your generic or target module name; never commit project-specific configs).
+# ---------------------------------------------------------------------------
+[orders]
+# Forms environment file isolating FORMS_PATH for this application
+envFile=default.env
+
+# Entry form executable (.fmx) resolved via FORMS_PATH
+form=orders_entry.fmx
+
+# Web Start / JNLP toggle:
+#   - Set webstart=enabled ONLY if JNLP launch is required (JNLP-R1..R4).
+#   - For FSAL launches, use baseSAAfile=webutil.saa / config=standaloneapp instead.
+webstart=enabled
+webstartRequest=true
+
+# Block caller-supplied URL/JNLP overrides of sensitive parameters (JNLP-R4)
+restrictedURLparams=envFile,userid,serverURL,otherparams,pageTitle,HTMLbodyAttrs,HTMLbeforeForm,HTMLafterForm
+
+# Keep false unless static HTML embedding is explicitly required (JNLP-R4)
+allowStaticHTML=false
+
+# Window & session behavior
+separateFrame=true
+isResizable=true
+lookAndFeel=Generic
+logo=no
+width=750
+height=600
+networkRetries=10
+heartBeat=1
+
+# Optional WebUtil / custom client JAR archive list (must be CA-signed in non-local envs)
+# WebUtilArchive=frmwebutil.jar,jacob.jar

@@ -46,9 +46,3 @@ On Windows WSL2, launch Rust with `. "$HOME/.cargo/env"; export XDG_RUNTIME_DIR=
 - **Run, Config & Architecture**: Read [README.md](README.md) for the end-to-end workflow, [HOW-TO-RUN.md](HOW-TO-RUN.md) for server/CLI/manual launch steps, [architecture.md](architecture.md) for crate/API boundaries, and [DEPENDENCIES.md](DEPENDENCIES.md) for Rust toolchain prerequisites.
 - **Plans & Parity Testing**: Read [`vision.md`](docs/plans/vision.md), [`14-MODERN-IDE-DUAL-ENGINE-PLAN.md`](docs/plans/14-MODERN-IDE-DUAL-ENGINE-PLAN.md), [`06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md`](docs/plans/06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md), and [`10-NEXT-PHASE-SESSION-PROMPT.md`](docs/plans/10-NEXT-PHASE-SESSION-PROMPT.md) before extending features; run offline binary parity with `experiments/fmb-re-test/run_roundtrip.py`.
 
----
-
-## Pending Windows Handoff (Remove Once Completed)
-
-- **Collect & sanitize Windows `.jnlp` example (`S15.1`):** When the next session starts on Windows, **ask the user for their local `.jnlp` copy** (kept outside Git on Windows). Strip any project names, internal URLs, schemas, or secrets per `.agent/rules/cross-project-isolation.md`, place the generalized example + security-annotated `formsweb.cfg` template in `plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/assets/` (and link it from `references/` and [`15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md`](docs/plans/15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md)), log it in `windows-wsl-change-log.md`, and **remove this section from `AGENTS.md` afterward**.
-

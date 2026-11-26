@@ -53,6 +53,7 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 | `references/batch-manifest-compilation.md`, `references/batch-pipeline-stages.mmd` | Stage 0–3 manifest compile protocol and visual pipeline |
 | `references/forms-path-and-dependencies.md`, `references/linux-case-sensitivity-and-symlinks.md` | Staging external sources, container `TNS_ADMIN`/`sqlplus` checks, case symlinks, `forms_apps/<app_name>/` |
 | `references/inheriting-forms-and-xml-roundtrip.md`, `references/xml-validation.md` | Inherited parent `.fmb` rules, XSD rules, 14c XML fixups |
+| `references/jnlp-and-formsweb-launch.md`, `assets/sample_local.jnlp`, `assets/formsweb.cfg.template` | Sanitized generic `.jnlp` & security-annotated `formsweb.cfg` templates (FSAL vs. Web Start) |
 | `assets/forms-14c.xsd`, `assets/reports.dtd`, `assets/12c/forms.xsd` | 14.1.2 XSD & Reports DTD (12c XSD dropped, `--version 12c` not yet wired) |
 
 ## Interactive guided workflow (agent protocol)

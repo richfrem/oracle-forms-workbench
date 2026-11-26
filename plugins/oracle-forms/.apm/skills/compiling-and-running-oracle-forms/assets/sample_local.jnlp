@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Generic, sanitized Oracle Forms 14c Java Web Start (.jnlp) template.
+  LOCAL TESTBED ONLY (http://localhost:7001 loopback).
+  DO NOT deploy as-is to non-local dev/staging/prod environments:
+    - Non-loopback servers MUST use HTTPS (https://) for codebase and servlet URLs (JNLP-R3).
+    - <all-permissions/> grants unrestricted workstation execution; sign all custom JARs with
+      an organization CA and prefer FSAL (frmsal.jar on Java 17/21) or the Rust Web UI
+      (JNLP-R1, JNLP-R2, S15.2).
+    - Never embed userid= or credentials in serverURL or JNLP parameters (JNLP-R3, S15.3).
+  See: docs/plans/15-JNLP-AND-LEGACY-LAUNCH-SECURITY-RISK-ANALYSIS.md
+-->
+<jnlp spec="1.0+" codebase="http://localhost:7001/forms/java/">
+  <information>
+    <title>orders_local - DO NOT CLOSE</title>
+    <vendor>Oracle Corporation</vendor>
+    <homepage href="http://localhost:7001/forms/frmservlet"/>
+    <description>Oracle Forms 14c Local Testbed Launcher (Generic Template)</description>
+  </information>
+  <security>
+    <!-- Required for WebUtil / signed client JAR extensions (JNLP-R1) -->
+    <all-permissions/>
+  </security>
+  <resources>
+    <java version="1.8+" java-vm-args="-Xms512m -Xmx1024m"/>
+    <jar href="/forms/java/frmall.jar" download="eager" main="true"/>
+    <jar href="/forms/java/frmwebutil.jar" download="eager"/>
+    <!-- Optional custom client JAR extension descriptor (remove if unused) -->
+    <extension name="AppExtensions" href="/forms/java/app_ext.jnlp"/>
+  </resources>
+  <applet-desc name="Oracle Forms" main-class="oracle.forms.engine.Main" height="1" width="1">
+    <param name="serverURL" value="/forms/lservlet?ifcfs=/forms/frmservlet?config=orders&#38;form=orders_entry.fmx&#38;ifsessid=&#38;acceptLanguage=en-US"/>
+    <param name="webstartRequest" value="true"/>
+    <param name="height" value="600"/>
+    <param name="width" value="750"/>
+    <param name="separateFrame" value="true"/>
+    <param name="isResizable" value="true"/>
+    <param name="lookAndFeel" value="Generic"/>
+    <param name="logo" value="no"/>
+    <param name="networkRetries" value="10"/>
+    <param name="heartBeat" value="1"/>
+  </applet-desc>
+</jnlp>

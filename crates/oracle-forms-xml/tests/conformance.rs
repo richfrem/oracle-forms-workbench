@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (conformance.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_xml
+//! Index: resolve_sample, test_orders_geometry_and_triggers, test_claims_geometry_and_triggers, test_pld_parsing
+
 use std::fs;
 use std::path::PathBuf;
 use oracle_forms_core::model::{ModuleKey, ModuleType};

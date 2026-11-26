@@ -3,6 +3,10 @@
 //! Functions whose exact behaviour depends on NLS settings or format models
 //! (`TO_CHAR` with a format, `TO_DATE`) are only handled in their simple forms here;
 //! anything else falls through to the database.
+//!
+//! Purpose: Module implementation (stdfuncs.rs).
+//! Key Input Dependencies: bigdecimal, oracle_forms_plsql
+//! Index: text, num, int_arg, substr, pad, trim_chars, compare_all, call, now_iso, s, n, c, common_functions
 
 use crate::value::{format_number, parse_number, OracleValue, ValueError};
 use bigdecimal::{BigDecimal, RoundingMode, Signed, Zero};

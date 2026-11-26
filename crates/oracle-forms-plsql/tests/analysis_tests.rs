@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (analysis_tests.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_plsql, oracle_forms_xml
+//! Index: resolve_sample, test_code_intelligence_orders_fmb, test_code_intelligence_customers_fmb
+
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_plsql::CodeIntelligence;
 use oracle_forms_xml::FormsXmlParser;

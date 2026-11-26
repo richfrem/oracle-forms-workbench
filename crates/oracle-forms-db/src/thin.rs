@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (thin.rs).
+//! Key Input Dependencies: oracledb
+//! Index: OracleThinDriver, OwnedBind, new, resolve_parameters, with_conn, parse_datetime, from_sql, as_db_value, prepare_binds, number_to_json, tidy_datetime, test_connection, query, backend, supports_transactions, execute, savepoint, rollback_to_savepoint, commit, rollback, number_json_preserves_precision, datetimes_are_tidied, dotted_bind_names_are_rejected
+
 use crate::driver::{validate_savepoint_name, DatabaseDriver};
 use crate::model::{BoundSql, DbBackend, DbConfig, DbError, QueryRecord, QueryResult, SqlValue};
 use oracledb::{Connection, OracleTimestamp, ToDbValue};

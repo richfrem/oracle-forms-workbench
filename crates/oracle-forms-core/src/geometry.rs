@@ -1,3 +1,7 @@
+//! Purpose: Oracle coordinate and unit conversion helpers.
+//! Key Input Dependencies: None (std/crate-internal only)
+//! Index: Rect, new, right, bottom, union, scale_coordinate
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x: f64,

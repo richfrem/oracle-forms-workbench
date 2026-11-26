@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (conformance_nav_valid.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_runtime, oracle_forms_xml
+//! Index: resolve_sample, test_conf_02_nav_valid_lifecycle
+
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_runtime::{FormSession, RuntimeError};
 use oracle_forms_xml::FormsXmlParser;

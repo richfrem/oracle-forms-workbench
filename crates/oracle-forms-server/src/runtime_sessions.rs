@@ -8,6 +8,10 @@
 //!
 //! Sessions are read-only by default (queries run; DML, locks and commits are refused)
 //! and expire after 30 minutes without use.
+//!
+//! Purpose: Live stateful form runtime session manager.
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
+//! Index: SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

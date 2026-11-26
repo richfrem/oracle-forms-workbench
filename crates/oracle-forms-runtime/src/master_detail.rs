@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (master_detail.rs).
+//! Key Input Dependencies: oracle_forms_core
+//! Index: MasterDetailLink, from_relation, detail_where_with_binds, evaluate_detail_where
+
 use oracle_forms_core::model::RelationInfo;
 use std::collections::HashMap;
 

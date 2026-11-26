@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (ros_layout_tests.rs).
+//! Key Input Dependencies: oracle_forms_binary
+//! Index: repo_root, decodes_ofw_demo_employees_fmb_coordinates_without_synthetic_fallback, decodes_ofw_sales_fmb_tab_and_multi_record_blocks, decodes_simple_module_fmb_radio_group_and_buttons
+
 use std::path::Path;
 use oracle_forms_binary::decode_ros60050_layout;
 

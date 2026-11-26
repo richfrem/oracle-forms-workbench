@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (testbed_sqlplus.rs).
+//! Key Input Dependencies: oracle_forms_core, tokio
+//! Index: TestbedSqlplusDriver, new, container_name, resolve_credentials, test_connection, query, query_block, backend
+
 use crate::driver::DatabaseDriver;
 use crate::generator::SqlGenerator;
 use crate::model::{BoundSql, DbBackend, DbConfig, DbError, QueryRecord, QueryResult, SqlValue};

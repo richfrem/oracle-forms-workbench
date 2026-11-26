@@ -8,6 +8,10 @@
 //! * an **Origin / Sec-Fetch-Site check** on `/api/*` (defeats cross-site `fetch()` and
 //!   form posts from other pages),
 //! * [`safe_join`], which confines request-supplied relative paths to a base directory.
+//!
+//! Purpose: Path traversal, host header, and CORS security guards.
+//! Key Input Dependencies: axum
+//! Index: SecurityConfig, default, loopback_only, from_env, allowed_hosts, is_allowed_host, host_without_port, reject, guard, safe_join, is_plain_file_name, host_parsing, safe_join_confines_paths, safe_join_rejects_symlink_escape, plain_file_names
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;

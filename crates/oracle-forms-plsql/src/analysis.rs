@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (analysis.rs).
+//! Key Input Dependencies: oracle_forms_core, serde
+//! Index: CallGraphEdge, CallGraph, ItemReference, ItemCrossRef, StatementCategory, ExecutabilityReport, CodeIntelligence, analyze, walk_ast, walk_statements, walk_expr, is_unsupported_builtin
+
 use crate::ast::*;
 use crate::parser::Parser;
 use crate::symbols::SymbolTable;

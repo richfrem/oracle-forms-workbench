@@ -1,4 +1,9 @@
 //! Optional Track 1 bridge. Native parsing and runtime never depend on this toolchain.
+//!
+//! Purpose: Optional Oracle 14c container conversion, compilation, and FSAL bridge.
+//! Key Input Dependencies: tokio
+//! Index: Job, jobs, python_program, setting, expand_home, oracle_home, forms_container, work_dir, fsal_jar, wsl_distro, podman_command, validate_compile_target, check_build_mount, start, normalize_fmx_name, deployed_fmx_dirs, find_deployed_fmx, list_deployed_fmx, parse_launch_params, launch_precompiled, status, readiness, command, podman_output, container (+6 more)
+
 use std::{collections::HashMap, fs, path::PathBuf, process::{Child, Command, Stdio}, sync::{Mutex, OnceLock, atomic::{AtomicU64, Ordering}}};
 
 struct Job { child: Child, log: PathBuf }

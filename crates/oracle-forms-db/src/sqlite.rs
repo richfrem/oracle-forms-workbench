@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (sqlite.rs).
+//! Key Input Dependencies: rusqlite
+//! Index: SqliteDriver, in_memory, from_file, seed_default_schema, test_connection, query, backend, supports_transactions, execute, savepoint, rollback_to_savepoint, commit, rollback, exec_batch, end_transaction, oracle_number_text, register_oracle_functions, to_sqlite_params
+
 use crate::driver::DatabaseDriver;
 use crate::model::{BoundSql, DbBackend, DbError, QueryRecord, QueryResult, SqlValue};
 use rusqlite::{types::ValueRef, Connection, ToSql};

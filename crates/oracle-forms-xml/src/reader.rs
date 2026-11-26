@@ -1,3 +1,7 @@
+//! Purpose: Streaming Forms2XML parser into ModuleIndex.
+//! Key Input Dependencies: quick_xml, oracle_forms_core
+//! Index: Frame, BlockBuilder, ItemBuilder, CanvasBuilder, FormsXmlParser, parse, handle_start_element, handle_end_element, collect_attrs, get_attr, get_bool_attr, get_int_attr, item_dml, visual_style, item_geometry, block_dml, local_parent_name, inheritance_of, join_path, owner_path_of, parses_graphics_fill_pattern_multiline_prompts_items_display_and_radio_buttons
+
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;

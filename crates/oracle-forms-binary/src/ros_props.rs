@@ -1,5 +1,9 @@
 //! Static ROS.60050 property-ID dictionary mapping binary property IDs to
 //! Forms2XML attribute names and value decoders.
+//!
+//! Purpose: Static ROS.60050 property-ID dictionary and enum mappings.
+//! Key Input Dependencies: None (std/crate-internal only)
+//! Index: RosPropKind, lookup_ros_prop, enum_str
 
 /// Value encoding of a serialized `ROS.60050` property entry `(pid: u16, pval: u32)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

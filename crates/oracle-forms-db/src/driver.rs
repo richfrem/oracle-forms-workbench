@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (driver.rs).
+//! Key Input Dependencies: oracle_forms_core
+//! Index: DatabaseDriver, test_connection, query, query_raw, query_block, backend, supports_transactions, execute, savepoint, rollback_to_savepoint, commit, rollback, validate_savepoint_name
+
 use crate::generator::SqlGenerator;
 use crate::model::{BoundSql, DbError, QueryResult};
 use oracle_forms_core::model::BlockInfo;

@@ -1,3 +1,7 @@
+//! Purpose: Binary entrypoint and CLI/server bootstrap.
+//! Key Input Dependencies: tower_http, tracing_subscriber
+//! Index: env_flag, main
+
 mod assets;
 mod oracle_preview;
 mod routes;

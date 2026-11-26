@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (report_tests.rs).
+//! Key Input Dependencies: oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, oracle_forms_core
+//! Index: samples_dir, test_orders_summary_report_parsing_and_evaluation, test_department_salaries_master_detail_report, report_parameters_bind_defaults_overrides_nulls_and_literal_text
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use oracle_forms_db::mock::MockDriver;

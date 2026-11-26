@@ -1,3 +1,7 @@
+//! Purpose: PL/SQL sidecar file extraction and XML entity unescaping.
+//! Key Input Dependencies: sha2
+//! Index: PlsqlSidecars, DecodedText, new, write, cache_relative, sanitize_file_name, first_code_line, line_count_of, unescape_xml_entities, decode_double_escaped, fingerprint_file
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};

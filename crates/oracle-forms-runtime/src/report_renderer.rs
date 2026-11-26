@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (report_renderer.rs).
+//! Key Input Dependencies: oracle_forms_core
+//! Index: ReportRenderer, render_html, render_node, render_repeating_frame, render_field, is_numeric_field, format_numeric_value, format_field_string, format_grouped_number, escape_html
+
 use oracle_forms_core::report::*;
 use crate::report_evaluator::{ReportExecutionResult, ReportRecord};
 

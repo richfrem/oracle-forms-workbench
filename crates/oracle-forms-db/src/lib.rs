@@ -1,3 +1,7 @@
+//! Purpose: Crate root module exports and public API surface.
+//! Key Input Dependencies: driver, generator, mock, model, sqlite, testbed_sqlplus, thin
+//! Index: create_driver
+
 pub mod driver;
 pub mod generator;
 pub mod mock;

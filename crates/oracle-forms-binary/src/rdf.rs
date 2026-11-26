@@ -1,3 +1,7 @@
+//! Purpose: Oracle Reports (.rdf) binary parser and Report XML serializer.
+//! Key Input Dependencies: oracle_forms_core
+//! Index: parse_rdf_report, report_to_xml, write_rdf_report, xml_esc, extract_select_sql, extract_prefixed_ident, extract_title, columns_from_select
+
 use std::fs;
 use std::path::Path;
 use oracle_forms_core::error::{FormsError, Result};

@@ -1,3 +1,7 @@
+//! Purpose: Module implementation (ast.rs).
+//! Key Input Dependencies: serde
+//! Index: PlsqlUnit, ProcedureDecl, FunctionDecl, PackageSpecDecl, PackageSpecItem, PackageBodyDecl, PackageBodyItem, BlockStmt, Declaration, VariableDecl, CursorDecl, ParameterDecl, ParamMode, DataType, ExceptionHandler, Statement, SqlStatement, DmlKind, Expr, LiteralValue, BinaryOp, UnaryOp
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

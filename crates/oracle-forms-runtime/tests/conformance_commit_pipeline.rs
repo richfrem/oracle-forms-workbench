@@ -1,3 +1,7 @@
+//! Purpose: Integration/conformance tests (conformance_commit_pipeline.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml
+//! Index: resolve_sample, test_conf_08_commit_pipeline_full_crud_event_sequence, test_conf_08_first_edit_locking_and_concurrency_conflict, test_conf_08_pre_commit_failure_triggers_savepoint_rollback, test_conf_08_failed_dml_rolls_back_whole_commit, test_conf_08_read_only_session_refuses_commit
+
 use oracle_forms_core::model::{ModuleKey, ModuleType};
 use oracle_forms_db::{DatabaseDriver, MockDriver, QueryRecord, QueryResult};
 use oracle_forms_runtime::{

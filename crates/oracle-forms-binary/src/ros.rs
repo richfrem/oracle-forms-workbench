@@ -1,3 +1,7 @@
+//! Purpose: ROS.60050 binary reader, B-tree PL/SQL extractor, and module decoder.
+//! Key Input Dependencies: oracle_forms_core
+//! Index: RosRecord, DecodedRosModule, read_u16_be, read_u32_be, is_printable_latin1, is_known_ros_obj_type, item_type_from_ros, canvas_type_from_ros, graphic_type_from_ros, param_type_from_ros, find_root_object_page, find_compact_root_offset, build_vstream, resolve_cstr, decode_latin1_str, parse_4f84_chunks, read_var_uint_le, read_var_uint_be, extract_plsql_blobs, clean_plsql_chunks, scan_records, prop_u32, prop_str, resolve_parent_vptr, prop_bool (+6 more)
+
 use std::collections::{BTreeMap, HashMap};
 use oracle_forms_core::model::{
     AlertInfo, AttachedLibraryInfo, BlockDml, BlockInfo, CanvasInfo, CompoundTextInfo,

@@ -1,5 +1,9 @@
 //! Interpreter behaviour against real Forms PL/SQL: program units, attached libraries,
 //! embedded SQL (bound, against SQLite), cursors, exceptions and built-in semantics.
+//!
+//! Purpose: Integration/conformance tests (interpreter_tests.rs).
+//! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml
+//! Index: sample, unit, trigger, session_with, press, button, item, trigger_calls_form_procedure_with_out_parameter_and_function, attached_pld_library_units_are_callable, unknown_call_fails_the_trigger_instead_of_doing_nothing, select_into_binds_items_and_locals_and_maps_columns_by_position, no_data_found_and_too_many_rows_are_catchable, sqlerrm_reports_the_database_error, explicit_cursor_loop_and_cursor_for_loop, is_null_branches_and_form_trigger_failure_handling, failed_builtin_sets_form_failure_and_continues, package_state_persists_across_calls, unparseable_trigger_is_reported_not_skipped, dml_in_trigger_runs_and_is_blocked_in_read_only_mode, execution_hierarchy_is_read_per_trigger, decimal_arithmetic_in_triggers_is_exact
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::{BoundSql, DatabaseDriver, SqliteDriver};

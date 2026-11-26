@@ -1,3 +1,7 @@
+//! Purpose: Oracle Reports XML parser.
+//! Key Input Dependencies: quick_xml, oracle_forms_core
+//! Index: ReportsXmlParser, LayoutContainer, parse_file, parse_str, append_to_top_container
+
 use std::fs;
 use std::path::Path;
 use quick_xml::events::Event;

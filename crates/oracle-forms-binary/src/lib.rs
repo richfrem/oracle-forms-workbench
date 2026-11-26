@@ -1,3 +1,7 @@
+//! Purpose: Crate root module exports and public API surface.
+//! Key Input Dependencies: layout, rdf, ros, scanner, writer
+//! Index: (module re-exports / constants)
+
 pub mod layout;
 pub mod rdf;
 pub mod ros;

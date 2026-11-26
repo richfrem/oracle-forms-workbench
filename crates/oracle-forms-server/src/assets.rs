@@ -1,3 +1,7 @@
+//! Purpose: Embedded static UI asset loader.
+//! Key Input Dependencies: axum, rust_embed
+//! Index: UiAssets, static_handler
+
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use rust_embed::Embed;

@@ -1,3 +1,7 @@
+//! Purpose: Serializer for Forms2XML or ROS.60050 binary output.
+//! Key Input Dependencies: oracle_forms_core
+//! Index: RosBinaryWriter, PropVal, BlobTable, PendingRecord, VStreamBuilder, new, push_plsql, emit_record, finish, item_type_to_ros, canvas_type_to_ros, graphic_type_to_ros, param_type_to_ros, write_module, write_to_file
+
 use std::fs;
 use std::path::Path;
 use oracle_forms_core::model::{ModuleIndex, ModuleType, TriggerLevel};

@@ -74,7 +74,24 @@ test('connected preview sends dedicated compile credentials and clears the passw
   h.get('oracleCompilePassword').value = 'test-only';
   await h.get('launchOraclePreviewBtn').handlers.click({ target: h.get('launchOraclePreviewBtn') });
   assert.equal(sent.offline, false);
+  assert.equal(sent.compileOnly, false);
   assert.equal(sent.username, 'compile_user');
   assert.equal(sent.password, 'test-only');
+  assert.equal(h.get('oracleCompilePassword').value, '');
+});
+test('compile-only button sends compileOnly: true and skips FSAL launch message', async () => {
+  let sent;
+  const h = setup(async (_, options) => {
+    sent = JSON.parse(options.body);
+    return { json: async () => ({ jobId: 'compile1', fileName: 'employee.xml', mode: 'patchedOriginal', compileOnly: true }) };
+  });
+  vm.runInContext("resetOraclePreview('EMPLOYEE', true); oraclePreviewReady = true; document.getElementById('oracleCompileMode').value = 'offline'", h.context);
+  h.get('oracleCompileMode').value = 'connected';
+  h.get('oracleCompileUser').value = 'compile_user';
+  h.get('oracleCompilePassword').value = 'test-only';
+  await h.get('compileOnlyOraclePreviewBtn').handlers.click({ target: h.get('compileOnlyOraclePreviewBtn') });
+  assert.equal(sent.compileOnly, true);
+  assert.equal(sent.database, 'FREEPDB1');
+  assert.match(h.get('oraclePreviewSummary').textContent, /FSAL not launched/);
   assert.equal(h.get('oracleCompilePassword').value, '');
 });

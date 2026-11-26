@@ -1,12 +1,17 @@
 {
   "name": "oracle-forms",
   "version": "0.1.0",
-  "description": "Autonomous tooling, headless compilation, XML round-trip, and testbed container orchestration for Oracle Forms and Reports (12c/14c).",
+  "description": "Oracle Forms & Reports 14c automation, XML/XSD validation, dependency-ordered manifest builds, headless compilation targeting local or dev DBs, FSAL launching, and Rust ROS.60050 dual-engine parity.",
   "author": {
     "name": "Richard Fremmerlid"
   },
   "license": "MIT",
   "keywords": [
-    "oracle-forms"
+    "oracle-forms",
+    "oracle-reports",
+    "oracle-14c",
+    "weblogic",
+    "fsal",
+    "ros-60050"
   ]
 }

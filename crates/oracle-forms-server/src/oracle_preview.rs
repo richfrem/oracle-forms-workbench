@@ -117,6 +117,7 @@ pub fn start(
     filename: &str,
     credentials: Option<(String, String)>,
     target_db: Option<&str>,
+    compile_only: bool,
 ) -> Result<String, String> {
     if !filename.ends_with(".xml") || !filename.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.')) {
         return Err("Invalid saved form filename".into());
@@ -163,7 +164,7 @@ pub fn start(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    command.arg("-u").arg(script).arg(staged_xml).args(["--interactive", "--userid", "none"]);
+    command.arg("-u").arg(script).arg(staged_xml).args([if compile_only { "--no-launch" } else { "--interactive" }, "--userid", "none"]);
     if let Some(app_name) = setting(&root, "OFW_APP_NAME") {
         command.args(["--app-name", &app_name]);
     }

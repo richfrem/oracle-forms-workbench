@@ -11,32 +11,48 @@ The repository is `oracle-forms-workbench`; the standard local workbench URL is
 creation, state retrieval, event dispatch, alert handling, and deletion. This does not certify
 complete Forms behavior or parity.
 
-**Completed:** Phases A-G and Track T are delivered. The Oracle reference pipeline supports
-XML-based form editing, conversion, compilation, and FSAL launch; keep native runtime support,
-official Oracle tooling, and visual parity claims distinct.
+**Completed:** Phases A-G, Track T, and the core dual-engine `ROS.60050` / XML / UI parity upgrades ([Plan 14](14-MODERN-IDE-DUAL-ENGINE-PLAN.md)) are delivered. The Oracle reference pipeline supports XML-based form editing, conversion (`Forms2XML`, `convert_pll.py`, 14c `rwconverter` `convert_rpt.py`), compilation (`17/17` sample modules verified in Stage 3), and FSAL launch; the native Rust engine now decodes contiguous `0x00010000` `ROS.60050` streams (`+0x10` header skip across all `0xffffffd4` pages), `ros_props.rs` static PIDs, `0x0505` B-tree PL/SQL (`0x01d0` `MenuItem` / `0x01d1` Trigger / `0x01d3` ProgramUnit / `PropertyClass` triggers), `CompoundText`, `ObjectGroup`, `RawXmlNode` XSD preservation, `RosBinaryWriter` (`export-binary`), and `.pll`→`.pld` / `.rdf` export, alongside grouped dual-engine UI menus (`Export / Convert`, `Build`, `Run / Preview`). Verified checks: `137` Rust tests (`cargo test --workspace`), `32` frontend tests (`node --test tests/ui_*.test.cjs`), and `36` Python tests (`tests/test_reference_pipeline.py`). Keep native runtime support, official Oracle tooling, and visual parity claims distinct.
 
 **Open work:**
 
 1. **Track K golden traces**: build deterministic Oracle trace capture and compare traces with
    native runtime sessions. Full golden-trace parity remains unverified.
-2. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
+2. **Plan 13 save-safety & portability follow-ups**: resolve **S1** (prevent lossy summary overwrite),
+   **S2** (keep `OFW_FORMS_PATH_EXTRA` read-only on save), **S3** (unique temporary `.saving` files),
+   **M1** (reconcile `work_dir` defaults/validation), **D2/D3/D4** (reconcile PLD-to-PLL claims,
+   doc drift, and broken links failing `audit_skill.py` in `setting-up-oracle-testbed`), and
+   **R1/R4/R5** (`start_testbed.py` restart scoping, Rust min version, startup guidance). (**M2** is resolved: `36/36` Python tests pass.)
+3. **Plan 14 remaining dual-engine parity items**: extend Web UI **Compile Only (14c)** (now
+   implemented for Forms via `compileOnly: true` / `run_form.py --no-launch`) to `.mmb`/`.pll` and
+   app manifest batches, add a one-click binary-vs-`Forms2XML` Parity Diff shortcut in Form Diff,
+   populate `item.listElements` options in `ui/preview.js`, reduce XML `attr_diffs` (`Canvas`
+   `800x600` / `RealUnit` defaults in `crates/oracle-forms-xml/src/writer.rs`), and close remaining
+   structural/attr diffs in `experiments/fmb-re-test/run_roundtrip.py`.
+4. **Multi-module dependency staging & batch pipeline**: `build_dependency_manifest.py` and
    `compile_from_manifest.py` implement dependency-ordered batch conversion/compilation,
    `forms_apps/<app_name>/` publishing, `requiredSymlinks` Linux case-sensitivity handling,
    `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
    blocking child forms when a staged parent `.fmb` binary is present), and warning-only
-   `Created form/menu/library file` success handling (36 Python pipeline tests pass).
+   `Created form/menu/library file` success handling (`36` Python pipeline tests pass).
    Exercised end-to-end on a large external 12c-to-14c corpus (`23/23` libraries, `3/3` menus,
    and `244/258` forms compiled into `forms_apps/<app_name>/`, including `<AttachedLibrary>`
    recovery from source `.fmb` binaries when 12c XML exports omitted them); remaining edge
    cases (missing canvases, DB schema/link drift, and empty property-class triggers) stay open.
-3. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`
+5. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`
    preflight, DB-connected batch compilation, and live JNLP/WebStart launch of an entry/login
    form through to a protected main-module form (`otherparams`, `envFile`, and
    `<component-desc/>` custom JAR extension) were exercised in `forms-server-14c`. Track 2
-   (native Rust persistent session pinning and multi-form transitions) remains unimplemented.
-4. **UI parity**: continue font persistence, theme/zoom/DPI comparison, tab/overlay cases, and
-   runtime behavior verification. Do not equate successful compilation with visual or behavioral
-   parity.
+   (native Rust persistent session pinning and multi-form transitions, Plan 11/12) remains unimplemented.
+6. **UI parity**: continue font persistence, theme/zoom/DPI comparison, tab/overlay cases,
+   `.mmb` menu-tree inspector / `<New_Item>` filter, embedded asset `Cache-Control`, and
+   runtime behavior verification ([UI-REVIEW-BACKLOG.md](UI-REVIEW-BACKLOG.md)). Do not equate
+   successful compilation with visual or behavioral parity.
+7. **External DB DDL & PL/SQL schema reconstruction skill (`plugins/oracle-forms/.apm/skills/`)**:
+   add a dedicated skill (e.g. `rebuilding-oracle-schemas`) so users can supply external DDL and
+   stored PL/SQL exports from another DB server and rebuild schemas, tables, views, indexes,
+   sequences, synonyms, grants, and DB packages/procedures/functions inside `oracle23ai-lite`
+   (`FREEPDB1`) in dependency order, keeping all external SQL/artifacts in `OFW_WORK_DIR` outside
+   the repository.
 
 The `/api/sessions` implementation is in `crates/oracle-forms-server/src/routes.rs`; the
 standard server port is 7070. The optional Oracle testbed is not started or changed by this
@@ -345,15 +361,19 @@ You are pairing with me on **Oracle Forms Workbench** (`oracle-forms-workbench`)
 - **Phase F (Completed)**: Visual Layout Editor, Form Diff Tool & XML Round-Trip (`crates/oracle-forms-core`, `crates/oracle-forms-xml`, `crates/oracle-forms-cli`, `crates/oracle-forms-server`, `ui/`), Forms2XML export serializer (`FormsXmlWriter`), structural & visual diff engine (`FormDiffer`, `ModuleDiff`), CLI `diff` and `export-xml` subcommands, server REST endpoints (`/api/forms/export-xml`, `/api/forms/diff`, `/api/forms/module/:name/item`), interactive 2D canvas drag-and-drop item layout editing with coordinate badges, editable Property Inspector, and in-browser Form Diff Tool tab.
 - **Phase G (Completed)**: Reports Engine (`crates/oracle-forms-core`, `crates/oracle-forms-xml`, `crates/oracle-forms-runtime`, `crates/oracle-forms-cli`, `crates/oracle-forms-server`, `ui/`), ROS 60050 research spike completed, pure-native Reports XML streaming parser (`ReportsXmlParser`), Data Model Evaluator (`ReportDataEvaluator`) with master-detail data links, formulas (`CF_`), group and report-level summaries (`CS_` sum, count, avg, min, max, percent of total), HTML5 Paged Media layout renderer (`ReportRenderer`) with CSS `@page` printing and format masks (`$#,##0.00`), CLI `report inspect` and `report run`, server endpoints (`/api/reports`, `/api/reports/run`, `/api/reports/:name/html`), and in-browser "📊 Reports Engine" tab with live iframe preview and data model inspector.
 - **Track T (Completed)**: Pure-Rust Oracle Thin Driver (`crates/oracle-forms-db/src/thin.rs`), native zero-client wire protocol over TCP :1521 using Oracle's official `oracledb = "26.0.0-beta.5"` crate without JVM, C-libraries, Instant Client, or SQL*Plus container execution. Supports connection pooling, named/positional binds, `OracleTimestamp`, `ROWID`, live container queries in 8 ms, and CLI/server/UI `--backend oracle-thin` integration.
+- **Dual-Engine IDE & `ROS.60050` Parity (Core Delivered — `#46`–`#51`, `docs/plans/14-MODERN-IDE-DUAL-ENGINE-PLAN.md`)**: Native binary reader/writer upgraded with contiguous `0x00010000` virtual stream (`+0x10` header skip across all `0xffffffd4` pages), `ros_props.rs` static PID table, `0x0505` B-tree PL/SQL (`0x01d0` `MenuItem` / `0x01d1` Trigger / `0x01d3` ProgramUnit / `PropertyClass` triggers), `CompoundText`, `ObjectGroup`, `RawXmlNode` XSD preservation, `RosBinaryWriter` (`export-binary` CLI/API), `.pll`→`.pld` & `.rdf` export, `convert_rpt.py` 14c `rwconverter` fix, and grouped dual-engine UI menus (`Export / Convert`, `Build`, `Run / Preview`). Verified: `137` Rust tests, `32` UI tests, `36` Python tests.
 - **Database Testbed**: Podman container `oracle23ai-lite` is running with seeded schema tables (`ORDERS`, `CUSTOMERS`, `DEPARTMENTS`, `EMPLOYEES`, `CLAIMS`, `ITEMS`, `STOCK`, etc.).
 
 ### 3. Immediate Mission: Current open work
 Use this prompt and the active roadmap to work on one of these remaining areas:
 
 1. Track K golden trace capture and native-vs-Oracle comparison.
-2. Multi-module dependency graph discovery, staging, and ordered compilation.
-3. External database/network/TNS and compiler-account object-visibility validation.
-4. UI parity work, including font persistence, theme/zoom/DPI, tabs/overlays, and runtime behavior.
+2. Plan 13 save-safety/portability fixes (**S1–S3**, **M1**, **D2–D4**, **R1/R4/R5**).
+3. Plan 14 remaining dual-engine parity items (Form Diff binary-vs-`Forms2XML` shortcut, `preview.js` `<ListItemElement>` dropdown options, `writer.rs` default XML attribute alignment / `experiments/fmb-re-test/run_roundtrip.py` diff reduction).
+4. Multi-module dependency graph discovery, staging, and ordered compilation.
+5. External database/network/TNS and compiler-account object-visibility validation (plus Plan 11/12 Track 2 persistent session & multi-form stack).
+6. UI parity work, including font persistence, theme/zoom/DPI, tabs/overlays, `.mmb` menu-tree inspector, and runtime behavior.
+7. New skill under `plugins/oracle-forms/.apm/skills/` to rebuild external DB DDL/PL/SQL schemas (tables, views, indexes, packages, etc.) into `oracle23ai-lite` (`FREEPDB1`) from external `OFW_WORK_DIR` staging.
 
 The session API already exists at `/api/sessions`; do not recreate or describe it as a future endpoint.
 
@@ -365,15 +385,18 @@ Let's review where we are, confirm git status, and proceed with the next milesto
 ## Merged Open Tooling & Setup Backlog (from retired `start-next.md`)
 
 - **Preview in Oracle & `OFW_FORMS_PATH_EXTRA`:** Fix `frmcmp_batch` `userid=` quoting/logon in `run_form.py` / `compile_form.py` when `sqlplus -L` connects, and use `frmf2xml` (or direct `.fmb` compilation when unmodified) instead of lossy `(summary)` XML.
-- **Reports & conversions:** Confirm `test_conversions.py --only reports` and `convert_rpt.py` end-to-end on `.rdf` <-> XML; investigate PLD-to-PLL (blocked in `frmcmp_batch`/`Forms2XML`, `frmbld` GUI untried) and running Reports via `rwservlet`.
+- **Reports & conversions:** `convert_rpt.py` `.rdf` -> `_rdf.xml` on 14c is now fixed (`#51`); remaining: confirm `test_conversions.py --only reports` end-to-end on both directions, investigate PLD-to-PLL (`parse=yes` vs `SKILL.md` `BLOCKED` reconciliation, Plan 13 D2), and running Reports via `rwservlet`.
 - **Schema & XML editor:** Run `extract_forms_schema.py` once to verify 14c `SchemaGenerator`; wire 12c `forms.xsd` into `validate_forms_xml.py`; fix XML Source tab off-by-one start line in `crates/oracle-forms-xml`.
-- **Stack & repo housekeeping:** Run `apply_forms14c_config.sh` on a clean Oracle Home copy; remove literal password/obsolete `version: '3.8'` in `oracle-reference-stack/compose.yaml`; decide on Rust 1.100 manifest lint warnings (`homepage`, unused `tracing`); re-run `audit_skill.py` after skill edits.
+- **Stack & repo housekeeping:** Run `apply_forms14c_config.sh` on a clean Oracle Home copy; remove literal password/obsolete `version: '3.8'` in `oracle-reference-stack/compose.yaml`; decide on Rust 1.100 manifest lint warnings (`homepage`, unused `tracing`); fix Plan 13 D4 links and re-run `audit_skill.py`.
 
 ---
 
 ## Reference Architecture Documents
 - [06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md)
 - [09-CONFORMANCE-TESTING.md](09-CONFORMANCE-TESTING.md)
+- [13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md](13-SAVE-SAFETY-AND-MACOS-REGRESSION-FOLLOWUP.md)
+- [14-MODERN-IDE-DUAL-ENGINE-PLAN.md](14-MODERN-IDE-DUAL-ENGINE-PLAN.md)
+- [vision.md](vision.md)
 - [completed/08-PLSQL-AND-EVENT-EXECUTION.md](completed/08-PLSQL-AND-EVENT-EXECUTION.md)
 - [completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md](completed/03-RUNTIME-STATE-MACHINE-AND-TRIGGERS.md)
 - [completed/04-DATABASE-INTEGRATION-AND-CRUD.md](completed/04-DATABASE-INTEGRATION-AND-CRUD.md)

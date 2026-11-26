@@ -121,7 +121,8 @@
             <div class="toolbar-menu-panel" role="menu">
               <div class="toolbar-menu-heading">Compile Binary Module</div>
               <button id="exportBinaryBtn" class="toolbar-menu-item" role="menuitem" title="Build &amp; download native Rust ROS.60050 binary (.fmb/.mmb/.olb) offline">🦀 Build Binary (Rust)</button>
-              <button id="oracleReferenceBtn" class="toolbar-menu-item" role="menuitem" title="Save XML, convert to FMB, compile in 14c, and deploy to WebLogic">🔨 Build &amp; Compile (14c)</button>
+              <button id="oracleCompileOnlyBtn" class="toolbar-menu-item" role="menuitem" title="Save XML, convert to FMB, compile in 14c against target DB, and deploy to WebLogic without launching FSAL">⚡ Compile Only (14c)</button>
+              <button id="oracleReferenceBtn" class="toolbar-menu-item" role="menuitem" title="Save XML, convert to FMB, compile in 14c, deploy to WebLogic, and launch FSAL">🔨 Build &amp; Compile (14c)</button>
             </div>
           </details>
           <details class="toolbar-menu" id="previewMenu">
@@ -865,7 +866,10 @@
           </div>
           <p id="oracleCompileHelp" class="preview-help">Defaults to FREEPDB1 (local testbed), or enter a TNS alias (e.g. MY_ALIAS) or host:port/service (e.g. db.example.com:1521/ORCLPDB1). Run clears its password after connecting; enter it here again for compilation. Runtime logon in Oracle is separate.</p>
         </fieldset>
-        <button id="launchOraclePreviewBtn" class="btn btn-primary" disabled>Save &amp; launch in Oracle</button>
+        <div class="oracle-launch-actions">
+          <button id="compileOnlyOraclePreviewBtn" class="btn btn-secondary" disabled>⚡ Save &amp; compile only (14c)</button>
+          <button id="launchOraclePreviewBtn" class="btn btn-primary" disabled>Save &amp; launch in Oracle</button>
+        </div>
         <p id="oraclePreviewSummary" class="oracle-preview-summary" role="status" aria-live="polite">No preview launched for this form.</p>
         <div id="oracleCompileNotes">
           <p class="preview-help">Forms with SQL need database-connected compilation so Oracle can resolve tables and views. Offline compilation must be selected explicitly and may fail for these forms.</p>

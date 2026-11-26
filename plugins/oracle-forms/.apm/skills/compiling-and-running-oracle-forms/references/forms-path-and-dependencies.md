@@ -1,10 +1,10 @@
 # `FORMS_PATH`, External Dependencies, and Target Databases
 
-Use this guide when compiling or running Forms modules that depend on other forms, menus, PL/SQL libraries, or object libraries, including when connecting the Forms container to a non-local database.
+Use this guide when compiling or running Forms modules that depend on other forms, menus, PL/SQL libraries, or object libraries, including when connecting the Forms container to a non-local database. For the end-to-end local-to-dev-DB workflow (Rust inner loop, Web App `Target database` field, and CLI compile-only paths), see [rust-vs-14c-build-and-preview.md](rust-vs-14c-build-and-preview.md).
 
 ## External sources and staging
 
-Treat every directory in `OFW_FORMS_PATH_EXTRA` and every other external project directory as read-only. Never copy external artifacts into the repository, including `samples/`, `temp/`, `context/`, `tests/`, or `oracle-reference-stack/`; never write compilation outputs or diagnostics there. See [cross-project-isolation.md](../../../../../../.agent/rules/cross-project-isolation.md). For a whole project, use the manifest-driven batch pipeline ([batch-manifest-compilation.md](batch-manifest-compilation.md)) instead of hand-staging.
+Treat every directory in `OFW_FORMS_PATH_EXTRA` and every other external project directory as read-only. Never copy external artifacts into the repository, including `samples/`, `temp/`, `context/`, `tests/`, or `oracle-reference-stack/`; never write compilation outputs or diagnostics there (see `.agent/rules/cross-project-isolation.md`). For a whole project, use the manifest-driven batch pipeline ([batch-manifest-compilation.md](batch-manifest-compilation.md)) instead of hand-staging.
 
 Set `OFW_WORK_DIR` outside the repository and somewhere the Forms container can access. The supported arrangement is under the configured Oracle Home, which is mounted as `/oracle_home_14c`; the scripts use `<OFW_WORK_DIR>/stage/` for working files. The scripts reject a work directory that resolves inside the repository.
 

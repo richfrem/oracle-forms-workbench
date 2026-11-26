@@ -41,5 +41,6 @@ The one source of truth for setting up, running, and troubleshooting the Oracle 
 | Reference | What it covers |
 |---|---|
 | [native-rust-workbench-architecture.md](native-rust-workbench-architecture.md), [rust-workbench-architecture.mmd](rust-workbench-architecture.mmd) | What the Rust workbench is: crates, UI, status, roadmap |
-| [podman-architecture.mmd](podman-architecture.mmd) | Diagram of the containers, mounts, and network |
+| [podman-architecture.mmd](podman-architecture.mmd), [setting-up-oracle-testbed-flow.mmd](setting-up-oracle-testbed-flow.mmd) | Diagrams of the containers, mounts, network, and end-to-end setup flow |
+| [acceptance-criteria.md](acceptance-criteria.md) | Acceptance criteria for setup, isolation, and change capture |
 | [windows-wsl-change-log.md](windows-wsl-change-log.md) | Every change, error, and fix; add to it as you work |

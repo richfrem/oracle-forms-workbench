@@ -93,8 +93,11 @@ CLI never fall back to mock data.
 Anything the runtime cannot do (e.g. `HOST`, `OLE2`, `CALL_FORM`, LOVs, timers) stops the
 trigger with a clear "Not supported" message instead of silently skipping it.
 
-**Export XML** returns the original Forms2XML file with only your layout edits applied
-(lossless). Forms opened from a binary `.fmb` can only be exported as a labelled summary.
+**Export / Convert & Build menus (dual-engine):**
+- **Export XML (Rust)** / **Export PLD (Rust)** returns the original XML with item edits applied (`patchedOriginal`), or a labelled model summary (`summary`) for binary-opened forms/menus/OLBs/reports (and `.pld` text for `.pll` libraries).
+- **Convert via Oracle (14c)** runs `Forms2XML`, `convert_pll.py`, or `convert_rpt.py` (`rwconverter`) in the 14c container for authoritative XML/PLD exports.
+- **Build Binary (Rust)** builds an offline `ROS.60050` binary (`RosBinaryWriter`) for round-trip inspection/testing; **Compile Only (14c)** saves XML, runs `XML2Forms` + `frmcmp_batch` against `FREEPDB1` or a non-local **Target database**, and deploys `.fmx` to WebLogic without launching FSAL; **Build & Compile (14c)** also launches FSAL.
+- **Launch in 14c** runs an already-deployed `.fmx` directly via FSAL without recompiling.
 
 
 
@@ -151,6 +154,13 @@ cargo run -p oracle-forms-cli -- inspect samples/orders_fmb.xml --json
 
 # 6. Dump all extracted PL/SQL (triggers and procedures) into a directory as .sql files
 cargo run -p oracle-forms-cli -- dump-sql samples/orders_fmb.xml -o ./extracted-sql
+
+# 7. Export XML/PLD/Report-XML or build an offline ROS.60050 binary
+cargo run -p oracle-forms-cli -- export-xml samples/orders.fmb -o /tmp/orders_fmb.xml
+cargo run -p oracle-forms-cli -- export-binary samples/orders_fmb.xml -o /tmp/orders_rust.fmb
+
+# 8. Compare two form definitions
+cargo run -p oracle-forms-cli -- diff samples/orders_fmb.xml samples/claims_fmb.xml --json
 ```
 
 ---
@@ -211,18 +221,20 @@ Prerequisites: the containers `oracle23ai-lite` (port 1521) and `forms-server-14
 # 1. Check the testbed (expected output: plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md)
 python3 plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/health_check.py
 
-# 2. Convert (if XML), compile, and launch in one step
+# 2. Convert (if XML), compile against local FREEPDB1 (or dev DB), and launch in one step
 python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py samples/test_db.fmb
 python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py samples/simple_module_fmb.xml
+# Compile and publish without launching FSAL:
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/run_form.py samples/simple_module_fmb.xml --no-launch
 
-# Or separately: compile, then launch an already compiled form (the Forms Logon dialog opens with --interactive)
-python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/test_db.fmb
+# Or separately: compile (targeting local FREEPDB1 or a non-local dev DB via -u user@target_db), then launch FSAL
+python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_form.py samples/test_db.fmb --use-local-env
 python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/launch_fsal.py test_db.fmx --interactive
 ```
 
-`run_form.py` options: `--interactive` (native Logon dialog), `--compile-from-env` (compile logon from `OFW_PREVIEW_DB_LOGON`; FSAL stays interactive), `--offline` (compile without a database), `-p/--port`. In the Logon dialog enter `DB_USER`, `DB_PASSWORD`, and `DB_SERVICE` from `.env`.
+`run_form.py` options: `--interactive` (native Logon dialog), `--compile-from-env` (compile logon from `OFW_PREVIEW_DB_LOGON`; FSAL stays interactive), `--no-launch` (compile and publish only), `--offline` (compile without a database), `-p/--port`, `--app-name`, `--config`, `--param NAME=VALUE`. In the Logon dialog enter `DB_USER`, `DB_PASSWORD`, and `DB_SERVICE` from `.env` (or your dev DB credentials when targeting a non-local database).
 
-Do not test with **Save & launch in Oracle** in the app: each click rewrites the form's XML. The skill pages cover the rest: the testing guide ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md)), the Forms Builder GUI ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-builder-gui.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-builder-gui.md)), and errors ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/troubleshooting.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/troubleshooting.md)).
+Do not test samples by clicking **Build & Compile (14c)** or **Compile Only (14c)** in the app if you want `samples/*_fmb.xml` untouched, because those actions save the open form's XML in place before staging. The skill pages cover the rest: the testing guide ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-and-reports-testing-guide.md)), the Forms Builder GUI ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-builder-gui.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/forms-builder-gui.md)), and errors ([plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/troubleshooting.md](plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/references/troubleshooting.md)).
 
 
 ## Menus, Browse/Open and Reports (new)

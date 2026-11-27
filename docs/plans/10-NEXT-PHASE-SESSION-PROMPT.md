@@ -34,8 +34,8 @@ complete Forms behavior or parity.
    `--modules` wildcard filtering, typed `(artifactType, name)` dependency blocking (without
    blocking child forms when a staged parent `.fmb` binary is present), and warning-only
    `Created form/menu/library file` success handling (`36` Python pipeline tests pass).
-   Exercised end-to-end on a large external 12c-to-14c corpus (`23/23` libraries, `3/3` menus,
-   and `244/258` forms compiled into `forms_apps/<app_name>/`, including `<AttachedLibrary>`
+   Exercised end-to-end on an external 12c-to-14c corpus (libraries, menus, and forms
+   compiled into `forms_apps/<app_name>/`, including `<AttachedLibrary>`
    recovery from source `.fmb` binaries when 12c XML exports omitted them); remaining edge
    cases (missing canvases, DB schema/link drift, and empty property-class triggers) stay open.
 5. **External database & Track 1 launch validation**: `TNS_ADMIN` resolution, `sqlplus -L`

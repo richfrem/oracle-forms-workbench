@@ -655,6 +655,8 @@ impl FormsService {
             }
         }
         dirs.push(Self::samples_dir());
+        // Libraries of external forms live beside them in the read-only OFW_FORMS_PATH_EXTRA folders.
+        dirs.extend(Self::extra_forms_dirs());
         let candidates = [format!("{}.pld", base.to_ascii_lowercase()), format!("{}.pld", base.to_ascii_uppercase()), format!("{}.pld", base)];
         for dir in dirs {
             for cand in &candidates {

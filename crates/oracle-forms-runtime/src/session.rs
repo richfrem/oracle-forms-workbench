@@ -1718,6 +1718,11 @@ impl FormSession {
     }
 
     /// Synchronizes aggregate status in SystemVariables.
+    /// Recomputes `:SYSTEM.*_STATUS` after code changed record statuses.
+    pub fn refresh_system_status(&mut self) {
+        self.update_system_status();
+    }
+
     fn update_system_status(&mut self) {
         if let Some(cb) = &self.system.cursor_block {
             let cb_upper = cb.to_ascii_uppercase();

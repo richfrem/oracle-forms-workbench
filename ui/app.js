@@ -3179,6 +3179,7 @@
       activeRecordIndexByBlock.set(b.name, b.currentRecord || 0);
     }
     preview.reset();
+    preview.runtimeLists = state.listElements || {};
     for (const b of state.blocks || []) applyRecordsToBlock(b.name);
     if (state.cursorBlock) updateRecordNavigator(state.cursorBlock);
 

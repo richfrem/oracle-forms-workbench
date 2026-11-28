@@ -198,3 +198,21 @@ exact `FORM_SUCCESS`/message texts for failed loads are unverified against 14c.
   failure), `emulate` (`echo [>|>>]`, `touch`, `type`/`cat`, `del`/`rm`, `copy`/`cp`,
   `move`/`mv`, `mkdir`, `dir`/`ls`, chained with `&&`, `&`, `;`; unknown commands named in the
   error), or `allow:prog1,prog2` (real execution without a shell, 10 s timeout, output capped).
+
+## 7. List items, menu items, record properties (done, UI partly)
+
+`ui_builtins.rs`:
+- List items: `CLEAR_LIST` (also clears the value), `ADD_LIST_ELEMENT(list, index, label, value)`,
+  `DELETE_LIST_ELEMENT`, `POPULATE_LIST(list, group)` (label = first column, value = second;
+  query groups are populated on demand), `GET_LIST_ELEMENT_COUNT/LABEL/VALUE/INDEX`. Elements
+  start from the design-time `ListItemElement`s (the XML reader now reads them) and the
+  state sends changed lists (`listElements`); the preview renders the options and writes
+  the choice back.
+- Menu items: `FIND_MENU_ITEM`, `SET_MENU_ITEM_PROPERTY`, `GET_MENU_ITEM_PROPERTY` for
+  `ENABLED`, `DISPLAYED`, `CHECKED`, `LABEL`, `ICON_NAME`. Without a custom menu any
+  `MENU.ITEM` name is accepted (default Forms menu); with one, unknown items fail. The state
+  carries `menuItems`; the web menu bar does not apply it yet (remaining).
+- Record properties: `GET_RECORD_PROPERTY` / `SET_RECORD_PROPERTY` for `STATUS`
+  (`NEW_STATUS` ...), `CURRENT_RECORD` (get), `VISUAL_ATTRIBUTE` (stored, not rendered).
+Remaining: `GET/SET_RECORD_PROPERTY` properties beyond these, `LIST_VALUES` for list items,
+menu item roles/sub-menus, applying `menuItems` in the UI.

@@ -479,6 +479,8 @@ pub(crate) fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &
         "missingLibraries": missing_libraries,
         "alert": Value::Null,
         "lov": Value::Null,
+        "listElements": session.objects.list_elements.iter().map(|(k, v)| (k.clone(), Value::Array(v.iter().map(|e| json!({ "label": e.label, "value": e.value })).collect()))).collect::<serde_json::Map<String, Value>>(),
+        "menuItems": session.objects.menu_items.iter().map(|(k, m)| (k.clone(), Value::Object(m.iter().map(|(p, v)| (p.clone(), v.to_json())).collect()))).collect::<serde_json::Map<String, Value>>(),
         "actions": session.actions.iter().skip(cursor.actions).collect::<Vec<_>>(),
         "sandboxFiles": session.objects.files.iter().map(|(p, b)| json!({ "path": p, "size": b.len() })).collect::<Vec<_>>(),
         "nextTimerMs": session.next_timer_due_in_ms(),

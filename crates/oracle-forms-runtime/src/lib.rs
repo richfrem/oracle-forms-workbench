@@ -21,6 +21,7 @@ pub mod stdfuncs;
 pub mod textio;
 pub mod system;
 pub mod trigger;
+pub mod ui_builtins;
 pub mod value;
 
 pub use builtins::{ALERT_BUTTON1, ALERT_BUTTON2, ALERT_BUTTON3, PROPERTY_FALSE, PROPERTY_TRUE};

@@ -6,6 +6,10 @@
       <Item Name="CITY" ItemType="Text Item" DataType="Char"/>
       <Item Name="ITEM_NAME" ItemType="Text Item" DataType="Char" LovName="LOV_ITEMS"/>
       <Item Name="PRICE" ItemType="Text Item" DataType="Number"/>
+      <Item Name="COLOR" ItemType="List Item" DataType="Char">
+        <ListItemElement Name="Red" Value="R"/>
+        <ListItemElement Name="Blue" Value="B"/>
+      </Item>
       <Item Name="BTN_PICK" ItemType="Push Button" Label="Pick">
         <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE ok BOOLEAN; BEGIN ok := SHOW_LOV('LOV_ITEMS'); IF ok THEN :GLOBAL.PICKED := 'YES'; ELSE :GLOBAL.PICKED := 'NO'; END IF; END;"/>
       </Item>

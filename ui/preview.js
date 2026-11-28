@@ -89,11 +89,27 @@ window.FormsPreview = class FormsPreview {
     } else if (type.includes('list')) {
       control = document.createElement('select');
       const curVal = this.values.get(key) || (colKey ? this.values.get(colKey) : null);
-      const option = document.createElement('option');
-      option.textContent = curVal || 'Select...';
-      option.value = curVal || '';
-      control.append(option);
-      control.title = 'List of Values';
+      // Elements set at run time (ADD_LIST_ELEMENT, POPULATE_LIST) win over the design-time ones.
+      const elements = this.runtimeLists?.[`${block.name}.${item.name}`.toUpperCase()]
+        || (item.listElements || []).map(e => ({ label: e.name, value: e.value ?? e.name }));
+      const blank = document.createElement('option');
+      blank.textContent = elements.length ? '' : (curVal || 'Select...');
+      blank.value = elements.length ? '' : (curVal || '');
+      control.append(blank);
+      for (const el of elements) {
+        const o = document.createElement('option');
+        o.textContent = el.label;
+        o.value = el.value;
+        control.append(o);
+      }
+      if (elements.length) {
+        control.value = curVal == null ? '' : String(curVal);
+        control.addEventListener('change', () => {
+          this.values.set(key, control.value);
+          this.onEdit(block, item, row, control.value);
+        });
+      }
+      control.title = 'List item';
     } else {
       control = document.createElement('input');
       control.type = checkbox ? 'checkbox' : radio ? 'radio' : (item.concealData ? 'password' : 'text');

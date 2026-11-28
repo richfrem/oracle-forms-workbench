@@ -183,6 +183,12 @@ pub struct RuntimeObjects {
     pub files: std::collections::BTreeMap<String, Vec<u8>>,
     /// Open `TEXT_IO` handles.
     pub open_files: HashMap<String, crate::textio::OpenFile>,
+    /// Working copies of list item elements (`BLOCK.ITEM` -> elements), created on first use.
+    pub list_elements: HashMap<String, Vec<crate::ui_builtins::ListElement>>,
+    /// Menu item state set by `SET_MENU_ITEM_PROPERTY` (`MENU.ITEM` -> property -> value).
+    pub menu_items: HashMap<String, HashMap<String, OracleValue>>,
+    /// `SET_RECORD_PROPERTY(VISUAL_ATTRIBUTE)` (`BLOCK.record` -> attribute name).
+    pub record_visuals: HashMap<String, String>,
     started: Instant,
     skew_ms: i64,
     anonymous: u64,
@@ -199,6 +205,9 @@ impl Default for RuntimeObjects {
             lov_overrides: HashMap::new(),
             files: std::collections::BTreeMap::new(),
             open_files: HashMap::new(),
+            list_elements: HashMap::new(),
+            menu_items: HashMap::new(),
+            record_visuals: HashMap::new(),
             started: Instant::now(),
             skew_ms: 0,
             anonymous: 0,

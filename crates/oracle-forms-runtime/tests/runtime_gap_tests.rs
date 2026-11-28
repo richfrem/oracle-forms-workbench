@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, record_properties_read_and_set_status
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -713,4 +713,91 @@ fn show_document_queues_an_open_url_action_and_refuses_unsafe_schemes() {
     assert_eq!(s.actions[1]["target"], "_blank");
     assert_eq!(global(&s, "J"), "refused");
     assert_eq!(global(&s, "K"), "refused");
+}
+
+// ---------------------------------------------------------------------------
+// List items, menu items, record properties
+// ---------------------------------------------------------------------------
+
+#[test]
+fn list_items_start_from_design_elements_and_can_be_edited_and_populated() {
+    let mut s = objects_session();
+    s.start().unwrap();
+    let st = exec(
+        &mut s,
+        "DECLARE n NUMBER; BEGIN \
+           :GLOBAL.N0 := GET_LIST_ELEMENT_COUNT('CUSTOMERS.COLOR'); :GLOBAL.L1 := GET_LIST_ELEMENT_LABEL('CUSTOMERS.COLOR', 1); \
+           :GLOBAL.V2 := GET_LIST_ELEMENT_VALUE('CUSTOMERS.COLOR', 2); \
+           ADD_LIST_ELEMENT('CUSTOMERS.COLOR', 2, 'Green', 'G'); :GLOBAL.N1 := GET_LIST_ELEMENT_COUNT('CUSTOMERS.COLOR'); \
+           :GLOBAL.IDX := GET_LIST_ELEMENT_INDEX('CUSTOMERS.COLOR', 'B'); :GLOBAL.NOIDX := GET_LIST_ELEMENT_INDEX('CUSTOMERS.COLOR', 'Z'); \
+           DELETE_LIST_ELEMENT('CUSTOMERS.COLOR', 1); :GLOBAL.N2 := GET_LIST_ELEMENT_COUNT('CUSTOMERS.COLOR'); \
+           ADD_LIST_ELEMENT('CUSTOMERS.COLOR', 9, 'x', 'x'); IF FORM_FAILURE THEN :GLOBAL.BAD := 'range'; END IF; \
+           :CUSTOMERS.COLOR := 'G'; CLEAR_LIST('CUSTOMERS.COLOR'); :GLOBAL.N3 := GET_LIST_ELEMENT_COUNT('CUSTOMERS.COLOR'); :GLOBAL.CUR := NVL(:CUSTOMERS.COLOR, 'null'); \
+           POPULATE_LIST('CUSTOMERS.COLOR', 'RG_STATIC'); :GLOBAL.N4 := GET_LIST_ELEMENT_COUNT('CUSTOMERS.COLOR'); :GLOBAL.P1 := GET_LIST_ELEMENT_LABEL('CUSTOMERS.COLOR', 1) || '=' || GET_LIST_ELEMENT_VALUE('CUSTOMERS.COLOR', 1); \
+           POPULATE_LIST('CUSTOMERS.COLOR', 'RG_ITEMS'); :GLOBAL.P2 := GET_LIST_ELEMENT_LABEL('CUSTOMERS.COLOR', 2); \
+           CLEAR_LIST('CUSTOMERS.NOPE'); IF FORM_FAILURE THEN :GLOBAL.NOLIST := 'failed'; END IF; \
+         END;",
+    );
+    assert_eq!(st, ExecutionStatus::Success(None), "{:?} {:?}", s.trace_log, s.messages);
+    assert_eq!((global(&s, "N0"), global(&s, "L1"), global(&s, "V2")), ("2".into(), "Red".into(), "B".into()));
+    assert_eq!((global(&s, "N1"), global(&s, "IDX"), global(&s, "NOIDX")), ("3".into(), "3".into(), "0".into()));
+    assert_eq!(global(&s, "N2"), "2");
+    assert_eq!(global(&s, "BAD"), "range");
+    assert_eq!((global(&s, "N3"), global(&s, "CUR")), ("0".into(), "null".into()), "CLEAR_LIST also clears the value");
+    assert_eq!((global(&s, "N4"), global(&s, "P1")), ("3".into(), "Acme Corp=Victoria".into()), "first column label, second column value");
+    assert_eq!(global(&s, "P2"), "Gadget B", "a query group is populated on demand");
+    assert_eq!(global(&s, "NOLIST"), "failed");
+}
+
+#[test]
+fn menu_items_keep_enabled_checked_displayed_and_label() {
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "BEGIN :GLOBAL.E0 := GET_MENU_ITEM_PROPERTY('FILE.SAVE', ENABLED); \
+           SET_MENU_ITEM_PROPERTY('FILE.SAVE', ENABLED, PROPERTY_FALSE); SET_MENU_ITEM_PROPERTY('file.save', LABEL, 'Save now'); \
+           SET_MENU_ITEM_PROPERTY('VIEW.GRID', CHECKED, PROPERTY_TRUE); \
+           :GLOBAL.E1 := GET_MENU_ITEM_PROPERTY('FILE.SAVE', ENABLED); :GLOBAL.LB := GET_MENU_ITEM_PROPERTY('FILE.SAVE', LABEL); \
+           :GLOBAL.CK := GET_MENU_ITEM_PROPERTY('VIEW.GRID', CHECKED); :GLOBAL.DS := GET_MENU_ITEM_PROPERTY('VIEW.GRID', DISPLAYED); \
+           IF NOT ID_NULL(FIND_MENU_ITEM('FILE.SAVE')) THEN :GLOBAL.F := 'found'; END IF; \
+           SET_MENU_ITEM_PROPERTY('FILE.SAVE', 'BOGUS', PROPERTY_TRUE); IF FORM_FAILURE THEN :GLOBAL.BAD := 'rejected'; END IF; END;",
+    );
+    assert_eq!((global(&s, "E0"), global(&s, "E1")), ("TRUE".into(), "FALSE".into()));
+    assert_eq!(global(&s, "LB"), "Save now");
+    assert_eq!((global(&s, "CK"), global(&s, "DS")), ("TRUE".into(), "TRUE".into()));
+    assert_eq!(global(&s, "F"), "found");
+    assert_eq!(global(&s, "BAD"), "rejected");
+    assert_eq!(s.objects.menu_items["FILE.SAVE"]["ENABLED"].to_string_lossy(), "FALSE");
+}
+
+#[test]
+fn menu_item_lookup_is_strict_once_a_custom_menu_is_loaded() {
+    let mut s = objects_session();
+    s.module.menus.push(oracle_forms_core::model::MenuInfo {
+        name: "MAIN".into(),
+        items: vec![oracle_forms_core::model::MenuItemInfo { name: "SAVE".into(), label: Some("Save".into()), command_type: None, sub_menu_name: None, menu_item_type: None, command_ref: None, command_text: None, text_encoding: Default::default() }],
+    });
+    exec(&mut s, "BEGIN :GLOBAL.LB := GET_MENU_ITEM_PROPERTY('MAIN.SAVE', LABEL); IF ID_NULL(FIND_MENU_ITEM('MAIN.GONE')) THEN :GLOBAL.G := 'null'; END IF; SET_MENU_ITEM_PROPERTY('MAIN.GONE', ENABLED, PROPERTY_FALSE); IF FORM_FAILURE THEN :GLOBAL.F := 'failed'; END IF; END;");
+    assert_eq!((global(&s, "LB"), global(&s, "G"), global(&s, "F")), ("Save".into(), "null".into(), "failed".into()));
+}
+
+#[test]
+fn record_properties_read_and_set_status() {
+    let mut s = objects_session();
+    s.start().unwrap();
+    s.set_item_value("CUSTOMERS.CITY", serde_json::json!("x")).unwrap();
+    exec(
+        &mut s,
+        "BEGIN :GLOBAL.S1 := GET_RECORD_PROPERTY(1, 'CUSTOMERS', STATUS); :GLOBAL.CUR := GET_RECORD_PROPERTY(1, 'CUSTOMERS', CURRENT_RECORD); \
+           SET_RECORD_PROPERTY(1, 'CUSTOMERS', STATUS, QUERY_STATUS); :GLOBAL.S2 := GET_RECORD_PROPERTY(1, 'CUSTOMERS', STATUS); \
+           SET_RECORD_PROPERTY(1, 'CUSTOMERS', VISUAL_ATTRIBUTE, 'VA_HOT'); :GLOBAL.VA := GET_RECORD_PROPERTY(1, 'CUSTOMERS', VISUAL_ATTRIBUTE); \
+           :GLOBAL.X := GET_RECORD_PROPERTY(7, 'CUSTOMERS', STATUS); IF FORM_FAILURE THEN :GLOBAL.RANGE := 'failed'; END IF; \
+           SET_RECORD_PROPERTY(1, 'CUSTOMERS', STATUS, 'BOGUS_STATUS'); IF FORM_FAILURE THEN :GLOBAL.BAD := 'failed'; END IF; END;",
+    );
+    assert_eq!(global(&s, "S1"), "INSERT", "{:?} {:?}", s.trace_log, s.messages);
+    assert_eq!(global(&s, "CUR"), "TRUE");
+    assert_eq!(global(&s, "S2"), "QUERY");
+    assert_eq!(global(&s, "VA"), "VA_HOT");
+    assert_eq!((global(&s, "RANGE"), global(&s, "BAD")), ("failed".into(), "failed".into()));
+    assert_eq!(s.system.record_status.as_str(), "QUERY");
 }

@@ -37,6 +37,7 @@ pub const FORMS_CONSTANTS: &[&str] = &[
     "PRIMARY_KEY", "LOCKING_MODE", "ITEM_IS_VALID", "STATUS", "RECORD_STATUS", "CURRENT_FORM",
     "USERNAME", "PASSWORD", "CONNECT_STRING", "OPERATING_SYSTEM", "USER_INTERFACE", "CALLING_FORM",
     "NO_ACKNOWLEDGE", "ACKNOWLEDGE", "QUERY_ONLY", "NO_QUERY_ONLY", "ACTIVATE", "NO_ACTIVATE", "SESSION",
+    "NEW_STATUS", "INSERT_STATUS", "QUERY_STATUS", "CHANGED_STATUS", "CHECKED", "ICON_NAME",
     "NO_SESSION", "TO_SAVEPOINT", "NO_ROLLBACK", "FORM_NAME", "FIRST_BLOCK", "LAST_BLOCK", "CURRENT_BLOCK", "CHAR_COLUMN", "NUMBER_COLUMN", "DATE_COLUMN", "LONG_COLUMN",
     "END_OF_GROUP", "ALL_ROWS", "NO_CHANGE", "REPEAT", "NO_REPEAT", "RESTRICT", "NO_RESTRICT", "TIMER_NAME", "GROUP_NAME",
     "AUTO_REFRESH", "FILTER_BEFORE_DISPLAY", "TEXT_PARAMETER", "DATA_PARAMETER", "ALERT_MESSAGE_TEXT",
@@ -328,6 +329,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
                 .or_else(|| crate::nav::dispatch(name, args, session))
                 .or_else(|| crate::textio::dispatch(name, args, session))
                 .or_else(|| crate::host::dispatch(name, args, session))
+                .or_else(|| crate::ui_builtins::dispatch(name, args, session))
                 .or_else(|| show_document(name, args, session))
             {
                 Some(r) => r,

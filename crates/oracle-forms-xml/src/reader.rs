@@ -89,6 +89,7 @@ struct ItemBuilder {
     prompt_font_size: Option<i32>,
     prompt_font_weight: Option<String>,
     radio_buttons: Vec<RadioButtonInfo>,
+    list_elements: Vec<ListItemElementInfo>,
     enabled: bool,
     canvas_visible: bool,
     trigger_names: Vec<String>,
@@ -666,6 +667,7 @@ impl FormsXmlParser {
                         prompt_font_size: get_int_attr(e, "PromptFontSize"),
                         prompt_font_weight: get_attr(e, "PromptFontWeight"),
                         radio_buttons: Vec::new(),
+                        list_elements: Vec::new(),
                         enabled,
                         canvas_visible: vis,
                         trigger_names: Vec::new(),
@@ -678,6 +680,13 @@ impl FormsXmlParser {
                         extra_attrs: collect_attrs(e),
                         extra_children: Vec::new(),
                     });
+                }
+            }
+            "ListItemElement" => {
+                if parent_element.as_deref() == Some("Item") {
+                    if let Some(it) = current_item.as_mut() {
+                        it.list_elements.push(ListItemElementInfo { name: name.clone().unwrap_or_default(), value: get_attr(e, "Value") });
+                    }
                 }
             }
             "RadioButton" => {
@@ -1318,7 +1327,7 @@ impl FormsXmlParser {
                             prompt_font_size: i.prompt_font_size,
                             prompt_font_weight: i.prompt_font_weight,
                             radio_buttons: i.radio_buttons,
-                            list_elements: Vec::new(),
+                            list_elements: i.list_elements,
                             enabled: i.enabled,
                             canvas_visible: i.canvas_visible,
                             hint: i.hint,

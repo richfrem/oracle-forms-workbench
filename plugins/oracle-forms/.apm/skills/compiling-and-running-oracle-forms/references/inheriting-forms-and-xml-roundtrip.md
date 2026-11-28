@@ -48,7 +48,8 @@ When converting XML, stage referenced parent form and object-library sources bef
 
 - XML2Forms can crash with `Cannot invoke "java.lang.Integer.intValue()" because "<local1>" is null` when an `ObjectGroup` lists children that exist only in a parent module (inherited children have no object in the child's XML). Removing those `ObjectGroup` elements lets it convert, but inherited content is then lost.
 - A form built this way can open blank, and its binary is much smaller than the original (82 KB against 192 KB in one case).
-- A 12c-style export has no `AttachedLibrary` lines; add them before compiling.
+- Canvases that inherit their colour from an object library (no `BackColor` of their own) render black after `XML2Forms` on Linux. Use the original binaries, or add an explicit `BackColor` (for example `r75g75b75`) to each such canvas in the staged XML and replace named colours, converting the object library before the forms that subclass it (verified) (`converting-oracle-artifacts/references/conversion-notes.md`).
+- A 12c-style export has no `AttachedLibrary` lines; add them before compiling. The manifest pipeline finds them for you: Stage 1 infers each library a form or menu calls without attaching it and Stage 2 adds the tag to the staged copy (`converting-oracle-artifacts/references/batch-dependency-conversion.md`, "Undeclared library use").
 - XML2Forms writes `<xml-name>.fmb` into `OUTPUTDIR`.
 
 Hand edits via XML are acceptable only for forms with no inheritance, or for throwaway diagnostic copies kept in a work folder outside the repository and external source tree.

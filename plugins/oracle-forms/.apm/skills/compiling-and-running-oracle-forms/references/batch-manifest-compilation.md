@@ -16,7 +16,7 @@ Across `build-manifest.json`, `build_dependency_manifest.py`, and `compile_from_
 
 ```bash
 python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scripts/compile_from_manifest.py \
-  --build-dir <external-folder> [--app-name <app>] [--output-dir <dir>] [--types PLL] [--no-deps] [--skip-compiled] [--userid <user>@<db>] [--offline] [--no-publish] [--skip-preflight] [--use-local-env]
+  --build-dir <external-folder> [--app-name <app>] [--output-dir <dir>] [--types PLL] [--no-deps] [--skip-compiled] [--rebuild-all] [--userid <user>@<db>] [--compile-from-env] [--offline] [--no-publish] [--skip-preflight] [--use-local-env]
 ```
 
 ## Before you run Stage 3
@@ -39,7 +39,13 @@ Unless `--skip-preflight` or `--offline`, `sqlplus -L -S` runs inside `forms-ser
 
 ## Compile
 
-For each module in tier (`PLL` → `MMB` → `FMB`) and manifest order: before compiling, `ensure_manifest_case_symlinks()` creates exact-case symlinks in `<build-dir>/stage/` and `<app_output_dir>` for any mixed-case or uppercase dependency names recorded in `build-manifest.json` (`parentModules`, `attachedLibraries`, `menus`, `objectLibraries`). `.olb` is skipped (provider only); `.pll` compiles with `module_type=library`, `.mmb` with `menu`, `.fmb` with `form` through `compile_form.build_compiler_command`, with `FORMS_PATH` = `<app_output_dir>:<build-dir>/stage:/oracle_home_14c/forms`. A module whose typed provider (`(artifactType, name)`) failed or was skipped is marked `skipped` (so a failed `FMB` never blocks dependents of a same-named `PLL`). Each result and diagnostics are written back to the same `build-manifest.json` (one JSON for the whole pipeline) as the module's `compiled` record (`done`, `failed` or `skipped`) plus `status`, saved atomically after every module. The other stages' records (`decompiled`, `validated`, `converted`) are left untouched.
+**Order.** Wave by wave (see `wave` in the manifest: modules with no dependencies first), then type tier and manifest order inside a wave. Manifests written before waves existed fall back to tier (`PLL` → `MMB` → `FMB`) and manifest order.
+
+**Incremental by default.** Every module gets a build key: a hash of its staged input (XML, PLD, or the binary when there is no text) and the build keys of the modules it depends on. A module that compiled with the same key and whose executable still exists is skipped (`skip <name> (up to date)`). Changing a module, or anything below it at any depth, changes its key, so it and every consumer are recompiled; already compiled, unchanged dependencies are not. `--rebuild-all` compiles everything. `--skip-compiled` additionally skips modules compiled before build keys were recorded (marked compiled, output present) and records their current key.
+
+**Credentials for a caller.** `--compile-from-env` reads `user/password@db` from `OFW_PREVIEW_DB_LOGON` and removes it from the environment, so a program (the Web App, `run_form.py --source-dir`) can pass a logon without a command line or a prompt. People still run the script themselves and type the password at the prompt.
+
+For each module: before compiling, `ensure_manifest_case_symlinks()` creates exact-case symlinks in `<build-dir>/stage/` and `<app_output_dir>` for any mixed-case or uppercase dependency names recorded in `build-manifest.json` (`parentModules`, `attachedLibraries`, `menus`, `objectLibraries`). `.olb` is skipped (provider only); `.pll` compiles with `module_type=library`, `.mmb` with `menu`, `.fmb` with `form` through `compile_form.build_compiler_command`, with `FORMS_PATH` = `<app_output_dir>:<build-dir>/stage:/oracle_home_14c/forms`. A module whose typed provider (`(artifactType, name)`) failed or was skipped is marked `skipped` (so a failed `FMB` never blocks dependents of a same-named `PLL`). Each result and diagnostics are written back to the same `build-manifest.json` (one JSON for the whole pipeline) as the module's `compiled` record (`done`, `failed` or `skipped`) plus `status`, saved atomically after every module. The other stages' records (`decompiled`, `validated`, `converted`) are left untouched.
 
 ## Publish
 
@@ -47,7 +53,7 @@ Compiled `.plx`, `.mmx`, `.fmx` are written by `frmcmp_batch` (`output_file=`) s
 
 ## Not verified
 
-Unit-tested with mocks only (order, credential prompt, skip-on-failure). No compile through this script against a database has been verified.
+Unit-tested with mocks (order, credential prompt, skip-on-failure, build keys). Verified once against a remote development database (Oracle 19c, through a TNS alias in the container): a 12-step chain compiled libraries, menus and forms in order and published to `forms_apps/<app_name>/`; the three failures were the missing attachments described in `converting-oracle-artifacts/references/batch-dependency-conversion.md` ("Undeclared library use"), and the module that depended on one was skipped as designed. Not verified: wave ordering and build-key skipping on a real database run.
 
 ## Publishing and early checks
 

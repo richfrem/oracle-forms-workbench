@@ -59,6 +59,19 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/bui
 
 Reads XML (`AttachedLibrary`, `FormModule/@MenuModule`, `ParentFilename`, `ParentModule`; an `.olb` parent counts as an object library, anything else as a parent module; a reference to the module's own file name or internal `Name` is ignored, and parent forms resolve by internal module name too) and `.pld` (`.attach library`). Binary modules with no XML use the name-matching heuristic (may over-include). Kahn's algorithm orders providers before consumers; ties break by case-insensitive name, and file-name case is preserved. Output: `<build-dir>/build-manifest.json`, the one JSON for the whole pipeline (its shape is `assets/build-manifest.template.json`; there is no separate schema file).
 
+**Undeclared library use (inferred attachments).** Older exports (for example 12c `Forms2XML`) can omit `<AttachedLibrary>` lines that the binary has, so a form or menu calls a library package that its XML never declares and Stage 3 fails with `PL/SQL ERROR 201 identifier 'PKG.PROC' must be declared`. Stage 1 therefore reads the top-level packages, procedures and functions of every `.pld` (units that start in column 1), and the identifiers in each form's and menu's PL/SQL attributes (`*Text`, `*Code`; strings, comments and package members after a dot are ignored; units the module defines itself shadow library units). A library whose unit is used but not attached is added to the module's `attachedLibraries` (so ordering, the dependency closure and case symlinks include it) and recorded as `inferredAttachedLibraries` (`library`, `uses`). Stage 2 writes the matching `<AttachedLibrary Name="LIB" LibraryLocation="lib" LibrarySource="File"/>` into the **staged copy** only, after any leading `Coordinate`/`Alert` elements; the source folder is never changed. A unit name defined by more than one library is not inferred; it is listed in `ambiguousLibraryUnits` for a person to attach. Object libraries are never given inferred attachments (they are not compiled; the forms that use their objects attach the library). `--no-infer-libraries` turns this off. Only static calls are seen; a call built at run time is not.
+
+**One form and its dependencies (`--target`).** `--target <module>` (repeatable; a module name, file name or `_fmb.xml` name, a form preferred when several types share the name) keeps only that module and everything it depends on, followed recursively: attached libraries (declared and inferred), the libraries those attach (`.attach library` in `.pld`), object libraries, parent modules and menus. Stage 2 then stages and converts only those modules, so one form can be built from a large source folder. Forms reached only by `CALL_FORM`/`OPEN_FORM` are run-time calls, not build dependencies, and are not included; target them too when needed.
+
+**Original binaries first (`--prefer-binaries`).** When a module has both an XML export and its original `.fmb`/`.mmb`/`.olb` in the source folder, the XML wins by default. With `--prefer-binaries` the original binary is staged and compiled as is (no `XML2Forms` round trip, which loses inherited content, inherited canvas colours and object groups), while its dependency list still comes from the XML export (exact, unlike the binary name heuristic). Binaries keep their own attachments, so no inference is applied to them. Use it whenever the originals are available; it is the documented fix for forms that inherit.
+
+**Waves.** Each module gets a `wave`: wave 1 holds modules with no dependency in the manifest, wave N those whose dependencies are all in earlier waves. Modules in one wave do not depend on each other. Stage 1 prints the waves; Stage 3 compiles wave by wave.
+
+```bash
+python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/build_dependency_manifest.py \
+  --source-dir <source-folder> --build-dir <external-folder> --target <form> --analyze-only
+```
+
 Each unresolved dependency lists `suggestions` (present modules with a shared prefix or close spelling): a form can reference an old file name while the current file is named slightly differently. `needsReview` has one entry per module with a missing dependency, plus `mentionedBy` (other source files whose text names it, a hint whether it is still used; calls built from variables or stored in a database are not seen). Nothing is changed automatically; a person decides to substitute, detach or skip.
 
 ## Decompile binary-only modules (optional gate)
@@ -86,9 +99,11 @@ It fails closed (exit 2, manifest still written for diagnosis) on a **cycle**, o
 
 ## Not verified
 
-Unit-tested with synthetic fixtures only (order, cycles, missing providers, external-only build dir). No XML2Forms run through this script has been verified yet; the single-module commands in `test_conversions.py` are the verified ones.
+Unit-tested with synthetic fixtures (order, cycles, missing providers, external-only build dir, inferred attachments, `--target` closure, waves). Stages 1 and 2 have been run end to end on a 14-module external chain (object libraries, five libraries, two menus, forms with parent modules) in `forms-server-14c`: all 14 converted. Library inference, run on that chain's unpatched sources, found the same three missing attachments that the compiler errors had shown (two forms and one menu). Not verified: inference across a whole corpus (false positives from identifiers that only look like library units), and the `--target` path in Stage 2 on a real folder.
 
 ## Conversion details
+
+**Inherited canvases turn black.** A canvas that subclasses an object-library canvas and has no `BackColor` of its own is stored without a colour by `XML2Forms` on headless Linux and renders black after Stage 3 (named colours such as `gray` are also unreliable). Add an explicit `BackColor` to such canvases in the staged copies. Check before Stage 2 with `grep -o -E '(Back|Fore)Color="[^"]*"' <source>/*.xml | sort | uniq -c`. Fix and recipe: `converting-oracle-artifacts/references/conversion-notes.md` ("Named Color Palette Loss"); prefer the original binaries when they exist.
 
 XML2Forms runs with `FORMS_PATH=/work:<oracle home>/forms` so staged providers resolve. Subclassing parents are read from both `ParentFilename` and `ParentModule`. After conversion the binary is located case-insensitively in `stage/` and the manifest's `binaryFile`/`executableFile` are updated if Oracle wrote a different case.
 

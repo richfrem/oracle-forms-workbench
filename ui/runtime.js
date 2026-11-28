@@ -57,6 +57,39 @@ window.FormsRuntime = class FormsRuntime {
     return this.request('POST', `/api/sessions/${encodeURIComponent(this.sessionId)}/alert`, { button });
   }
 
+  /** Answers a pending list of values: the index of the picked row, or null to cancel. */
+  async answerLov(selected) {
+    if (!this.sessionId) throw new Error('No form is running.');
+    return this.request('POST', `/api/sessions/${encodeURIComponent(this.sessionId)}/lov`, { selected: selected ?? null });
+  }
+
+  /** Runs due timers (WHEN-TIMER-EXPIRED) on the server and returns the new state. */
+  async tick() {
+    if (!this.sessionId) throw new Error('No form is running.');
+    return this.request('POST', `/api/sessions/${encodeURIComponent(this.sessionId)}/tick`);
+  }
+
+  /**
+   * Rows of a LOV payload that match the search text (case-insensitive prefix on the
+   * first column, like the Forms Find box). Returns [{index, cells}] where `index` is the
+   * row's position in the list the server sent, which is what the answer must carry.
+   */
+  static lovRows(lov, text) {
+    const needle = (text || '').trim().toLowerCase();
+    const out = [];
+    (lov?.rows || []).forEach((cells, index) => {
+      const first = cells[0] == null ? '' : String(cells[0]).toLowerCase();
+      if (!needle || first.startsWith(needle)) out.push({ index, cells });
+    });
+    return out;
+  }
+
+  /** Milliseconds to wait before polling for timers, or null when no timer is pending. */
+  static timerPollDelay(state) {
+    if (!state || state.nextTimerMs == null || state.lov || state.alert) return null;
+    return Math.min(Math.max(Number(state.nextTimerMs) + 20, 50), 5000);
+  }
+
   async stop() {
     const id = this.sessionId;
     this.sessionId = null;

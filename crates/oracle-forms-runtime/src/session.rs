@@ -156,6 +156,7 @@ pub struct FormSession {
     focus_dirty: bool,
     settling: bool,
     /// Set by the host to abort whatever PL/SQL is running (checked every few steps).
+    pub objects: crate::objects::RuntimeObjects,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
     /// Wall-clock limit for the command currently being processed (set by the host).
     pub command_deadline: Option<std::time::Instant>,
@@ -202,6 +203,7 @@ impl FormSession {
         }
 
         let programs = Arc::new(ProgramRegistry::from_module(&module));
+        let objects = crate::objects::RuntimeObjects::from_module(&module);
 
         Self {
             module,
@@ -231,6 +233,7 @@ impl FormSession {
             trigger_depth: 0,
             focus_dirty: false,
             settling: false,
+            objects,
             cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             command_deadline: None,
         }
@@ -264,7 +267,7 @@ impl FormSession {
         })
     }
 
-    fn block_info(&self, name: &str) -> Option<&BlockInfo> {
+    pub(crate) fn block_info(&self, name: &str) -> Option<&BlockInfo> {
         self.module.blocks.iter().find(|b| b.name.eq_ignore_ascii_case(name))
     }
 
@@ -631,6 +634,11 @@ impl FormSession {
     }
 
     /// True if a trigger for `event` exists at block or form level for `block`.
+    /// True while a trigger body is executing (timers and other idle work wait).
+    pub fn is_inside_trigger(&self) -> bool {
+        self.trigger_depth > 0
+    }
+
     fn has_trigger(&self, event: &str, block: &str) -> bool {
         self.module.triggers.iter().any(|t| {
             t.name.eq_ignore_ascii_case(event)
@@ -717,6 +725,10 @@ impl FormSession {
                 }
                 Ok(())
             }
+            "LIST_VALUES" => match crate::builtins::dispatch("LIST_VALUES", &[], self) {
+                Some(crate::builtins::BuiltinResult::Failure(m)) => Err(RuntimeError::NavigationFailed(m)),
+                _ => Ok(()),
+            },
             other => Err(RuntimeError::Unsupported(format!("DO_KEY('{}')", other))),
         }
     }

@@ -1917,6 +1917,29 @@ input[type="range"] {
   white-space: pre-wrap;
 }
 
+.runtime-lov-scroll {
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 8px;
+  border: 1px solid var(--border, #c8ccd0);
+}
+.runtime-lov-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.runtime-lov-table th,
+.runtime-lov-table td {
+  padding: 4px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.runtime-lov-table tbody tr {
+  cursor: pointer;
+}
+.runtime-lov-table tbody tr.selected {
+  background: var(--accent-soft, #cfe3ff);
+}
+
 .runtime-alert-buttons {
   display: flex;
   gap: 8px;

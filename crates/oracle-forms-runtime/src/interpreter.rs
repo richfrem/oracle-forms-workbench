@@ -45,6 +45,15 @@ pub enum InteractionRequest {
         button3: Option<String>,
         default_button: u8,
     },
+    /// `SHOW_LOV` / `LIST_VALUES`: the user picks one of `rows` (or cancels).
+    ShowLov {
+        lov_name: String,
+        title: String,
+        columns: Vec<crate::lov::LovColumn>,
+        rows: Vec<Vec<serde_json::Value>>,
+        /// Initial search text (the typed value when the list was restricted).
+        filter: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,6 +62,8 @@ pub enum InteractionResponse {
     AlertButton(i64),
     /// Accept the default.
     Acknowledge,
+    /// Index into the rows sent with `ShowLov`, or `None` when the user cancelled.
+    LovSelection(Option<usize>),
 }
 
 /// Outcome of running a unit of PL/SQL.
@@ -1075,6 +1086,29 @@ impl Interpreter {
                 return Err(unsupported(format!("PLS-00222: {} is a procedure, not a function", name)));
             }
             return self.call_routine(&routine, args, session);
+        }
+
+        // Built-ins with OUT parameters (GET_PARAMETER_ATTR): evaluate only the IN
+        // arguments, then assign the produced OUT values to the argument targets.
+        if let Some(k) = builtins::out_arg_start(&upper(name)) {
+            if args.len() > k {
+                let mut ins = Vec::with_capacity(k);
+                for a in &args[..k] {
+                    match self.eval(a, session)? {
+                        Ok(v) => ins.push(v),
+                        Err(ex) => return Ok(Err(ex)),
+                    }
+                }
+                session.objects.pending_out.clear();
+                let result = self.run_builtin(name, &ins, session)?;
+                let outs = std::mem::take(&mut session.objects.pending_out);
+                for (target, value) in args[k..].iter().zip(outs) {
+                    if let Flow::Raise(ex) = self.assign(target, value, session)? {
+                        return Ok(Err(ex));
+                    }
+                }
+                return Ok(result.map(|v| v.or(Some(OracleValue::Null))));
+            }
         }
 
         // Everything else takes evaluated IN arguments.

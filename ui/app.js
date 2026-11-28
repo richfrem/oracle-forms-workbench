@@ -177,6 +177,11 @@
   const sessionTracePanel = document.getElementById('sessionTracePanel');
   const sessionTrace = document.getElementById('sessionTrace');
   const runtimeAlertDialog = document.getElementById('runtimeAlertDialog');
+  const runtimeLovDialog = document.getElementById('runtimeLovDialog');
+  const runtimeLovBtn = document.getElementById('runtimeLovBtn');
+  let pendingLov = null;
+  let selectedLovIndex = null;
+  let timerPollHandle = null;
 
   // Query engine state
   const queryRecordsByBlock = new Map();
@@ -998,6 +1003,21 @@
           showBanner(`Alert answer failed: ${err.message}`);
         }
       });
+    });
+    runtimeLovBtn?.addEventListener('click', () => runtimeSend({ kind: 'pickLov' }));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F9' && runtime.active && !runtimeLovDialog?.open) {
+        e.preventDefault();
+        runtimeSend({ kind: 'pickLov' });
+      }
+    });
+    document.getElementById('runtimeLovFind')?.addEventListener('input', () => renderLovRows());
+    document.getElementById('runtimeLovOk')?.addEventListener('click', () => finishLov(selectedLovIndex));
+    document.getElementById('runtimeLovCancel')?.addEventListener('click', () => finishLov(null));
+    // Escape must not leave the server trigger waiting forever: it cancels the list.
+    runtimeLovDialog?.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      finishLov(null);
     });
     // Escape must not leave the server trigger waiting forever: treat it as the default button.
     runtimeAlertDialog?.addEventListener('cancel', (e) => {
@@ -2899,6 +2919,7 @@
     runFormBtn?.classList.toggle('hidden', running);
     stopFormBtn?.classList.toggle('hidden', !running);
     runtimeCommitBtn?.classList.toggle('hidden', !running);
+    runtimeLovBtn?.classList.toggle('hidden', !running);
     sessionBadge?.classList.toggle('hidden', !running);
     sessionTracePanel?.classList.toggle('hidden', !running);
     if (dbBackendSelect) dbBackendSelect.disabled = running;
@@ -2980,6 +3001,8 @@
   }
 
   async function stopRuntimeSession() {
+    clearTimeout(timerPollHandle);
+    timerPollHandle = null;
     await runtime.stop();
     queryRecordsByBlock.clear();
     activeRecordIndexByBlock.clear();
@@ -2997,10 +3020,89 @@
     }
   }
 
+  /** Fills the list-of-values table from the pending LOV, honouring the Find box. */
+  function renderLovRows() {
+    if (!pendingLov) return;
+    const find = document.getElementById('runtimeLovFind').value;
+    const body = document.getElementById('runtimeLovBody');
+    const rows = FormsRuntime.lovRows(pendingLov, find);
+    body.textContent = '';
+    if (!rows.some(r => r.index === selectedLovIndex)) selectedLovIndex = rows.length ? rows[0].index : null;
+    for (const { index, cells } of rows) {
+      const tr = document.createElement('tr');
+      tr.dataset.index = String(index);
+      tr.classList.toggle('selected', index === selectedLovIndex);
+      for (const c of cells) {
+        const td = document.createElement('td');
+        td.textContent = c == null ? '' : String(c);
+        tr.appendChild(td);
+      }
+      tr.addEventListener('click', () => {
+        selectedLovIndex = index;
+        body.querySelectorAll('tr').forEach(r => r.classList.toggle('selected', r === tr));
+      });
+      tr.addEventListener('dblclick', () => finishLov(index));
+      body.appendChild(tr);
+    }
+    document.getElementById('runtimeLovEmpty').classList.toggle('hidden', rows.length > 0);
+    document.getElementById('runtimeLovOk').disabled = selectedLovIndex == null;
+  }
+
+  function showLovDialog(lov) {
+    pendingLov = lov;
+    selectedLovIndex = null;
+    document.getElementById('runtimeLovTitle').textContent = lov.title || lov.lovName;
+    const head = document.getElementById('runtimeLovHead');
+    head.textContent = '';
+    const tr = document.createElement('tr');
+    for (const c of lov.columns || []) {
+      const th = document.createElement('th');
+      th.textContent = c.title || c.name;
+      tr.appendChild(th);
+    }
+    head.appendChild(tr);
+    document.getElementById('runtimeLovFind').value = lov.filter || '';
+    renderLovRows();
+    runtimeLovDialog.showModal();
+    document.getElementById('runtimeLovFind').focus();
+  }
+
+  async function finishLov(index) {
+    if (!pendingLov) return;
+    pendingLov = null;
+    if (runtimeLovDialog.open) runtimeLovDialog.close();
+    try {
+      applySessionState(await runtime.answerLov(index));
+    } catch (err) {
+      showBanner(`List of values answer failed: ${err.message}`);
+    }
+  }
+
+  /** Polls the server for expired timers while the running form has pending ones. */
+  function scheduleTimerPoll(state) {
+    clearTimeout(timerPollHandle);
+    timerPollHandle = null;
+    const delay = FormsRuntime.timerPollDelay(state);
+    if (delay == null || !runtime.active) return;
+    timerPollHandle = setTimeout(async () => {
+      timerPollHandle = null;
+      if (!runtime.active || pendingLov || runtimeAlertDialog?.open) return;
+      try {
+        applySessionState(await runtime.tick());
+      } catch (err) {
+        if (!/waiting for an answer/i.test(err.message)) showBanner(err.message);
+      }
+    }, delay);
+  }
+
   let lastSessionState = null;
   function applySessionState(state) {
     if (!state) return;
-    if (!state.alert) lastSessionState = state;
+    if (!state.alert && !state.lov) lastSessionState = state;
+    if (state.lov) {
+      showLovDialog(state.lov);
+      return;
+    }
     if (state.alert) {
       const a = state.alert;
       document.getElementById('runtimeAlertTitle').textContent = a.alertName;
@@ -3038,7 +3140,9 @@
     if (state.exitRequested) {
       showBanner('The form called EXIT_FORM. Session ended.');
       stopRuntimeSession();
+      return;
     }
+    scheduleTimerPoll(state);
   }
 
   function canvasCoordinateScale(coordinate, canvas, override) {

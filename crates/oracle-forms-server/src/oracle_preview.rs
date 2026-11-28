@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn parse_launch_params_validates_key_value_pairs() {
         assert_eq!(super::parse_launch_params(None).unwrap(), Vec::<String>::new());
-        assert_eq!(super::parse_launch_params(Some("APPL4=Y MODE=TEST")).unwrap(), vec!["APPL4=Y", "MODE=TEST"]);
+        assert_eq!(super::parse_launch_params(Some("FLAG=Y MODE=TEST")).unwrap(), vec!["FLAG=Y", "MODE=TEST"]);
         assert!(super::parse_launch_params(Some("BAD_TOKEN")).is_err());
         assert!(super::parse_launch_params(Some("A=1;rm")).is_err());
     }

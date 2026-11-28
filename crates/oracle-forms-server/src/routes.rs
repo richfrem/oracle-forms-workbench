@@ -1,6 +1,6 @@
 //! Purpose: Axum HTTP API routes for the workbench server.
 //! Key Input Dependencies: axum, serde, oracle_forms_core, oracle_forms_db, tower
-//! Index: SourceQuery, XmlQuery, EffectiveItemQuery, QueryBlockRequest, TestDbRequest, TestDbResponse, DescribeTableRequest, StartSessionRequest, AlertAnswer, ExportXmlRequest, ExportXmlResponse, SaveFormRequest, ConvertArtifactRequest, DiffRequest, UpdateItemRequest, AttachMenuRequest, RunReportRequest, RunReportResponse, app_router, app_router_with_security, get_samples, open_sample, get_source, get_xml, get_effective_item (+60 more)
+//! Index: SourceQuery, XmlQuery, EffectiveItemQuery, QueryBlockRequest, TestDbRequest, TestDbResponse, DescribeTableRequest, StartSessionRequest, AlertAnswer, LovAnswer, session_lov, session_tick, ExportXmlRequest, ExportXmlResponse, SaveFormRequest, ConvertArtifactRequest, DiffRequest, UpdateItemRequest, AttachMenuRequest, RunReportRequest, RunReportResponse, app_router, app_router_with_security, get_samples, open_sample, get_source, get_xml, get_effective_item (+60 more)
 
 use std::path::{Path, PathBuf};
 use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path as AxumPath, Query, Request, State};
@@ -55,6 +55,8 @@ pub fn app_router_with_security(service: FormsService, security_cfg: SecurityCon
         .route("/api/sessions/{id}", get(session_state).delete(end_session))
         .route("/api/sessions/{id}/events", post(session_event))
         .route("/api/sessions/{id}/alert", post(session_alert))
+        .route("/api/sessions/{id}/lov", post(session_lov))
+        .route("/api/sessions/{id}/tick", post(session_tick))
         .fallback(static_handler)
         .with_state(service)
         .layer(axum::middleware::from_fn_with_state(
@@ -428,6 +430,30 @@ async fn session_alert(State(service): State<FormsService>, AxumPath(id): AxumPa
         _ => return session_error(400, "button must be 1, 2 or 3".to_string()),
     };
     match service.sessions.answer_alert(&id, code).await {
+        Ok(state) => Json(state).into_response(),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+#[derive(Deserialize)]
+struct LovAnswer {
+    /// Index of the picked row in the list that was sent; absent or null cancels.
+    #[serde(default)]
+    selected: Option<usize>,
+}
+
+/// Answers a pending list of values (`SHOW_LOV` / `LIST_VALUES`).
+async fn session_lov(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Json(answer): Json<LovAnswer>) -> Response {
+    match service.sessions.answer_lov(&id, answer.selected).await {
+        Ok(state) => Json(state).into_response(),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+/// Runs due timers (`WHEN-TIMER-EXPIRED`) and returns the new state; the UI polls this
+/// while `nextTimerMs` is set.
+async fn session_tick(State(service): State<FormsService>, AxumPath(id): AxumPath<String>) -> Response {
+    match service.sessions.tick(&id).await {
         Ok(state) => Json(state).into_response(),
         Err((c, msg)) => session_error(c, msg),
     }

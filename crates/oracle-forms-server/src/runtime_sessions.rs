@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -30,6 +30,8 @@ const MAX_SESSIONS: usize = 32;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const ALERT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_TRACE_LINES: usize = 400;
+/// Timers due within this many milliseconds of startup completing fire with the startup response.
+const STARTUP_TIMER_LOOKAHEAD_MS: i64 = 100;
 /// How long one HTTP request waits for its session thread (startup parses the form and
 /// libraries, so it gets longer). A session that overruns is cancelled and dropped; it can
 /// never hold up other sessions or requests because every session runs on its own thread
@@ -54,6 +56,8 @@ pub enum SessionEvent {
     DeleteRecord,
     Commit,
     ClearForm,
+    /// Open the list of values of the current item (`LIST_VALUES`, the default `KEY-LISTVAL`).
+    PickLov,
     /// `DO_KEY(name)`: runs the KEY- trigger if defined, else the default action.
     Key { name: String },
 }
@@ -63,14 +67,31 @@ type Reply = oneshot::Sender<Value>;
 enum Command {
     Event(SessionEvent, Reply),
     State(Reply),
+    /// Run due timers (`WHEN-TIMER-EXPIRED`), then return the state.
+    Tick(Reply),
+}
+
+/// The user's answer to a pending interaction.
+enum Answer {
+    Button(i64),
+    Lov(Option<usize>),
+}
+
+/// Which interaction the session thread is waiting on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Awaiting {
+    Alert,
+    Lov,
 }
 
 struct Shared {
     /// Where the response for the request currently being processed should go.
     reply_slot: Mutex<Option<Reply>>,
-    /// Answers to a pending alert: (button constant, reply for the follow-up request).
-    answer_tx: Mutex<mpsc::Sender<(i64, Reply)>>,
+    /// Answers to a pending alert or LOV, with the reply slot for the follow-up request.
+    answer_tx: Mutex<mpsc::Sender<(Answer, Reply)>>,
     awaiting_alert: AtomicBool,
+    /// What `awaiting_alert` is waiting for (valid while it is set).
+    awaiting_kind: Mutex<Awaiting>,
     /// Set to abort the PL/SQL the session thread is running (shared with `FormSession`).
     cancel: Arc<AtomicBool>,
 }
@@ -157,11 +178,12 @@ impl SessionManager {
 
         let id = self.new_id();
         let (tx, rx) = mpsc::channel::<Command>();
-        let (answer_tx, answer_rx) = mpsc::channel::<(i64, Reply)>();
+        let (answer_tx, answer_rx) = mpsc::channel::<(Answer, Reply)>();
         let shared = Arc::new(Shared {
             reply_slot: Mutex::new(None),
             answer_tx: Mutex::new(answer_tx),
             awaiting_alert: AtomicBool::new(false),
+            awaiting_kind: Mutex::new(Awaiting::Alert),
             cancel: Arc::new(AtomicBool::new(false)),
         });
         let (ready_tx, ready_rx) = oneshot::channel::<Value>();
@@ -192,34 +214,67 @@ impl SessionManager {
                 let handler_session_id = session_id.clone();
                 let answer_rx = Mutex::new(answer_rx);
                 session.set_interaction_handler(Box::new(move |req: &InteractionRequest| {
-                    let InteractionRequest::ShowAlert { alert_name, message, button1, button2, button3, default_button } = req;
-                    let alert = json!({
-                        "sessionId": handler_session_id,
-                        "alert": {
-                            "alertName": alert_name, "message": message,
-                            "button1": button1, "button2": button2, "button3": button3,
-                            "defaultButton": default_button,
-                        }
-                    });
+                    let (kind, payload) = match req {
+                        InteractionRequest::ShowAlert { alert_name, message, button1, button2, button3, default_button } => (
+                            Awaiting::Alert,
+                            json!({
+                                "sessionId": handler_session_id,
+                                "alert": {
+                                    "alertName": alert_name, "message": message,
+                                    "button1": button1, "button2": button2, "button3": button3,
+                                    "defaultButton": default_button,
+                                }
+                            }),
+                        ),
+                        InteractionRequest::ShowLov { lov_name, title, columns, rows, filter } => (
+                            Awaiting::Lov,
+                            json!({
+                                "sessionId": handler_session_id,
+                                "lov": { "lovName": lov_name, "title": title, "columns": columns, "rows": rows, "filter": filter }
+                            }),
+                        ),
+                    };
+                    let alert = payload;
+                    *handler_shared.awaiting_kind.lock().unwrap() = kind;
                     handler_shared.awaiting_alert.store(true, Ordering::SeqCst);
                     if let Some(reply) = handler_shared.reply_slot.lock().unwrap().take() {
                         let _ = reply.send(alert);
                     }
                     let answer = answer_rx.lock().unwrap().recv_timeout(ALERT_TIMEOUT);
                     handler_shared.awaiting_alert.store(false, Ordering::SeqCst);
-                    match answer {
-                        Ok((button, reply)) => {
+                    match (answer, kind) {
+                        (Ok((Answer::Button(button), reply)), Awaiting::Alert) => {
                             *handler_shared.reply_slot.lock().unwrap() = Some(reply);
                             InteractionResponse::AlertButton(button)
                         }
-                        // Abandoned (timeout / session closed): take the default button.
-                        Err(_) => InteractionResponse::AlertButton(ALERT_BUTTON1 + (*default_button as i64).saturating_sub(1)),
+                        (Ok((Answer::Lov(sel), reply)), Awaiting::Lov) => {
+                            *handler_shared.reply_slot.lock().unwrap() = Some(reply);
+                            InteractionResponse::LovSelection(sel)
+                        }
+                        (Ok((_, reply)), _) => {
+                            // Answer of the wrong kind: take the default.
+                            *handler_shared.reply_slot.lock().unwrap() = Some(reply);
+                            match req {
+                                InteractionRequest::ShowAlert { default_button, .. } => InteractionResponse::AlertButton(ALERT_BUTTON1 + (*default_button as i64).saturating_sub(1)),
+                                InteractionRequest::ShowLov { .. } => InteractionResponse::LovSelection(None),
+                            }
+                        }
+                        // Abandoned (timeout / session closed): alert default button, LOV cancelled.
+                        (Err(_), _) => match req {
+                            InteractionRequest::ShowAlert { default_button, .. } => InteractionResponse::AlertButton(ALERT_BUTTON1 + (*default_button as i64).saturating_sub(1)),
+                            InteractionRequest::ShowLov { .. } => InteractionResponse::LovSelection(None),
+                        },
                     }
                 }));
 
                 let mut cursor = Cursors::default();
                 *thread_shared.reply_slot.lock().unwrap() = Some(ready_tx);
                 let startup_error = session.start().err().map(|e| e.to_string());
+                // Timers of a few milliseconds created at startup ("run after the form
+                // opens") fire as part of the startup response.
+                if startup_error.is_none() {
+                    session.fire_due_timers(STARTUP_TIMER_LOOKAHEAD_MS);
+                }
                 let mut state = snapshot(&session, &session_id, &backend, &mut cursor, &opts.missing_libraries);
                 if let Some(e) = startup_error {
                     state["error"] = json!(e);
@@ -231,10 +286,19 @@ impl SessionManager {
                 while let Ok(cmd) = rx.recv() {
                     let (reply, error) = match cmd {
                         Command::State(reply) => (reply, None),
+                        Command::Tick(reply) => {
+                            *thread_shared.reply_slot.lock().unwrap() = Some(reply);
+                            session.fire_due_timers(0);
+                            match thread_shared.reply_slot.lock().unwrap().take() {
+                                Some(r) => (r, None),
+                                None => continue,
+                            }
+                        }
                         Command::Event(ev, reply) => {
                             thread_shared.cancel.store(false, Ordering::SeqCst);
                             *thread_shared.reply_slot.lock().unwrap() = Some(reply);
                             let error = run_event(&mut session, ev);
+                            session.fire_due_timers(0);
                             let reply = thread_shared.reply_slot.lock().unwrap().take();
                             match reply {
                                 Some(r) => (r, error),
@@ -297,9 +361,29 @@ impl SessionManager {
     }
 
     pub async fn answer_alert(&self, id: &str, button: i64) -> Result<Value, (u16, String)> {
+        self.answer(id, Answer::Button(button), Awaiting::Alert, "No alert is waiting for an answer").await
+    }
+
+    /// Answers a pending list of values: the index of the picked row, or `None` to cancel.
+    pub async fn answer_lov(&self, id: &str, selection: Option<usize>) -> Result<Value, (u16, String)> {
+        self.answer(id, Answer::Lov(selection), Awaiting::Lov, "No list of values is waiting for an answer").await
+    }
+
+    /// Runs due timers and returns the state (the web UI polls this while timers are pending).
+    pub async fn tick(&self, id: &str) -> Result<Value, (u16, String)> {
         let handle = self.get(id).ok_or((404, "Session not found or expired".to_string()))?;
-        if !handle.shared.awaiting_alert.load(Ordering::SeqCst) {
-            return Err((409, "No alert is waiting for an answer".to_string()));
+        if handle.shared.awaiting_alert.load(Ordering::SeqCst) {
+            return Err((409, "An alert or list of values is waiting for an answer".to_string()));
+        }
+        let (reply_tx, reply_rx) = oneshot::channel();
+        handle.tx.send(Command::Tick(reply_tx)).map_err(|_| (410, "Session has ended".to_string()))?;
+        self.await_reply(id, &handle, reply_rx).await
+    }
+
+    async fn answer(&self, id: &str, answer: Answer, expected: Awaiting, none_waiting: &str) -> Result<Value, (u16, String)> {
+        let handle = self.get(id).ok_or((404, "Session not found or expired".to_string()))?;
+        if !handle.shared.awaiting_alert.load(Ordering::SeqCst) || *handle.shared.awaiting_kind.lock().unwrap() != expected {
+            return Err((409, none_waiting.to_string()));
         }
         let (reply_tx, reply_rx) = oneshot::channel();
         handle
@@ -307,7 +391,7 @@ impl SessionManager {
             .answer_tx
             .lock()
             .unwrap()
-            .send((button, reply_tx))
+            .send((answer, reply_tx))
             .map_err(|_| (410, "Session has ended".to_string()))?;
         self.await_reply(id, &handle, reply_rx).await
     }
@@ -368,6 +452,11 @@ fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
             if let Err(e) = session.set_item_value(&format!("{}.{}", block, item), value) {
                 return Some(e.to_string());
             }
+            // Validate-from-list runs before the item's own validation trigger.
+            if let Err(e) = oracle_forms_runtime::lov::validate_from_list(session, &block, &item) {
+                session.messages.push(e.clone());
+                return Some(e);
+            }
             // Leaving the item validates it.
             match session.dispatch_event("WHEN-VALIDATE-ITEM", Some(&item), Some(&block)) {
                 TriggerResult::Success => None,
@@ -375,6 +464,7 @@ fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
             }
         }
         SessionEvent::Navigate { block, item, record } => goto(session, &block, &item, record),
+        SessionEvent::PickLov => rt(session.do_key("LIST_VALUES")),
         SessionEvent::ExecuteQuery { block } => {
             let b = block.or_else(|| session.active_block().map(str::to_string)).unwrap_or_default();
             if let Err(e) = session.go_block(&b) {
@@ -454,6 +544,8 @@ fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &mut Cursors
         "exitRequested": session.exit_requested,
         "missingLibraries": missing_libraries,
         "alert": Value::Null,
+        "lov": Value::Null,
+        "nextTimerMs": session.next_timer_due_in_ms(),
         "error": Value::Null,
     })
 }
@@ -492,6 +584,75 @@ mod tests {
             .await
             .unwrap();
         assert!(ok["sessionId"].is_string());
+    }
+
+    fn lov_options() -> StartOptions {
+        StartOptions { module: conformance("conf_20_lov_timers_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false }
+    }
+
+    #[tokio::test]
+    async fn lov_pauses_the_event_and_the_answer_fills_the_return_items() {
+        let mgr = SessionManager::default();
+        let state = mgr.start(lov_options()).await.unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        assert!(state["lov"].is_null());
+
+        mgr.send_event(&id, SessionEvent::Navigate { block: "CUSTOMERS".into(), item: "CUST_NAME".into(), record: None }).await.unwrap();
+        mgr.send_event(&id, SessionEvent::SetItem { block: "CUSTOMERS".into(), item: "CUST_NAME".into(), value: json!("Zed"), record: Some(0) })
+            .await
+            .unwrap();
+        // "Zed" is not in the list and validate-from-list is on: the event reports FRM-40212.
+        let bad = mgr.send_event(&id, SessionEvent::SetItem { block: "CUSTOMERS".into(), item: "CUST_NAME".into(), value: json!("Zzz"), record: Some(0) }).await.unwrap();
+        assert!(bad["error"].as_str().unwrap_or("").contains("FRM-40212"), "{bad}");
+
+        mgr.send_event(&id, SessionEvent::SetItem { block: "CUSTOMERS".into(), item: "CUST_NAME".into(), value: json!(""), record: Some(0) }).await.ok();
+        let paused = mgr.send_event(&id, SessionEvent::PickLov).await.unwrap();
+        assert_eq!(paused["lov"]["lovName"], "LOV_CUST", "{paused}");
+        assert_eq!(paused["lov"]["rows"].as_array().unwrap().len(), 3);
+        assert_eq!(paused["lov"]["columns"][0]["title"], "Customer");
+
+        // While the list is open other events and alert answers are refused.
+        assert_eq!(mgr.send_event(&id, SessionEvent::NextRecord).await.unwrap_err().0, 409);
+        assert_eq!(mgr.answer_alert(&id, ALERT_BUTTON1).await.unwrap_err().0, 409);
+
+        let done = mgr.answer_lov(&id, Some(2)).await.unwrap();
+        assert!(done["lov"].is_null(), "{done}");
+        let customers = done["blocks"].as_array().unwrap().iter().find(|b| b["name"] == "CUSTOMERS").unwrap();
+        assert_eq!(customers["records"][0]["values"]["CUST_NAME"], "Birch Co", "{done}");
+        assert_eq!(customers["records"][0]["values"]["CITY"], "Kelowna");
+        assert!(mgr.remove(&id));
+    }
+
+    #[tokio::test]
+    async fn lov_cancel_leaves_values_and_other_answers_are_refused() {
+        let mgr = SessionManager::default();
+        let state = mgr.start(lov_options()).await.unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        assert_eq!(mgr.answer_lov(&id, Some(0)).await.unwrap_err().0, 409, "no list is open");
+        mgr.send_event(&id, SessionEvent::Navigate { block: "CUSTOMERS".into(), item: "ITEM_NAME".into(), record: None }).await.unwrap();
+        let paused = mgr.send_event(&id, SessionEvent::PickLov).await.unwrap();
+        assert_eq!(paused["lov"]["rows"].as_array().unwrap().len(), 5, "database rows: {paused}");
+        let done = mgr.answer_lov(&id, None).await.unwrap();
+        let customers = done["blocks"].as_array().unwrap().iter().find(|b| b["name"] == "CUSTOMERS").unwrap();
+        assert!(customers["records"][0]["values"]["ITEM_NAME"].is_null());
+    }
+
+    #[tokio::test]
+    async fn timers_fire_after_startup_and_through_tick() {
+        let mgr = SessionManager::default();
+        let state = mgr.start(lov_options()).await.unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        let trace: Vec<String> = state["trace"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_string()).collect();
+        assert!(trace.iter().any(|t| t == "TIMER_EXPIRED: T_STARTUP"), "short startup timer fires with the startup response: {trace:?}");
+        assert!(state["nextTimerMs"].is_null(), "a fired one-shot timer is no longer pending");
+
+        let pressed = mgr.send_event(&id, SessionEvent::Button { block: "CUSTOMERS".into(), item: "BTN_TIMER".into(), record: None }).await.unwrap();
+        assert!(pressed["nextTimerMs"].as_i64().unwrap() <= 30, "{pressed}");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let ticked = mgr.tick(&id).await.unwrap();
+        let trace: Vec<&str> = ticked["trace"].as_array().unwrap().iter().filter_map(|t| t.as_str()).collect();
+        assert!(trace.contains(&"TIMER_EXPIRED: T_UI"), "{trace:?}");
+        assert!(ticked["nextTimerMs"].is_null());
     }
 
     #[tokio::test]

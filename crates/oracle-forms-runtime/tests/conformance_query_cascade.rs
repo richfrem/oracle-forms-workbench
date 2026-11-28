@@ -133,6 +133,7 @@ fn test_conf_03_resumable_alert_suspension_and_continuation() {
             assert_eq!(message, "Are you sure you want to cancel this order?");
             assert_eq!(button1, "OK");
         }
+        other => panic!("expected an alert request, got {other:?}"),
     }
 
     // The IF v_button = ALERT_BUTTON1 branch ran after the answer.

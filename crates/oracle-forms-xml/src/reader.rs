@@ -57,6 +57,7 @@ struct ItemBuilder {
     visible: Option<bool>,
     required: Option<bool>,
     lov_name: Option<String>,
+    validate_from_list: Option<bool>,
     inherited: Option<InheritanceRef>,
     dml: Option<ItemDml>,
     width: Option<i32>,
@@ -633,6 +634,7 @@ impl FormsXmlParser {
                         visible: Some(vis),
                         required: get_bool_attr(e, "Required"),
                         lov_name: get_attr(e, "LOVName").or_else(|| get_attr(e, "LovName")),
+                        validate_from_list: get_bool_attr(e, "ValidateFromList"),
                         inherited,
                         dml: item_dml(e),
                         width: get_int_attr(e, "Width"),
@@ -958,12 +960,22 @@ impl FormsXmlParser {
                     name: name.clone().unwrap_or_default(),
                     record_group_name: get_attr(e, "RecordGroupName"),
                     column_mappings: Vec::new(),
+                    title: get_attr(e, "Title"),
+                    mappings: Vec::new(),
+                    filter_before_display: get_bool_attr(e, "FilterBeforeDisplay"),
+                    auto_refresh: get_bool_attr(e, "AutoRefresh"),
                 });
             }
             "LOVColumnMapping" => {
                 if let Some(l) = current_lov.as_mut() {
                     if let Some(ref n) = name {
                         l.column_mappings.push(n.clone());
+                        l.mappings.push(LovColumnMappingInfo {
+                            name: n.clone(),
+                            return_item: get_attr(e, "ReturnItem"),
+                            title: get_attr(e, "Title"),
+                            display_width: get_int_attr(e, "DisplayWidth"),
+                        });
                     }
                 }
             }
@@ -972,12 +984,27 @@ impl FormsXmlParser {
                     name: name.clone().unwrap_or_default(),
                     query_text: get_attr(e, "RecordGroupQuery"),
                     columns: Vec::new(),
+                    group_type: get_attr(e, "RecordGroupType"),
+                    column_specs: Vec::new(),
                 });
             }
             "RecordGroupColumn" => {
                 if let Some(rg) = current_record_group.as_mut() {
                     if let Some(ref n) = name {
                         rg.columns.push(n.clone());
+                        rg.column_specs.push(RecordGroupColumnInfo {
+                            name: n.clone(),
+                            data_type: get_attr(e, "ColumnDataType"),
+                            max_length: get_int_attr(e, "MaximumLength"),
+                            rows: Vec::new(),
+                        });
+                    }
+                }
+            }
+            "RecordGroupColumnRow" => {
+                if let Some(spec) = current_record_group.as_mut().and_then(|rg| rg.column_specs.last_mut()) {
+                    if let Some(v) = get_attr(e, "Value") {
+                        spec.rows.push(v);
                     }
                 }
             }
@@ -1258,6 +1285,7 @@ impl FormsXmlParser {
                             visible: i.visible,
                             required: i.required,
                             lov_name: i.lov_name,
+                            validate_from_list: i.validate_from_list,
                             trigger_names: i.trigger_names,
                             inherited: i.inherited,
                             dml: i.dml,

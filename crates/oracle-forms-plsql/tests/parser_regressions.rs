@@ -2,7 +2,7 @@
 //!
 //! Purpose: Integration/conformance tests (parser_regressions.rs).
 //! Key Input Dependencies: oracle_forms_plsql
-//! Index: dotted_assignment_targets_parse_as_assignments, bad_statement_inside_if_does_not_orphan_end_if, stray_top_level_end_terminates_and_is_reported, stmts, is_null_is_a_two_valued_test_not_equality_with_null, select_into_keeps_exact_sql_text_including_quotes, dml_and_transaction_control_statements_are_recognised, builtin_calls_named_like_sql_keywords_stay_calls, exit_when_in_loop, out_and_in_out_parameter_modes, package_function_call_has_dotted_name, in_list_between_not_like_and_attributes, cursors_open_fetch_close_and_cursor_for_loops, case_statement_and_expression_and_named_args
+//! Index: qualified_type_names_parse_in_declarations, dotted_assignment_targets_parse_as_assignments, bad_statement_inside_if_does_not_orphan_end_if, stray_top_level_end_terminates_and_is_reported, stmts, is_null_is_a_two_valued_test_not_equality_with_null, select_into_keeps_exact_sql_text_including_quotes, dml_and_transaction_control_statements_are_recognised, builtin_calls_named_like_sql_keywords_stay_calls, exit_when_in_loop, out_and_in_out_parameter_modes, package_function_call_has_dotted_name, in_list_between_not_like_and_attributes, cursors_open_fetch_close_and_cursor_for_loops, case_statement_and_expression_and_named_args
 
 use oracle_forms_plsql::ast::*;
 use oracle_forms_plsql::Parser;
@@ -181,4 +181,12 @@ fn bad_statement_inside_if_does_not_orphan_end_if() {
     let procs = units.iter().filter(|u| matches!(u, PlsqlUnit::Procedure(_))).count();
     assert_eq!(procs, 2, "{units:?}");
     assert!(!parser.errors.iter().any(|e| e.contains("unexpected top-level")), "{:?}", parser.errors);
+}
+
+#[test]
+fn qualified_type_names_parse_in_declarations() {
+    let mut parser = Parser::new("DECLARE f TEXT_IO.FILE_TYPE; r pkg.rec_t; c scott.emp.ename%TYPE; BEGIN NULL; END;");
+    let units = parser.parse_all_units();
+    assert!(parser.errors.is_empty(), "{:?}", parser.errors);
+    assert!(matches!(units[0], PlsqlUnit::AnonymousBlock(_)));
 }

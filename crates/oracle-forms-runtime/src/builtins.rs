@@ -44,12 +44,29 @@ pub const FORMS_CONSTANTS: &[&str] = &[
     "HIDE", "NO_HIDE", "DO_REPLACE", "NO_REPLACE", "FORMS_BUILTIN", "PROPERTY_ON", "PROPERTY_OFF",
 ];
 
+/// `WEB.SHOW_DOCUMENT(url [, target])`: asks the browser to open a document. Only `http`,
+/// `https` and workbench-relative (`/...`) URLs are allowed.
+fn show_document(name: &str, args: &[OracleValue], session: &mut FormSession) -> Option<BuiltinResult> {
+    if name != "WEB.SHOW_DOCUMENT" {
+        return None;
+    }
+    let url = arg_text(args, 0).unwrap_or_default();
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || (lower.starts_with('/') && !lower.starts_with("//"))) {
+        return Some(BuiltinResult::Failure(format!("WEB.SHOW_DOCUMENT: '{url}' is not an http, https or workbench URL")));
+    }
+    let target = arg_text(args, 1).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "_blank".to_string());
+    session.actions.push(serde_json::json!({ "kind": "openUrl", "url": url.trim(), "target": target }));
+    Some(BuiltinResult::Void)
+}
+
 /// Built-ins whose trailing arguments are OUT parameters: the index of the first OUT
 /// argument. The interpreter evaluates only the IN arguments, runs the built-in, and then
 /// assigns `RuntimeObjects::pending_out` to the OUT argument targets.
 pub fn out_arg_start(name_upper: &str) -> Option<usize> {
     match name_upper {
         "GET_PARAMETER_ATTR" => Some(2),
+        "TEXT_IO.GET_LINE" => Some(1),
         _ => None,
     }
 }
@@ -68,20 +85,19 @@ pub enum BuiltinResult {
     Failure(String),
     /// Built-in exists in Forms but this runtime cannot run it.
     Unsupported(String),
+    /// The built-in raises a PL/SQL exception (for example `NO_DATA_FOUND` at end of file).
+    Raise { name: String, code: i64, message: String },
 }
 
 /// Built-ins that exist in Forms but are deliberately not provided by this runtime.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    ("HOST", "runs an operating-system command"),
     ("RUN_PRODUCT", "launches Oracle Reports/Graphics"),
     ("RUN_REPORT_OBJECT", "runs an Oracle Report"),
-    ("WEB.SHOW_DOCUMENT", "opens a browser window"),
     ("EXEC_SQL", "dynamic SQL via EXEC_SQL is not supported"),
     ("FORMS_DDL", "dynamic SQL via FORMS_DDL is not supported"),
 ];
 const UNSUPPORTED_PREFIXES: &[(&str, &str)] = &[
     ("OLE2.", "OLE automation"),
-    ("TEXT_IO.", "server file I/O"),
     ("CLIENT_TEXT_IO.", "client file I/O"),
     ("WEBUTIL", "WebUtil client integration"),
     ("CLIENT_", "WebUtil client integration"),
@@ -154,7 +170,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             BuiltinResult::Void
         }
         "COMMIT_FORM" => nav(session.commit()),
-        "POST" => BuiltinResult::Unsupported("POST (posting without commit is not supported yet)".into()),
+        "POST" => nav(session.post()),
         "DO_KEY" => match arg_text(args, 0) {
             Some(key) => nav(session.do_key(&key)),
             None => BuiltinResult::Failure("DO_KEY requires a built-in name".into()),
@@ -310,6 +326,9 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
                 .or_else(|| crate::timers::dispatch(name, args, session))
                 .or_else(|| crate::lov::dispatch(name, args, session))
                 .or_else(|| crate::nav::dispatch(name, args, session))
+                .or_else(|| crate::textio::dispatch(name, args, session))
+                .or_else(|| crate::host::dispatch(name, args, session))
+                .or_else(|| show_document(name, args, session))
             {
                 Some(r) => r,
                 None => return None,

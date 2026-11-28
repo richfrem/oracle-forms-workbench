@@ -175,6 +175,7 @@ fn build_session(app: &AppRef, id: u32, loaded: LoadedForm, params: &[(String, S
     }
     s.db_username = user;
     s.read_only = !allow_writes || query_only;
+    s.host_policy = crate::host_exec::policy_from_env();
     s.form_id = id;
     s.calling_form = calling;
     for (k, v) in params {

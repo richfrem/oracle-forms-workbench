@@ -60,6 +60,7 @@ and refuses API calls from other websites (cross-origin requests).
 | `PORT` | `7070` | Listening port |
 | `OFW_HOST` | `127.0.0.1` | Listening address. A non-loopback value (e.g. `0.0.0.0`) exposes the server to your network and prints a warning |
 | `OFW_ALLOWED_HOSTS` | *(none)* | Extra comma-separated Host names to accept (needed with a non-loopback `OFW_HOST`) |
+| `OFW_HOST_POLICY` | `deny` | What the `HOST` built-in may do in native sessions: `deny` (fails visibly), `emulate` (a small shell emulator over the session's virtual files, shared with `TEXT_IO`), or `allow:prog1,prog2` (real execution of exactly those programs, no shell, 10 s timeout) |
 | `OFW_SERVER_ENV_CREDENTIALS` | off | When `1`, database requests from the UI that carry no credentials use `OFW_DB_USER` / `OFW_DB_PASSWORD` |
 
 There are no built-in database credentials. To query Oracle from the web UI, start the server with:

@@ -417,6 +417,7 @@ pub(crate) fn run_event(session: &mut FormSession, event: SessionEvent) -> Optio
 /// Tracks how much of the message / trace log the browser has already seen.
 #[derive(Default)]
 pub(crate) struct Cursors {
+    actions: usize,
     messages: usize,
     trace: usize,
 }
@@ -451,6 +452,7 @@ pub(crate) fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &
     let start = cursor.trace.max(session.trace_log.len().saturating_sub(MAX_TRACE_LINES));
     let new_trace: Vec<&String> = session.trace_log.iter().skip(start).collect();
     cursor.trace = session.trace_log.len();
+    cursor.actions = session.actions.len();
 
     let mut properties = serde_json::Map::new();
     for (item, props) in &session.item_properties {
@@ -477,6 +479,8 @@ pub(crate) fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &
         "missingLibraries": missing_libraries,
         "alert": Value::Null,
         "lov": Value::Null,
+        "actions": session.actions.iter().skip(cursor.actions).collect::<Vec<_>>(),
+        "sandboxFiles": session.objects.files.iter().map(|(p, b)| json!({ "path": p, "size": b.len() })).collect::<Vec<_>>(),
         "nextTimerMs": session.next_timer_due_in_ms(),
         "error": Value::Null,
     })

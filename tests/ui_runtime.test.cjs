@@ -82,3 +82,14 @@ test('events and answers are addressed to the form the browser shows', async () 
   assert.match(sent[1].url, /\/alert$/);
   assert.match(sent[2].url, /\/lov$/);
 });
+
+test('only http, https and same-origin URLs from form code are opened', () => {
+  const ok = u => Runtime.safeActionUrl({ kind: 'openUrl', url: u });
+  assert.equal(ok('https://example.org/x'), 'https://example.org/x');
+  assert.equal(ok('http://example.org'), 'http://example.org');
+  assert.equal(ok('/api/reports/x/html'), '/api/reports/x/html');
+  assert.equal(ok('javascript:alert(1)'), null);
+  assert.equal(ok('//evil.example/x'), null);
+  assert.equal(ok('data:text/html,hi'), null);
+  assert.equal(Runtime.safeActionUrl({ kind: 'other', url: 'https://example.org' }), null);
+});

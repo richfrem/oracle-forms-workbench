@@ -173,3 +173,28 @@ file-system or thread code.
 Remaining: `RUN_PRODUCT(FORMS...)`, savepoint rollback semantics, menu replacement,
 per-form timers continue to run only for the forms that are not suspended, and the
 exact `FORM_SUCCESS`/message texts for failed loads are unverified against 14c.
+
+## 6. POST, WEB.SHOW_DOCUMENT, TEXT_IO, HOST (done)
+
+- `POST`: `FormSession::post()` runs the commit sequence (validation, `PRE-COMMIT`, the DML
+  triggers and statements, `POST-FORMS-COMMIT`) inside the savepoint but issues no database
+  `COMMIT`; posted records become query records; `posted_uncommitted` makes the next
+  `COMMIT_FORM` only commit (and fire `POST-DATABASE-COMMIT`). Needs write opt-in like commit.
+  Finding while testing: queries on the SQLite backend return no `ROWID`, so updates and deletes
+  of queried records fail there with "changed record has no ROWID" (existing limitation, not
+  changed here; the POST test uses the Mock driver).
+- `WEB.SHOW_DOCUMENT(url [, target])`: queues an `openUrl` action (`actions` in the state); only
+  `http`, `https` and workbench-relative URLs pass (server and UI both check); the UI opens
+  the window and shows a banner if the browser blocks it.
+- `TEXT_IO` (`textio.rs`): `FOPEN`, `FCLOSE`, `FCLOSE_ALL`, `IS_OPEN`, `GET_LINE` (OUT), `PUT`,
+  `PUT_LINE`, `NEW_LINE`, `PUTF`, `FFLUSH` on a per-session in-memory virtual file system
+  (`sandboxFiles` lists the files in the state). Client-style paths (`c:\dir\f.txt`) map into
+  the sandbox; `..` is refused. Errors raise `INVALID_PATH` / `INVALID_MODE` / `INVALID_FILEHANDLE`
+  / `INVALID_OPERATION`, end of file raises `NO_DATA_FOUND` (names unverified against 14c).
+  New: built-ins can raise PL/SQL exceptions (`BuiltinResult::Raise`) and qualified type
+  names (`TEXT_IO.FILE_TYPE`) parse. Remaining: files cannot yet be uploaded to or downloaded
+  from the sandbox through the UI/API; `CLIENT_TEXT_IO` (client PC) is part of the WebUtil work.
+- `HOST` policy (`host.rs`, `host_exec.rs`, env `OFW_HOST_POLICY`): `deny` (default, visible
+  failure), `emulate` (`echo [>|>>]`, `touch`, `type`/`cat`, `del`/`rm`, `copy`/`cp`,
+  `move`/`mv`, `mkdir`, `dir`/`ls`, chained with `&&`, `&`, `;`; unknown commands named in the
+  error), or `allow:prog1,prog2` (real execution without a shell, 10 s timeout, output capped).

@@ -3119,6 +3119,15 @@
     }
   }
 
+  /** Effects requested by form code (WEB.SHOW_DOCUMENT). The server validates the URL; so does the UI. */
+  function runBrowserAction(action) {
+    const url = FormsRuntime.safeActionUrl(action);
+    if (!url) return;
+    const target = ['_self', '_blank', '_top', '_parent'].includes(action.target) ? action.target : '_blank';
+    const opened = window.open(url, target, 'noopener');
+    if (!opened && target !== '_self') showBanner(`The form asked to open ${url}; your browser blocked the window. Allow pop-ups for this site and run it again.`);
+  }
+
   /** Shows the module of another form of the running application, keeping the session. */
   async function showFormModule(state) {
     if (switchingForm) return;
@@ -3140,6 +3149,7 @@
     if (!state) return;
     if (state.formId != null && !state.alert && !state.lov) runtime.formId = state.formId;
     if (state.forms) renderFormTabs(state);
+    for (const action of state.actions || []) runBrowserAction(action);
     const shown = currentPayload?.summary?.moduleName;
     if (!state.alert && !state.lov && state.moduleName && shown && shown.toUpperCase() !== state.moduleName.toUpperCase() && !switchingForm) {
       showFormModule(state);

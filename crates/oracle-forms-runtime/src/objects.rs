@@ -179,6 +179,10 @@ pub struct RuntimeObjects {
     pub pending_out: Vec<OracleValue>,
     /// `SET_LOV_PROPERTY` overrides: LOV name -> property -> value.
     pub lov_overrides: HashMap<String, HashMap<String, OracleValue>>,
+    /// The session's virtual file system (`TEXT_IO`, emulated `HOST`): path -> bytes.
+    pub files: std::collections::BTreeMap<String, Vec<u8>>,
+    /// Open `TEXT_IO` handles.
+    pub open_files: HashMap<String, crate::textio::OpenFile>,
     started: Instant,
     skew_ms: i64,
     anonymous: u64,
@@ -193,6 +197,8 @@ impl Default for RuntimeObjects {
             expired_timer: None,
             pending_out: Vec::new(),
             lov_overrides: HashMap::new(),
+            files: std::collections::BTreeMap::new(),
+            open_files: HashMap::new(),
             started: Instant::now(),
             skew_ms: 0,
             anonymous: 0,

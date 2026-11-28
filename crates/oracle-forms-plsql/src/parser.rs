@@ -496,6 +496,12 @@ impl Parser {
 
     fn parse_data_type(&mut self) -> Result<DataType, ParseError> {
         let mut type_str = self.advance().text;
+        // Qualified type names: `TEXT_IO.FILE_TYPE`, `pkg.rec_type`, `schema.tbl.col%TYPE`.
+        while self.check(&TokenKind::Dot) {
+            self.advance();
+            type_str.push('.');
+            type_str.push_str(&self.advance().text);
+        }
 
         // Check for size specification like VARCHAR2(100) or NUMBER(10, 2)
         if self.match_token(&TokenKind::OpenParen) {

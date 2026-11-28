@@ -100,6 +100,16 @@ window.FormsRuntime = class FormsRuntime {
     return out;
   }
 
+  /** The URL of an `openUrl` action when it is safe to open (http, https or same-origin path). */
+  static safeActionUrl(action) {
+    const url = String(action?.url || '').trim();
+    if (action?.kind !== 'openUrl') return null;
+    const lower = url.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return url;
+    if (lower.startsWith('/') && !lower.startsWith('//')) return url;
+    return null;
+  }
+
   /** Milliseconds to wait before polling for timers, or null when no timer is pending. */
   static timerPollDelay(state) {
     if (!state || state.nextTimerMs == null || state.lov || state.alert) return null;

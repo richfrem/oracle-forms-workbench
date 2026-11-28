@@ -1169,6 +1169,10 @@ impl Interpreter {
                 session.last_builtin_failed = false;
                 Ok(Ok(Some(v)))
             }
+            Some(BuiltinResult::Raise { name, code, message }) => {
+                session.last_builtin_failed = true;
+                Ok(Err(RaisedException::new(&name, code, message)))
+            }
             Some(BuiltinResult::Void) => {
                 session.last_builtin_failed = false;
                 Ok(Ok(Some(OracleValue::Null)))

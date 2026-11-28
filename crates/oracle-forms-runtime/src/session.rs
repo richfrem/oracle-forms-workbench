@@ -155,8 +155,14 @@ pub struct FormSession {
     /// the outermost trigger finishes (Forms fires them only when input focus settles).
     focus_dirty: bool,
     settling: bool,
+    /// A `POST` wrote rows that no database `COMMIT` has made permanent yet.
+    pub posted_uncommitted: bool,
     /// Set by the host to abort whatever PL/SQL is running (checked every few steps).
     pub objects: crate::objects::RuntimeObjects,
+    /// What `HOST` may do (default: refuse).
+    pub host_policy: crate::host::HostPolicy,
+    /// Effects for the browser (open a URL, ...) not yet delivered.
+    pub actions: Vec<serde_json::Value>,
     /// Id of this form within its application (host assigned).
     pub form_id: u32,
     /// Form that called this one with `CALL_FORM`.
@@ -243,7 +249,10 @@ impl FormSession {
             trigger_depth: 0,
             focus_dirty: false,
             settling: false,
+            posted_uncommitted: false,
             objects,
+            host_policy: crate::host::HostPolicy::Deny,
+            actions: Vec::new(),
             form_id: 1,
             calling_form: None,
             open_forms: Vec::new(),
@@ -1420,11 +1429,25 @@ impl FormSession {
     /// Any failure rolls the database back to the savepoint and leaves the block buffers
     /// exactly as they were, so the user can fix the problem and commit again.
     pub fn commit(&mut self) -> Result<(), RuntimeError> {
-        self.trace_log.push("COMMIT_FORM".to_string());
+        self.commit_or_post(false)
+    }
+
+    /// `POST`: runs the commit sequence up to and including the DML and `POST-FORMS-COMMIT`
+    /// but issues no database `COMMIT`; the transaction stays open until a later commit.
+    /// Posted records become query records; `COMMIT_FORM` then only commits the database.
+    pub fn post(&mut self) -> Result<(), RuntimeError> {
+        self.commit_or_post(true)
+    }
+
+    fn commit_or_post(&mut self, post_only: bool) -> Result<(), RuntimeError> {
+        self.trace_log.push(if post_only { "POST" } else { "COMMIT_FORM" }.to_string());
         let has_changes = self.blocks.iter().any(|(name, b)| {
             self.is_database_block(name) && (!b.deleted_records.is_empty() || b.records.iter().any(|r| r.is_dirty()))
         });
         if !has_changes {
+            if !post_only && self.posted_uncommitted {
+                return self.commit_posted();
+            }
             self.messages.push("FRM-40401: No changes to save.".to_string());
             return Ok(());
         }
@@ -1453,7 +1476,7 @@ impl FormSession {
         let result = self.commit_inner(driver.as_ref());
         match result {
             Ok(()) => {
-                if let Some(d) = &driver {
+                if let (false, Some(d)) = (post_only, &driver) {
                     if let Err(e) = block_on_future(d.commit()) {
                         let _ = block_on_future(d.rollback_to_savepoint(SAVEPOINT));
                         self.blocks = snapshot;
@@ -1461,7 +1484,9 @@ impl FormSession {
                         return Err(RuntimeError::Database(format!("COMMIT failed: {}", e)));
                     }
                 }
-                self.trace_log.push("DATABASE_COMMIT".to_string());
+                if !post_only {
+                    self.trace_log.push("DATABASE_COMMIT".to_string());
+                }
                 let db_blocks: Vec<String> = self.blocks.keys().filter(|n| self.is_database_block(n)).cloned().collect();
                 for name in db_blocks {
                     let Some(buf) = self.blocks.get_mut(&name) else { continue };
@@ -1476,6 +1501,12 @@ impl FormSession {
                     }
                 }
                 self.update_system_status();
+                if post_only {
+                    // Rows are written but not committed: remember, so COMMIT_FORM finishes it.
+                    self.posted_uncommitted = true;
+                    return Ok(());
+                }
+                self.posted_uncommitted = false;
                 self.messages.push("FRM-40400: Transaction complete.".to_string());
                 let _ = self.dispatch_event("POST-DATABASE-COMMIT", None, None);
                 Ok(())
@@ -1492,6 +1523,21 @@ impl FormSession {
                 Err(e)
             }
         }
+    }
+
+    /// Commits rows that an earlier `POST` already wrote.
+    fn commit_posted(&mut self) -> Result<(), RuntimeError> {
+        if self.read_only {
+            return Err(RuntimeError::ReadOnly("COMMIT_FORM: enable writes for this session to save changes".to_string()));
+        }
+        if let Some(d) = self.database_driver.clone() {
+            block_on_future(d.commit()).map_err(|e| RuntimeError::Database(format!("COMMIT failed: {}", e)))?;
+        }
+        self.trace_log.push("DATABASE_COMMIT".to_string());
+        self.posted_uncommitted = false;
+        self.messages.push("FRM-40400: Transaction complete.".to_string());
+        let _ = self.dispatch_event("POST-DATABASE-COMMIT", None, None);
+        Ok(())
     }
 
     fn run_dml(&mut self, driver: Option<&Arc<dyn DatabaseDriver>>, stmt: oracle_forms_db::BoundSql, expect_row: bool, what: &str) -> Result<(), RuntimeError> {

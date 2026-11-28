@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -552,4 +552,165 @@ fn exit_form_modes_control_the_commit_and_the_prompt() {
     let mut s = objects_session();
     exec(&mut s, "BEGIN EXIT_FORM; END;");
     assert!(s.exit_requested, "nothing to save: ASK_COMMIT exits without asking");
+}
+
+#[test]
+fn post_writes_without_committing_and_commit_form_then_only_commits() {
+    let key = ModuleKey::new("CONF08", ModuleType::Form);
+    let cache = std::env::temp_dir().join(format!("ofw-gap08-{}", std::process::id()));
+    let module = FormsXmlParser::parse(&key, &sample("conf_08_commit_pipeline_fmb.xml"), &cache).unwrap();
+    let mut s = FormSession::new(module);
+    s.set_database_driver(Arc::new(oracle_forms_db::MockDriver::new().unwrap()));
+    s.start().unwrap();
+    let mut vals = std::collections::HashMap::new();
+    vals.insert("ITEM_ID".to_string(), serde_json::json!(101));
+    vals.insert("ITEM_NAME".to_string(), serde_json::json!("Widget A"));
+    vals.insert("AMOUNT".to_string(), serde_json::json!(50.0));
+    let qr = oracle_forms_db::QueryResult {
+        block_name: "ITEMS".into(),
+        table_name: "ITEMS".into(),
+        columns: vec!["ITEM_ID".into(), "ITEM_NAME".into(), "AMOUNT".into()],
+        records: vec![oracle_forms_db::QueryRecord { row_id: Some("101".into()), values: vals }],
+        total_count: 1,
+        execution_time_ms: 1,
+        sql_statement: "SELECT".into(),
+    };
+    s.blocks.get_mut("ITEMS").unwrap().populate_from_query_result(qr);
+    s.blocks.get_mut("ITEMS").unwrap().set_cursor(0);
+    s.set_item_value("ITEMS.ITEM_NAME", serde_json::json!("posted name")).unwrap();
+    assert!(s.has_unsaved_changes());
+    s.trace_log.clear();
+
+    exec(&mut s, "BEGIN POST; END;");
+    let trace = s.trace_log.join("\n");
+    assert!(trace.contains("DML: UPDATE"), "POST writes the row: {trace}");
+    assert!(trace.contains("POST-FORMS-COMMIT"), "POST-FORMS-COMMIT fires during the post phase: {trace}");
+    assert!(!trace.contains("DATABASE_COMMIT"), "no database commit: {trace}");
+    assert!(s.posted_uncommitted);
+    assert!(!s.has_unsaved_changes(), "posted records are no longer pending changes");
+
+    s.trace_log.clear();
+    s.do_key("COMMIT_FORM").unwrap();
+    let trace = s.trace_log.join("\n");
+    assert!(trace.contains("DATABASE_COMMIT") && !trace.contains("DML:"), "COMMIT_FORM only commits what was posted: {trace}");
+    assert!(!s.posted_uncommitted);
+}
+
+#[test]
+fn post_with_nothing_to_write_reports_and_a_read_only_session_refuses() {
+    let mut s = objects_session();
+    exec(&mut s, "BEGIN POST; END;");
+    assert!(s.messages.iter().any(|m| m.contains("FRM-40401")), "{:?}", s.messages);
+    assert!(!s.posted_uncommitted);
+}
+
+// ---------------------------------------------------------------------------
+// TEXT_IO, HOST policy, WEB.SHOW_DOCUMENT
+// ---------------------------------------------------------------------------
+
+#[test]
+fn text_io_writes_reads_appends_and_reports_end_of_file() {
+    let mut s = objects_session();
+    let st = exec(
+        &mut s,
+        "DECLARE f TEXT_IO.FILE_TYPE; line VARCHAR2(200); n NUMBER := 0; BEGIN \
+           f := TEXT_IO.FOPEN('c:\\\\temp\\\\out.txt', 'w'); \
+           TEXT_IO.PUT_LINE(f, 'first'); TEXT_IO.PUT(f, 'sec'); TEXT_IO.PUT(f, 'ond'); TEXT_IO.NEW_LINE(f); \
+           TEXT_IO.PUTF(f, 'row %s of %s\\n', 2, 3); \
+           IF TEXT_IO.IS_OPEN(f) THEN :GLOBAL.OPEN1 := 'open'; END IF; TEXT_IO.FCLOSE(f); \
+           IF NOT TEXT_IO.IS_OPEN(f) THEN :GLOBAL.OPEN2 := 'closed'; END IF; \
+           f := TEXT_IO.FOPEN('/temp/out.txt', 'a'); TEXT_IO.PUT_LINE(f, 'appended'); TEXT_IO.FCLOSE(f); \
+           f := TEXT_IO.FOPEN('temp/out.txt', 'r'); \
+           BEGIN LOOP TEXT_IO.GET_LINE(f, line); n := n + 1; :GLOBAL.LAST := line; IF n = 1 THEN :GLOBAL.FIRST := line; END IF; END LOOP; \
+           EXCEPTION WHEN NO_DATA_FOUND THEN :GLOBAL.EOF := 'eof after ' || n; END; \
+           TEXT_IO.FCLOSE_ALL; \
+         END;",
+    );
+    assert_eq!(st, ExecutionStatus::Success(None), "{:?} {:?}", s.trace_log, s.messages);
+    assert_eq!(global(&s, "OPEN1"), "open");
+    assert_eq!(global(&s, "OPEN2"), "closed");
+    assert_eq!(global(&s, "FIRST"), "first");
+    assert_eq!(global(&s, "LAST"), "appended");
+    assert_eq!(global(&s, "EOF"), "eof after 4", "four lines were read before the end of file");
+    assert_eq!(String::from_utf8(s.objects.files["temp/out.txt"].clone()).unwrap(), "first\nsecond\nrow 2 of 3\nappended\n");
+    assert!(s.objects.open_files.is_empty());
+}
+
+#[test]
+fn text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox() {
+    let mut s = objects_session();
+    let st = exec(
+        &mut s,
+        "DECLARE f TEXT_IO.FILE_TYPE; BEGIN \
+           BEGIN f := TEXT_IO.FOPEN('../etc/passwd', 'r'); EXCEPTION WHEN OTHERS THEN :GLOBAL.E1 := SQLERRM; END; \
+           BEGIN f := TEXT_IO.FOPEN('missing.txt', 'r'); EXCEPTION WHEN OTHERS THEN :GLOBAL.E2 := SQLERRM; END; \
+           BEGIN f := TEXT_IO.FOPEN('x.txt', 'q'); EXCEPTION WHEN OTHERS THEN :GLOBAL.E3 := SQLERRM; END; \
+           BEGIN TEXT_IO.PUT_LINE('nohandle', 'x'); EXCEPTION WHEN OTHERS THEN :GLOBAL.E4 := SQLERRM; END; \
+           f := TEXT_IO.FOPEN('r.txt', 'w'); TEXT_IO.FCLOSE(f); f := TEXT_IO.FOPEN('r.txt', 'r'); \
+           BEGIN TEXT_IO.PUT_LINE(f, 'x'); EXCEPTION WHEN OTHERS THEN :GLOBAL.E5 := SQLERRM; END; \
+         END;",
+    );
+    assert_eq!(st, ExecutionStatus::Success(None), "{:?} {:?}", s.trace_log, s.messages);
+    assert!(global(&s, "E1").contains("29280"), "{}", global(&s, "E1"));
+    assert!(global(&s, "E2").contains("29283"));
+    assert!(global(&s, "E3").contains("29281"));
+    assert!(global(&s, "E4").contains("29282"));
+    assert!(global(&s, "E5").contains("not open for writing"));
+    assert!(!s.objects.files.keys().any(|k| k.contains("..")));
+}
+
+#[test]
+fn host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled() {
+    let mut s = objects_session();
+    exec(&mut s, "BEGIN HOST('echo hi > a.txt'); IF FORM_FAILURE THEN :GLOBAL.D := 'denied'; END IF; END;");
+    assert_eq!(global(&s, "D"), "denied");
+    assert!(s.messages.iter().any(|m| m.contains("disabled by policy")), "{:?}", s.messages);
+    assert!(s.objects.files.is_empty());
+
+    s.host_policy = oracle_forms_runtime::HostPolicy::Emulate;
+    exec(
+        &mut s,
+        "BEGIN HOST('echo hello world > out\\\\a.txt && echo second >> out\\\\a.txt'); HOST('touch out/empty.txt'); \
+           HOST('copy out\\\\a.txt out\\\\b.txt'); HOST('del out/empty.txt'); HOST('mkdir out'); \
+           HOST('frobnicate now'); IF FORM_FAILURE THEN :GLOBAL.U := 'unknown'; END IF; \
+           HOST('echo x > ../escape.txt'); IF FORM_FAILURE THEN :GLOBAL.ESC := 'blocked'; END IF; END;",
+    );
+    assert_eq!(String::from_utf8(s.objects.files["out/a.txt"].clone()).unwrap(), "hello world\nsecond\n");
+    assert_eq!(s.objects.files["out/b.txt"], s.objects.files["out/a.txt"]);
+    assert!(!s.objects.files.contains_key("out/empty.txt"));
+    assert_eq!(global(&s, "U"), "unknown");
+    assert_eq!(global(&s, "ESC"), "blocked");
+    assert!(s.messages.iter().any(|m| m.contains("frobnicate")), "unknown commands are named");
+}
+
+#[test]
+fn host_can_use_a_host_supplied_executor() {
+    let mut s = objects_session();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let seen2 = seen.clone();
+    s.host_policy = oracle_forms_runtime::HostPolicy::Execute(Arc::new(move |cmd: &str| {
+        seen2.lock().unwrap().push(cmd.to_string());
+        if cmd.starts_with("fail") { Err("exit status 3".into()) } else { Ok("done\n".into()) }
+    }));
+    exec(&mut s, "BEGIN HOST('tool --x'); HOST('fail now'); IF FORM_FAILURE THEN :GLOBAL.F := 'failed'; END IF; END;");
+    assert_eq!(*seen.lock().unwrap(), vec!["tool --x".to_string(), "fail now".to_string()]);
+    assert_eq!(global(&s, "F"), "failed");
+    assert!(s.trace_log.iter().any(|t| t == "HOST output: done"));
+}
+
+#[test]
+fn show_document_queues_an_open_url_action_and_refuses_unsafe_schemes() {
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "BEGIN WEB.SHOW_DOCUMENT('https://example.org/a?b=1', '_self'); WEB.SHOW_DOCUMENT('/api/reports/x/html'); \
+           WEB.SHOW_DOCUMENT('javascript:alert(1)'); IF FORM_FAILURE THEN :GLOBAL.J := 'refused'; END IF; \
+           WEB.SHOW_DOCUMENT('//evil.example/x'); IF FORM_FAILURE THEN :GLOBAL.K := 'refused'; END IF; END;",
+    );
+    assert_eq!(s.actions.len(), 2, "{:?}", s.actions);
+    assert_eq!(s.actions[0]["url"], "https://example.org/a?b=1");
+    assert_eq!(s.actions[0]["target"], "_self");
+    assert_eq!(s.actions[1]["target"], "_blank");
+    assert_eq!(global(&s, "J"), "refused");
+    assert_eq!(global(&s, "K"), "refused");
 }

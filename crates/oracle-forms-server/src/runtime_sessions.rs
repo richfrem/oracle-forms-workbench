@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -116,6 +116,8 @@ pub struct SessionManager {
     command_timeout: Duration,
     /// Test hook: delay before the session thread starts working (simulates a slow startup).
     startup_delay: Duration,
+    /// Test hook: replaces the real second connection of `OPEN_FORM(..., SESSION)`.
+    connection_factory: Option<crate::form_app::ConnFactory>,
 }
 
 impl Default for SessionManager {
@@ -126,6 +128,7 @@ impl Default for SessionManager {
             start_timeout: START_TIMEOUT,
             command_timeout: COMMAND_TIMEOUT,
             startup_delay: Duration::ZERO,
+            connection_factory: None,
         }
     }
 }
@@ -211,6 +214,7 @@ impl SessionManager {
             db: opts.db.clone(),
             allow_writes: opts.allow_writes,
             loader: opts.loader.clone(),
+            connection_factory: self.connection_factory.clone(),
             rx,
             answer_rx,
         };
@@ -737,6 +741,83 @@ mod tests {
         assert_eq!(form_names(&replaced), vec!["CONF_21_NAV_REPL"], "{replaced}");
         assert_eq!(value(&replaced, "R", "MARK"), "P>R", ":GLOBAL carried over to the replacement");
         assert_eq!(replaced["formId"], 1);
+    }
+
+    async fn host_session(mgr: &SessionManager, allow_writes: bool) -> (String, Value) {
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_22_nav_host_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes, parameters: vec![], loader: Some(sample_loader()) })
+            .await
+            .unwrap();
+        (state["sessionId"].as_str().unwrap().to_string(), state)
+    }
+
+    fn messages(state: &Value) -> String {
+        state["messages"].to_string()
+    }
+
+    #[tokio::test]
+    async fn a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure() {
+        let mgr = SessionManager::default();
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_CALL_BAD")).await.unwrap();
+        assert_eq!(form_names(&st), vec!["CONF_22_NAV_HOST"], "{st}");
+        assert_eq!(st["formId"], 1);
+        assert_eq!(value(&st, "MAIN", "RESULT"), "call failed", "FORM_FAILURE is TRUE in the caller: {st}");
+        assert!(messages(&st).contains("startup failed"), "{st}");
+        // The caller still works (it is not suspended by a half-open child).
+        let again = mgr.send_event(&id, press("MAIN", "BTN_CALL_BAD")).await.unwrap();
+        assert_eq!(form_names(&again).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener() {
+        let mgr = SessionManager::default();
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_OPEN_BAD")).await.unwrap();
+        assert_eq!(form_names(&st), vec!["CONF_22_NAV_HOST"], "{st}");
+        assert_eq!(st["activeForm"], 1);
+        assert!(messages(&st).contains("was not opened"), "{st}");
+    }
+
+    #[tokio::test]
+    async fn new_form_whose_startup_fails_keeps_the_issuing_form() {
+        let mgr = SessionManager::default();
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_NEW_BAD")).await.unwrap();
+        assert_eq!(st["moduleName"], "CONF_22_NAV_HOST", "{st}");
+        assert_eq!(form_names(&st), vec!["CONF_22_NAV_HOST"]);
+        assert_eq!(value(&st, "MAIN", "RESULT"), "before-new", "the old form's state is restored");
+        assert!(messages(&st).contains("stays"), "{st}");
+    }
+
+    #[tokio::test]
+    async fn session_mode_with_a_failing_connection_does_not_open_or_silently_share() {
+        let mut mgr = SessionManager::default();
+        mgr.connection_factory = Some(Arc::new(|| Err("connection refused".to_string())));
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_OPEN_SESSION")).await.unwrap();
+        assert_eq!(form_names(&st), vec!["CONF_22_NAV_HOST"], "the form was not opened: {st}");
+        assert!(messages(&st).contains("SESSION") && messages(&st).contains("connection refused"), "{st}");
+    }
+
+    #[tokio::test]
+    async fn session_mode_uses_the_second_connection_or_says_it_shares() {
+        // A working factory: the form opens on the second connection.
+        let mut mgr = SessionManager::default();
+        mgr.connection_factory = Some(Arc::new(|| {
+            let cfg = DbConfig { backend: oracle_forms_db::DbBackend::Sqlite, database_path: Some(":memory:".into()), ..Default::default() };
+            oracle_forms_db::create_driver(&cfg).map(Arc::<dyn oracle_forms_db::DatabaseDriver>::from).map_err(|e| e.to_string())
+        }));
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_OPEN_SESSION")).await.unwrap();
+        assert_eq!(form_names(&st).len(), 2, "{st}");
+        // In-memory SQLite without a factory intentionally shares, and says so.
+        let mgr = SessionManager::default();
+        let (id, _s) = host_session(&mgr, false).await;
+        let st = mgr.send_event(&id, press("MAIN", "BTN_OPEN_SESSION")).await.unwrap();
+        assert_eq!(form_names(&st).len(), 2, "{st}");
+        let opener = mgr.send_event(&id, SessionEvent::ActivateForm { form_id: 1 }).await.unwrap();
+        assert!(messages(&opener).contains("shares the database connection"), "{opener}");
     }
 
     #[tokio::test]

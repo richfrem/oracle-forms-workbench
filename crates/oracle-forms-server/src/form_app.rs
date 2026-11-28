@@ -12,11 +12,18 @@
 //! Only one form runs at a time, so `:GLOBAL` values are kept in one application map that is
 //! copied into a form before it runs and copied back after (`:PARAMETER.*` stay per form).
 //! The `SESSION` mode of `OPEN_FORM` gives the new form its own database connection (except
-//! for in-memory SQLite, where a second connection would be a different, empty database).
+//! for in-memory SQLite and the Mock backend, where a second connection would be a different,
+//! empty database; that sharing is reported to the opener). If the second connection cannot be
+//! created the form is NOT opened and the opener gets a message and `FORM_FAILURE`.
+//!
+//! Startup failures are explicit (round 3): a form whose startup (`PRE-FORM`) fails is not left
+//! half open. `OPEN_FORM` removes it and reports to the opener (message + `FORM_FAILURE`),
+//! `NEW_FORM` keeps the issuing form (its old session is restored, `:GLOBAL` values too),
+//! `CALL_FORM` returns an error so the caller's `CALL_FORM` fails (`FORM_FAILURE`).
 //!
 //! Purpose: Module implementation (form_app.rs).
 //! Key Input Dependencies: crate::runtime_sessions, oracle_forms_runtime, oracle_forms_db
-//! Index: AppInit, Kind, Slot, App, run, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, close_form, call_form, new_connection
+//! Index: ConnFactory, AppInit, Kind, Slot, App, run, fail, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, open_form, new_form, abort_child, close_form, call_form, new_connection
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -51,6 +58,10 @@ pub(crate) struct Slot {
     replace_menu: bool,
 }
 
+/// Test hook: creates the second database connection of `OPEN_FORM(..., SESSION)` instead of
+/// the real driver (lets tests exercise the failing path without a database).
+pub(crate) type ConnFactory = Arc<dyn Fn() -> Result<Arc<dyn DatabaseDriver>, String> + Send + Sync>;
+
 /// Everything the session thread needs to start.
 pub(crate) struct AppInit {
     pub shared: Arc<Shared>,
@@ -60,6 +71,7 @@ pub(crate) struct AppInit {
     pub db: Option<DbConfig>,
     pub allow_writes: bool,
     pub loader: Option<FormLoader>,
+    pub connection_factory: Option<ConnFactory>,
     pub rx: mpsc::Receiver<Command>,
     pub answer_rx: mpsc::Receiver<(Answer, Reply)>,
 }
@@ -78,6 +90,7 @@ pub(crate) struct App {
     db: Option<DbConfig>,
     allow_writes: bool,
     loader: Option<FormLoader>,
+    connection_factory: Option<ConnFactory>,
     rx: Rc<mpsc::Receiver<Command>>,
     answer_rx: Arc<Mutex<mpsc::Receiver<(Answer, Reply)>>>,
 }
@@ -100,12 +113,13 @@ pub(crate) fn run(init: AppInit, root: LoadedForm, params: Vec<(String, String)>
         db: init.db,
         allow_writes: init.allow_writes,
         loader: init.loader,
+        connection_factory: init.connection_factory,
         rx: Rc::new(init.rx),
         answer_rx: Arc::new(Mutex::new(init.answer_rx)),
     }));
     *app.borrow().shared.reply_slot.lock().unwrap() = Some(ready);
     let id = register(&app, &root.module.key.name, Kind::Root, root.missing_libraries.clone());
-    let session = build_session(&app, id, root, &params, None, false, false);
+    let session = build_session(&app, id, root, &params, None, false, None);
     let (session, err) = start_session(&app, session);
     put_back(&app, id, session);
     let mut state = aggregate(&app, id);
@@ -137,34 +151,53 @@ fn put_back(app: &AppRef, id: u32, session: FormSession) {
     }
 }
 
-/// Opens a second connection for `SESSION` mode (or shares the driver when that is not meaningful).
-fn new_connection(app: &AppRef) -> Option<Arc<dyn DatabaseDriver>> {
-    let (shared, cfg) = {
+/// Opens a second connection for `SESSION` mode. `Ok((driver, shared_note))`: `shared_note` is
+/// set when the driver is the shared one on purpose (in-memory SQLite / Mock). A connection that
+/// cannot be created is an error (never a silent fallback to the shared connection).
+fn new_connection(app: &AppRef) -> Result<(Option<Arc<dyn DatabaseDriver>>, Option<&'static str>), String> {
+    let (shared, cfg, factory) = {
         let a = app.borrow();
-        (a.driver.clone(), a.db.clone())
+        (a.driver.clone(), a.db.clone(), a.connection_factory.clone())
     };
-    let Some(cfg) = cfg else { return shared };
+    if let Some(f) = factory {
+        return f().map(|d| (Some(d), None));
+    }
+    let Some(cfg) = cfg else { return Ok((shared, None)) };
     let in_memory = cfg.backend == DbBackend::Sqlite && cfg.database_path.as_deref().map(|p| p == ":memory:").unwrap_or(true);
     if in_memory || matches!(cfg.backend, DbBackend::Mock) {
-        return shared;
+        return Ok((shared, Some("SESSION shares the database connection: in-memory SQLite and Mock backends have a single database")));
     }
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
-    let made = rt.block_on(async {
-        let d = oracle_forms_db::create_driver(&cfg).ok()?;
-        d.test_connection().await.ok()?;
-        Some(Arc::<dyn DatabaseDriver>::from(d))
-    });
-    made.or(shared)
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let d = oracle_forms_db::create_driver(&cfg).map_err(|e| e.to_string())?;
+        d.test_connection().await.map_err(|e| e.to_string())?;
+        Ok((Some(Arc::<dyn DatabaseDriver>::from(d)), None))
+    })
+}
+
+/// Reports a failed navigation to the form that asked for it: a message and `FORM_FAILURE`.
+fn fail(app: &AppRef, id: u32, msg: String) {
+    note(app, id, msg);
+    if let Some(s) = app.borrow_mut().slots.iter_mut().find(|s| s.id == id).and_then(|s| s.session.as_mut()) {
+        s.last_builtin_failed = true;
+    }
+}
+
+/// Removes a half-started child form and restores `:GLOBAL` values from before its startup.
+fn abort_child(app: &AppRef, child: u32, globals: HashMap<String, OracleValue>) {
+    let mut a = app.borrow_mut();
+    a.slots.retain(|s| s.id != child);
+    a.globals = globals;
 }
 
 /// Builds a form session wired to the application: libraries, database, interaction and
 /// navigation handlers, startup parameters.
-fn build_session(app: &AppRef, id: u32, loaded: LoadedForm, params: &[(String, String)], calling: Option<String>, query_only: bool, own_connection: bool) -> FormSession {
+fn build_session(app: &AppRef, id: u32, loaded: LoadedForm, params: &[(String, String)], calling: Option<String>, query_only: bool, own_driver: Option<Option<Arc<dyn DatabaseDriver>>>) -> FormSession {
     let (cancel, allow_writes, user, driver_shared, has_loader) = {
         let a = app.borrow();
         (a.shared.cancel.clone(), a.allow_writes, a.db.as_ref().and_then(|c| c.username.clone()), a.driver.clone(), a.loader.is_some())
     };
-    let driver = if own_connection { new_connection(app) } else { driver_shared };
+    let driver = own_driver.unwrap_or(driver_shared);
     let mut s = FormSession::new(loaded.module);
     s.cancel = cancel;
     for lib in &loaded.libraries {
@@ -505,58 +538,82 @@ fn open_form(app: &AppRef, origin: u32, spec: OpenSpec) {
     let wanted = form_module_name(&spec.form);
     let loaded = match load(app, &wanted) {
         Ok(l) => l,
-        Err(e) => return note(app, origin, format!("OPEN_FORM: {e}")),
+        Err(e) => return fail(app, origin, format!("OPEN_FORM: {e}")),
     };
     if app.borrow().slots.iter().any(|s| s.name.eq_ignore_ascii_case(&loaded.module.key.name)) {
-        return note(app, origin, format!("OPEN_FORM: form {} is already open", loaded.module.key.name));
+        return fail(app, origin, format!("OPEN_FORM: form {} is already open", loaded.module.key.name));
     }
+    let own = if spec.new_session {
+        match new_connection(app) {
+            Ok((driver, shared_note)) => {
+                if let Some(t) = shared_note {
+                    note(app, origin, format!("OPEN_FORM: {t}"));
+                }
+                Some(driver)
+            }
+            Err(e) => return fail(app, origin, format!("OPEN_FORM: form {} was not opened: the SESSION database connection could not be created: {e}", loaded.module.key.name)),
+        }
+    } else {
+        None
+    };
+    let name = loaded.module.key.name.clone();
+    let saved_globals = app.borrow().globals.clone();
     let missing = loaded.missing_libraries.clone();
-    let id = register(app, &loaded.module.key.name, Kind::Opened, missing);
-    let session = build_session(app, id, loaded, &spec.params, None, false, spec.new_session);
+    let id = register(app, &name, Kind::Opened, missing);
+    let session = build_session(app, id, loaded, &spec.params, None, false, own);
     let (session, err) = start_session(app, session);
-    put_back(app, id, session);
     if let Some(e) = err {
-        note(app, id, format!("Startup error: {e}"));
+        drop(session);
+        abort_child(app, id, saved_globals);
+        return fail(app, origin, format!("OPEN_FORM: form {name} was not opened, its startup failed: {e}"));
     }
+    put_back(app, id, session);
     if spec.activate {
         app.borrow_mut().active = id;
     }
     after_run(app, id);
 }
 
-/// `NEW_FORM`: the form that issued it is replaced (it keeps its place in the call chain).
+/// `NEW_FORM`: the form that issued it is replaced (it keeps its place in the call chain). If
+/// the new form's startup fails the issuing form is restored and the failure reported to it.
 fn new_form(app: &AppRef, origin: u32, spec: NewSpec) {
     let wanted = form_module_name(&spec.form);
     let loaded = match load(app, &wanted) {
         Ok(l) => l,
-        Err(e) => return note(app, origin, format!("NEW_FORM: {e}")),
+        Err(e) => return fail(app, origin, format!("NEW_FORM: {e}")),
     };
-    let (calling, own_connection) = {
-        let a = app.borrow();
-        let s = a.slots.iter().find(|s| s.id == origin).and_then(|s| s.session.as_ref());
-        (s.and_then(|s| s.calling_form.clone()), false)
-    };
+    let calling = app.borrow().slots.iter().find(|s| s.id == origin).and_then(|s| s.session.as_ref()).and_then(|s| s.calling_form.clone());
     if spec.rollback == Rollback::FullRollback {
         if let Some(s) = app.borrow_mut().slots.iter_mut().find(|s| s.id == origin).and_then(|s| s.session.as_mut()) {
             s.clear_form();
         }
     }
+    let saved_globals = app.borrow().globals.clone();
     let name = loaded.module.key.name.clone();
-    {
+    // The old form stays aside until the new one has started, so a failed startup can be undone.
+    let (old_session, old_name, old_missing, old_cursor) = {
         let mut a = app.borrow_mut();
-        if let Some(slot) = a.slots.iter_mut().find(|s| s.id == origin) {
-            slot.name = name;
-            slot.missing = loaded.missing_libraries.clone();
-            slot.cursor = Cursors::default();
-            slot.session = None;
-        }
-    }
-    let session = build_session(app, origin, loaded, &spec.params, calling, spec.query_only, own_connection);
+        let Some(slot) = a.slots.iter_mut().find(|s| s.id == origin) else { return };
+        let old = (slot.session.take(), std::mem::replace(&mut slot.name, name.clone()), std::mem::replace(&mut slot.missing, loaded.missing_libraries.clone()), std::mem::take(&mut slot.cursor));
+        old
+    };
+    let session = build_session(app, origin, loaded, &spec.params, calling, spec.query_only, None);
     let (session, err) = start_session(app, session);
-    put_back(app, origin, session);
     if let Some(e) = err {
-        note(app, origin, format!("Startup error: {e}"));
+        drop(session);
+        {
+            let mut a = app.borrow_mut();
+            a.globals = saved_globals;
+            if let Some(slot) = a.slots.iter_mut().find(|s| s.id == origin) {
+                slot.name = old_name;
+                slot.missing = old_missing;
+                slot.cursor = old_cursor;
+                slot.session = old_session;
+            }
+        }
+        return fail(app, origin, format!("NEW_FORM: form {name} was not started, its startup failed: {e}; the current form stays"));
     }
+    put_back(app, origin, session);
     after_run(app, origin);
 }
 
@@ -608,12 +665,18 @@ fn call_form(weak: &Weak<RefCell<App>>, caller: &mut FormSession, spec: &CallSpe
             s.replace_menu = spec.replace_menu;
         }
     }
-    let session = build_session(&app, id, loaded, &spec.params, Some(caller.module.key.name.clone()), spec.query_only, false);
+    let saved_globals = app.borrow().globals.clone();
+    let name = app.borrow().slots.iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
+    let session = build_session(&app, id, loaded, &spec.params, Some(caller.module.key.name.clone()), spec.query_only, None);
     let (session, err) = start_session(&app, session);
-    put_back(&app, id, session);
     if let Some(e) = err {
-        note(&app, id, format!("Startup error: {e}"));
+        drop(session);
+        abort_child(&app, id, saved_globals);
+        app.borrow_mut().active = caller_id;
+        sync_in(&app, caller);
+        return Err(format!("form {name} was not called, its startup failed: {e}"));
     }
+    put_back(&app, id, session);
     // The request that made the call is answered with the called form's startup state.
     let shared = app.borrow().shared.clone();
     let reply = shared.reply_slot.lock().unwrap().take();

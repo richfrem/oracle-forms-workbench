@@ -239,3 +239,14 @@ another mode's slot (including duplicates), a parameter list in a mode slot or a
 argument raise `FORM_FAILURE` with a message naming the slot, and nothing is queued or started.
 Leniency kept: `F(form, paramlist)` when the lone argument is not a mode constant and an existing
 parameter list.
+
+### R3.3 Explicit navigation failures (done)
+- Child startup (`PRE-FORM`) failure: `OPEN_FORM` removes the child and tells the opener (message +
+  `FORM_FAILURE`); `NEW_FORM` restores the issuing form (and its `:GLOBAL` values) and reports;
+  `CALL_FORM` fails in the caller. Previously the failed child stayed open with only a note.
+  Note for `NEW_FORM ... FULL_ROLLBACK`: the rollback happens before the new form starts, so a
+  failed startup restores the old form *after* its rollback.
+- `OPEN_FORM(..., SESSION)`: a second connection that cannot be created refuses to open the form
+  and reports it to the opener. In-memory SQLite and Mock intentionally share the one database
+  and the opener gets a message saying so. Test hook: `SessionManager.connection_factory`.
+- Fixtures: `conf_22_nav_badstart` (PRE-FORM failure), `conf_22_nav_host` (clean opener).

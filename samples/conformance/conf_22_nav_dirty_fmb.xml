@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_22_NAV_DIRTY" Title="Navigation conformance round 3: form with a database block">
+    <Block Name="ITEMS" QueryDataSourceName="ITEMS">
+      <Item Name="ITEM_ID" ItemType="Text Item" DataType="Number"/>
+      <Item Name="ITEM_NAME" ItemType="Text Item" DataType="Char"/>
+      <Item Name="AMOUNT" ItemType="Text Item" DataType="Number"/>
+      <Item Name="BTN_NEW_NO" ItemType="Push Button" Label="BTN_NEW_NO">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN NEW_FORM(&#x27;conf_21_nav_repl&#x27;, NO_ROLLBACK); END;"/>
+      </Item>
+      <Item Name="BTN_NEW_FULL" ItemType="Push Button" Label="BTN_NEW_FULL">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN NEW_FORM(&#x27;conf_21_nav_repl&#x27;, FULL_ROLLBACK); END;"/>
+      </Item>
+      <Item Name="BTN_NEW_SAVE" ItemType="Push Button" Label="BTN_NEW_SAVE">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN NEW_FORM(&#x27;conf_21_nav_repl&#x27;, TO_SAVEPOINT); END;"/>
+      </Item>
+      <Item Name="BTN_NEW_BAD" ItemType="Push Button" Label="BTN_NEW_BAD">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN NEW_FORM(&#x27;conf_22_nav_badstart&#x27;, NO_ROLLBACK); END;"/>
+      </Item>
+    </Block>
+  </FormModule>
+</Module>

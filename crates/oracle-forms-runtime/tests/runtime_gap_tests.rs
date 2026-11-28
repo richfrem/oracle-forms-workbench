@@ -281,7 +281,7 @@ fn populating_a_group_clears_its_selection() {
     let mut s = objects_session();
     exec(
         &mut s,
-        "DECLARE g RecordGroup; st NUMBER; BEGIN g := CREATE_GROUP_FROM_QUERY('RG_Q', 'SELECT CUST_NAME FROM CUSTOMERS'); \
+        "DECLARE g RecordGroup; st NUMBER; BEGIN g := CREATE_GROUP_FROM_QUERY('RG_Q', 'SELECT item_name FROM test_items'); \
            st := POPULATE_GROUP(g); SET_GROUP_SELECTION(g, 1); :GLOBAL.A := GET_GROUP_SELECTION_COUNT(g); \
            st := POPULATE_GROUP(g); :GLOBAL.B := GET_GROUP_SELECTION_COUNT(g); END;",
     );

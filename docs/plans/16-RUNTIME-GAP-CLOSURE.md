@@ -250,3 +250,15 @@ parameter list.
   and reports it to the opener. In-memory SQLite and Mock intentionally share the one database
   and the opener gets a message saying so. Test hook: `SessionManager.connection_factory`.
 - Fixtures: `conf_22_nav_badstart` (PRE-FORM failure), `conf_22_nav_host` (clean opener).
+
+### R3.4 NEW_FORM and CLOSE_FORM with unsaved changes (done, semantics unverified against 14c)
+- `NEW_FORM(.., NO_ROLLBACK | TO_SAVEPOINT)` and `CLOSE_FORM` of an opened form with changes in a
+  database block ask the `EXIT_FORM` Yes/No/Cancel question (`NEW_FORM_SAVE_CHANGES`,
+  `CLOSE_FORM_SAVE_CHANGES`). Yes commits first and needs write opt-in (otherwise a message +
+  `FORM_FAILURE` and the form stays); No discards; Cancel keeps the form and drops the navigation.
+  `FULL_ROLLBACK` discards without asking. Without a user attached the answer is No (batch runs
+  never write).
+- Savepoint semantics beyond this are not modelled: `TO_SAVEPOINT` behaves like `NO_ROLLBACK`.
+- Called forms still end only through `EXIT_FORM` (`CLOSE_FORM` on one reports and does nothing).
+- Limitation: the Yes test checks that the navigation completes without error; the commit
+  itself is covered by the existing commit tests (no cross-session read-back of the row).

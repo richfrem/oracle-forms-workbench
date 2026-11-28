@@ -292,7 +292,7 @@ fn exit_form(args: &[OracleValue], session: &mut FormSession) -> BuiltinResult {
         }
         ExitMode::AskCommit => {
             if changed {
-                match ask_to_save(session) {
+                match ask_to_save(session, "EXIT_FORM_SAVE_CHANGES", "EXIT_FORM") {
                     Some(true) => {
                         if let Err(e) = session.commit() {
                             return BuiltinResult::Failure(format!("EXIT_FORM: {e}"));
@@ -309,10 +309,11 @@ fn exit_form(args: &[OracleValue], session: &mut FormSession) -> BuiltinResult {
 }
 
 /// Asks "save changes?" through the interaction handler: `Some(true)` yes, `Some(false)` no,
-/// `None` cancel. Without a user attached the answer is no (batch runs must not write).
-fn ask_to_save(session: &mut FormSession) -> Option<bool> {
+/// `None` cancel. `alert_name` / `who` name the prompt and the built-in for the host and trace
+/// (`EXIT_FORM`, `NEW_FORM`, `CLOSE_FORM` all use the same Yes/No/Cancel alert). Without a user attached the answer is no (batch runs must not write).
+pub fn ask_to_save(session: &mut FormSession, alert_name: &str, who: &str) -> Option<bool> {
     let request = InteractionRequest::ShowAlert {
-        alert_name: "EXIT_FORM_SAVE_CHANGES".into(),
+        alert_name: alert_name.into(),
         message: "Do you want to save the changes you have made?".into(),
         button1: "Yes".into(),
         button2: Some("No".into()),
@@ -326,7 +327,7 @@ fn ask_to_save(session: &mut FormSession) -> Option<bool> {
         Some(InteractionResponse::AlertButton(_)) => None,
         Some(_) => Some(true),
         None => {
-            session.trace_log.push("EXIT_FORM: unsaved changes discarded (no user attached)".into());
+            session.trace_log.push(format!("{who}: unsaved changes discarded (no user attached)"));
             Some(false)
         }
     }

@@ -16,6 +16,13 @@
 //! empty database; that sharing is reported to the opener). If the second connection cannot be
 //! created the form is NOT opened and the opener gets a message and `FORM_FAILURE`.
 //!
+//! Unsaved changes (round 3): `NEW_FORM` (`NO_ROLLBACK` / `TO_SAVEPOINT`) and `CLOSE_FORM` of a
+//! form with changes in a database block ask the same Yes/No/Cancel question as `EXIT_FORM`;
+//! Yes commits first (needs write opt-in, otherwise the navigation fails visibly), No discards,
+//! Cancel keeps the form and abandons the navigation. `NEW_FORM ... FULL_ROLLBACK` discards
+//! without asking. Real savepoint semantics beyond this are not modelled (`TO_SAVEPOINT` is
+//! treated like `NO_ROLLBACK`; unverified against 14c).
+//!
 //! Startup failures are explicit (round 3): a form whose startup (`PRE-FORM`) fails is not left
 //! half open. `OPEN_FORM` removes it and reports to the opener (message + `FORM_FAILURE`),
 //! `NEW_FORM` keeps the issuing form (its old session is restored, `:GLOBAL` values too),
@@ -23,7 +30,7 @@
 //!
 //! Purpose: Module implementation (form_app.rs).
 //! Key Input Dependencies: crate::runtime_sessions, oracle_forms_runtime, oracle_forms_db
-//! Index: ConnFactory, AppInit, Kind, Slot, App, run, fail, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, open_form, new_form, abort_child, close_form, call_form, new_connection
+//! Index: ConnFactory, AppInit, Kind, Slot, App, run, fail, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, settle_changes, open_form, new_form, abort_child, close_form, call_form, new_connection
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -33,7 +40,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 use oracle_forms_db::{DatabaseDriver, DbBackend, DbConfig};
-use oracle_forms_runtime::nav::{form_module_name, CallSpec, FormLoader, LoadedForm, NavRequest, NewSpec, OpenSpec, Rollback};
+use oracle_forms_runtime::nav::{ask_to_save, form_module_name, CallSpec, FormLoader, LoadedForm, NavRequest, NewSpec, OpenSpec, Rollback};
 use oracle_forms_runtime::{FormSession, InteractionRequest, InteractionResponse, OracleValue, ALERT_BUTTON1};
 use serde_json::{json, Value};
 
@@ -527,7 +534,11 @@ fn apply_nav(app: &AppRef, origin: u32, req: NavRequest) {
         NavRequest::CloseForm(name) => {
             let target = app.borrow().slots.iter().find(|s| s.name.eq_ignore_ascii_case(&name) && !matches!(s.kind, Kind::Called { .. })).map(|s| s.id);
             match target {
-                Some(t) => close_form(app, t),
+                Some(t) => {
+                    if settle_changes(app, t, origin, "CLOSE_FORM", "CLOSE_FORM_SAVE_CHANGES") {
+                        close_form(app, t);
+                    }
+                }
                 None => note(app, origin, format!("CLOSE_FORM: form {name} is not open (CALL_FORM forms end with EXIT_FORM)")),
             }
         }
@@ -574,6 +585,36 @@ fn open_form(app: &AppRef, origin: u32, spec: OpenSpec) {
     after_run(app, id);
 }
 
+/// Asks whether to save when form `id` has unsaved database changes, for a navigation issued by
+/// `origin`. Returns true when the navigation may go ahead (nothing to save, saved, or discarded)
+/// and false when it is abandoned (Cancel, or the commit failed / writes are not enabled; the
+/// reason is reported to `origin` as a message and `FORM_FAILURE`).
+fn settle_changes(app: &AppRef, id: u32, origin: u32, who: &str, alert: &str) -> bool {
+    let Some(mut s) = take_session(app, id) else { return true };
+    let mut outcome = Ok(true);
+    if s.has_unsaved_changes() {
+        sync_in(app, &mut s);
+        outcome = match ask_to_save(&mut s, alert, who) {
+            Some(true) => s.commit().map(|_| true).map_err(|e| format!("{who}: the changes could not be saved, the form stays open: {e}")),
+            Some(false) => Ok(true),
+            None => Ok(false),
+        };
+        sync_out(app, &s);
+    }
+    put_back(app, id, s);
+    match outcome {
+        Ok(true) => true,
+        Ok(false) => {
+            note(app, origin, format!("{who}: cancelled, the form stays open"));
+            false
+        }
+        Err(e) => {
+            fail(app, origin, e);
+            false
+        }
+    }
+}
+
 /// `NEW_FORM`: the form that issued it is replaced (it keeps its place in the call chain). If
 /// the new form's startup fails the issuing form is restored and the failure reported to it.
 fn new_form(app: &AppRef, origin: u32, spec: NewSpec) {
@@ -587,6 +628,8 @@ fn new_form(app: &AppRef, origin: u32, spec: NewSpec) {
         if let Some(s) = app.borrow_mut().slots.iter_mut().find(|s| s.id == origin).and_then(|s| s.session.as_mut()) {
             s.clear_form();
         }
+    } else if !settle_changes(app, origin, origin, "NEW_FORM", "NEW_FORM_SAVE_CHANGES") {
+        return;
     }
     let saved_globals = app.borrow().globals.clone();
     let name = loaded.module.key.name.clone();

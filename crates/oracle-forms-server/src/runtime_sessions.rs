@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: new_form_on_a_clean_form_replaces_it_without_asking, new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps, new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form, new_form_full_rollback_discards_without_asking, close_form_of_a_clean_opened_form_closes_without_asking, close_form_with_changes_asks_and_honours_each_answer, dirty_root, host_with_dirty_peer, a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -818,6 +818,117 @@ mod tests {
         assert_eq!(form_names(&st).len(), 2, "{st}");
         let opener = mgr.send_event(&id, SessionEvent::ActivateForm { form_id: 1 }).await.unwrap();
         assert!(messages(&opener).contains("shares the database connection"), "{opener}");
+    }
+
+    /// `conf_22_nav_dirty` as the root form with a changed record in its database block.
+    async fn dirty_root(allow_writes: bool, edit: bool) -> (SessionManager, String) {
+        let mgr = SessionManager::default();
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_22_nav_dirty_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes, parameters: vec![], loader: Some(sample_loader()) })
+            .await
+            .unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        if edit {
+            mgr.send_event(&id, SessionEvent::ExecuteQuery { block: Some("ITEMS".into()) }).await.unwrap();
+            mgr.send_event(&id, SessionEvent::SetItem { block: "ITEMS".into(), item: "ITEM_NAME".into(), value: json!("edited"), record: Some(0) }).await.unwrap();
+        }
+        (mgr, id)
+    }
+
+    #[tokio::test]
+    async fn new_form_on_a_clean_form_replaces_it_without_asking() {
+        let (mgr, id) = dirty_root(false, false).await;
+        let st = mgr.send_event(&id, press("ITEMS", "BTN_NEW_NO")).await.unwrap();
+        assert!(st["alert"].is_null(), "{st}");
+        assert_eq!(st["moduleName"], "CONF_21_NAV_REPL");
+    }
+
+    #[tokio::test]
+    async fn new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps() {
+        // Yes (writes enabled): commits, then replaces.
+        let (mgr, id) = dirty_root(true, true).await;
+        let asked = mgr.send_event(&id, press("ITEMS", "BTN_NEW_NO")).await.unwrap();
+        assert_eq!(asked["alert"]["alertName"], "NEW_FORM_SAVE_CHANGES", "{asked}");
+        let done = mgr.answer_alert_for(&id, ALERT_BUTTON1, Some(1)).await.unwrap();
+        assert_eq!(done["moduleName"], "CONF_21_NAV_REPL", "{done}");
+        assert!(done["error"].is_null(), "{done}");
+
+        // No: discards without writing (works read-only).
+        let (mgr, id) = dirty_root(false, true).await;
+        mgr.send_event(&id, press("ITEMS", "BTN_NEW_SAVE")).await.unwrap();
+        let done = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON2, Some(1)).await.unwrap();
+        assert_eq!(done["moduleName"], "CONF_21_NAV_REPL", "TO_SAVEPOINT asks like NO_ROLLBACK: {done}");
+
+        // Cancel: the form stays, the navigation is abandoned.
+        let (mgr, id) = dirty_root(false, true).await;
+        let asked = mgr.send_event(&id, press("ITEMS", "BTN_NEW_NO")).await.unwrap();
+        assert_eq!(asked["alert"]["alertName"], "NEW_FORM_SAVE_CHANGES");
+        let kept = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON3, Some(1)).await.unwrap();
+        assert_eq!(kept["moduleName"], "CONF_22_NAV_DIRTY", "{kept}");
+        assert!(messages(&kept).contains("cancelled"), "{kept}");
+        let items = kept["blocks"].as_array().unwrap().iter().find(|b| b["name"] == "ITEMS").unwrap();
+        assert_eq!(items["records"][0]["values"]["ITEM_NAME"], "edited", "the buffer is untouched");
+    }
+
+    #[tokio::test]
+    async fn new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form() {
+        let (mgr, id) = dirty_root(false, true).await;
+        mgr.send_event(&id, press("ITEMS", "BTN_NEW_NO")).await.unwrap();
+        let st = mgr.answer_alert_for(&id, ALERT_BUTTON1, Some(1)).await.unwrap();
+        assert_eq!(st["moduleName"], "CONF_22_NAV_DIRTY", "{st}");
+        assert!(messages(&st).contains("could not be saved") && messages(&st).contains("read-only"), "{st}");
+    }
+
+    #[tokio::test]
+    async fn new_form_full_rollback_discards_without_asking() {
+        let (mgr, id) = dirty_root(false, true).await;
+        let st = mgr.send_event(&id, press("ITEMS", "BTN_NEW_FULL")).await.unwrap();
+        assert!(st["alert"].is_null(), "{st}");
+        assert_eq!(st["moduleName"], "CONF_21_NAV_REPL");
+    }
+
+    /// The host form with `conf_22_nav_dirty` opened in the background and a change made in it.
+    async fn host_with_dirty_peer(edit: bool) -> (SessionManager, String) {
+        let mgr = SessionManager::default();
+        let (id, _s) = host_session(&mgr, false).await;
+        mgr.send_event(&id, press("MAIN", "BTN_OPEN_DIRTY")).await.unwrap();
+        if edit {
+            mgr.send_event(&id, SessionEvent::ActivateForm { form_id: 2 }).await.unwrap();
+            mgr.send_event_to(&id, SessionEvent::ExecuteQuery { block: Some("ITEMS".into()) }, Some(2)).await.unwrap();
+            mgr.send_event_to(&id, SessionEvent::SetItem { block: "ITEMS".into(), item: "ITEM_NAME".into(), value: json!("edited"), record: Some(0) }, Some(2)).await.unwrap();
+            mgr.send_event(&id, SessionEvent::ActivateForm { form_id: 1 }).await.unwrap();
+        }
+        (mgr, id)
+    }
+
+    #[tokio::test]
+    async fn close_form_of_a_clean_opened_form_closes_without_asking() {
+        let (mgr, id) = host_with_dirty_peer(false).await;
+        let st = mgr.send_event_to(&id, press("MAIN", "BTN_CLOSE_DIRTY"), Some(1)).await.unwrap();
+        assert!(st["alert"].is_null(), "{st}");
+        assert_eq!(form_names(&st), vec!["CONF_22_NAV_HOST"]);
+    }
+
+    #[tokio::test]
+    async fn close_form_with_changes_asks_and_honours_each_answer() {
+        // Cancel keeps the form.
+        let (mgr, id) = host_with_dirty_peer(true).await;
+        let asked = mgr.send_event_to(&id, press("MAIN", "BTN_CLOSE_DIRTY"), Some(1)).await.unwrap();
+        assert_eq!(asked["alert"]["alertName"], "CLOSE_FORM_SAVE_CHANGES", "{asked}");
+        assert_eq!(asked["formId"], 2, "the question belongs to the form being closed");
+        let kept = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON3, Some(2)).await.unwrap();
+        assert_eq!(form_names(&kept).len(), 2, "{kept}");
+        // Asking again, No discards and closes.
+        let asked = mgr.send_event_to(&id, press("MAIN", "BTN_CLOSE_DIRTY"), Some(1)).await.unwrap();
+        assert_eq!(asked["alert"]["alertName"], "CLOSE_FORM_SAVE_CHANGES");
+        let closed = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON2, Some(2)).await.unwrap();
+        assert_eq!(form_names(&closed), vec!["CONF_22_NAV_HOST"], "{closed}");
+        // Yes without write opt-in: fails visibly and the form stays open.
+        let (mgr, id) = host_with_dirty_peer(true).await;
+        mgr.send_event_to(&id, press("MAIN", "BTN_CLOSE_DIRTY"), Some(1)).await.unwrap();
+        let st = mgr.answer_alert_for(&id, ALERT_BUTTON1, Some(2)).await.unwrap();
+        assert_eq!(form_names(&st).len(), 2, "{st}");
+        assert!(messages(&st).contains("could not be saved"), "reported to the opener: {st}");
     }
 
     #[tokio::test]

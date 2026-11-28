@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -30,6 +30,12 @@ const MAX_SESSIONS: usize = 32;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const ALERT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_TRACE_LINES: usize = 400;
+/// How long one HTTP request waits for its session thread (startup parses the form and
+/// libraries, so it gets longer). A session that overruns is cancelled and dropped; it can
+/// never hold up other sessions or requests because every session runs on its own thread
+/// and the request side only awaits a oneshot with a timeout.
+const START_TIMEOUT: Duration = Duration::from_secs(90);
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A user action sent from the browser.
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +71,8 @@ struct Shared {
     /// Answers to a pending alert: (button constant, reply for the follow-up request).
     answer_tx: Mutex<mpsc::Sender<(i64, Reply)>>,
     awaiting_alert: AtomicBool,
+    /// Set to abort the PL/SQL the session thread is running (shared with `FormSession`).
+    cancel: Arc<AtomicBool>,
 }
 
 pub struct SessionHandle {
@@ -73,10 +81,26 @@ pub struct SessionHandle {
     last_used: Mutex<Instant>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct SessionManager {
     sessions: Arc<Mutex<HashMap<String, Arc<SessionHandle>>>>,
     counter: Arc<AtomicU64>,
+    start_timeout: Duration,
+    command_timeout: Duration,
+    /// Test hook: delay before the session thread starts working (simulates a slow startup).
+    startup_delay: Duration,
+}
+
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self {
+            sessions: Arc::default(),
+            counter: Arc::default(),
+            start_timeout: START_TIMEOUT,
+            command_timeout: COMMAND_TIMEOUT,
+            startup_delay: Duration::ZERO,
+        }
+    }
 }
 
 pub struct StartOptions {
@@ -138,17 +162,21 @@ impl SessionManager {
             reply_slot: Mutex::new(None),
             answer_tx: Mutex::new(answer_tx),
             awaiting_alert: AtomicBool::new(false),
+            cancel: Arc::new(AtomicBool::new(false)),
         });
         let (ready_tx, ready_rx) = oneshot::channel::<Value>();
 
         let thread_shared = shared.clone();
+        let startup_delay = self.startup_delay;
         let session_id = id.clone();
         let db_user = opts.db.as_ref().and_then(|c| c.username.clone());
         let backend = opts.db.as_ref().map(|c| format!("{:?}", c.backend)).unwrap_or_else(|| "none".into());
         std::thread::Builder::new()
             .name(format!("form-session-{}", id))
             .spawn(move || {
+                std::thread::sleep(startup_delay);
                 let mut session = FormSession::new(opts.module);
+                session.cancel = thread_shared.cancel.clone();
                 for lib in &opts.libraries {
                     session.attach_library(lib);
                 }
@@ -204,6 +232,7 @@ impl SessionManager {
                     let (reply, error) = match cmd {
                         Command::State(reply) => (reply, None),
                         Command::Event(ev, reply) => {
+                            thread_shared.cancel.store(false, Ordering::SeqCst);
                             *thread_shared.reply_slot.lock().unwrap() = Some(reply);
                             let error = run_event(&mut session, ev);
                             let reply = thread_shared.reply_slot.lock().unwrap().take();
@@ -222,7 +251,18 @@ impl SessionManager {
             })
             .map_err(|e| format!("Failed to start session thread: {}", e))?;
 
-        let state = ready_rx.await.map_err(|_| "Session thread exited during startup".to_string())?;
+        let state = match tokio::time::timeout(self.start_timeout, ready_rx).await {
+            Ok(r) => r.map_err(|_| "Session thread exited during startup".to_string())?,
+            Err(_) => {
+                // Runaway startup: ask the interpreter to stop; the session is never
+                // registered, so nothing else can reach it.
+                shared.cancel.store(true, Ordering::SeqCst);
+                return Err(format!(
+                    "Session startup did not finish within {} s and was cancelled (runaway startup trigger or unparsable library?)",
+                    self.start_timeout.as_secs_f32()
+                ));
+            }
+        };
         self.sessions.lock().unwrap().insert(
             id,
             Arc::new(SessionHandle { tx, shared, last_used: Mutex::new(Instant::now()) }),
@@ -240,7 +280,20 @@ impl SessionManager {
             .tx
             .send(Command::Event(event, reply_tx))
             .map_err(|_| (410, "Session has ended".to_string()))?;
-        reply_rx.await.map_err(|_| (500, "Session thread stopped".to_string()))
+        self.await_reply(id, &handle, reply_rx).await
+    }
+
+    /// Waits for the session thread's reply. On timeout the session is cancelled and
+    /// removed (504) so a runaway cannot block the caller or be reused half-run.
+    async fn await_reply(&self, id: &str, handle: &Arc<SessionHandle>, rx: oneshot::Receiver<Value>) -> Result<Value, (u16, String)> {
+        match tokio::time::timeout(self.command_timeout, rx).await {
+            Ok(r) => r.map_err(|_| (500, "Session thread stopped".to_string())),
+            Err(_) => {
+                handle.shared.cancel.store(true, Ordering::SeqCst);
+                self.remove(id);
+                Err((504, format!("The session did not answer within {} s; it was cancelled and closed", self.command_timeout.as_secs_f32())))
+            }
+        }
     }
 
     pub async fn answer_alert(&self, id: &str, button: i64) -> Result<Value, (u16, String)> {
@@ -256,7 +309,7 @@ impl SessionManager {
             .unwrap()
             .send((button, reply_tx))
             .map_err(|_| (410, "Session has ended".to_string()))?;
-        reply_rx.await.map_err(|_| (500, "Session thread stopped".to_string()))
+        self.await_reply(id, &handle, reply_rx).await
     }
 
     pub async fn state(&self, id: &str) -> Result<Value, (u16, String)> {
@@ -266,7 +319,7 @@ impl SessionManager {
         }
         let (reply_tx, reply_rx) = oneshot::channel();
         handle.tx.send(Command::State(reply_tx)).map_err(|_| (410, "Session has ended".to_string()))?;
-        reply_rx.await.map_err(|_| (500, "Session thread stopped".to_string()))
+        self.await_reply(id, &handle, reply_rx).await
     }
 }
 
@@ -419,6 +472,26 @@ mod tests {
 
     fn sqlite() -> Option<DbConfig> {
         Some(DbConfig { backend: oracle_forms_db::DbBackend::Sqlite, database_path: Some(":memory:".into()), ..Default::default() })
+    }
+
+    /// A session that cannot answer in time is cancelled, reported (not hung), and does not
+    /// stop other sessions from starting.
+    #[tokio::test]
+    async fn startup_overrun_returns_error_and_other_sessions_still_start() {
+        let mut slow = SessionManager::default();
+        slow.start_timeout = Duration::from_millis(50);
+        slow.startup_delay = Duration::from_millis(500);
+        let err = slow
+            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .await
+            .unwrap_err();
+        assert!(err.contains("did not finish"), "{err}");
+
+        let ok = SessionManager::default()
+            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .await
+            .unwrap();
+        assert!(ok["sessionId"].is_string());
     }
 
     #[tokio::test]

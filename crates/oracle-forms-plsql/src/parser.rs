@@ -188,8 +188,22 @@ impl Parser {
     pub fn parse_all_units(&mut self) -> Vec<PlsqlUnit> {
         let mut units = Vec::new();
         while !self.check(&TokenKind::Eof) {
+            let before = self.pos;
             match self.parse_unit() {
-                Ok(unit) => units.push(unit),
+                Ok(unit) => {
+                    // Progress guard: a unit that consumed no tokens (for example a stray
+                    // top-level `END;`, where the statement-list parser stops immediately at
+                    // `END`) would otherwise be re-parsed forever, pushing empty units until
+                    // memory is exhausted.
+                    if self.pos == before {
+                        let raw = self.synchronize_statement();
+                        let msg = format!("unexpected top-level token(s) skipped: {raw}");
+                        self.errors.push(msg.clone());
+                        units.push(PlsqlUnit::StatementList(vec![Statement::Opaque { raw, error: Some(msg) }]));
+                    } else {
+                        units.push(unit);
+                    }
+                }
                 Err(e) => {
                     self.errors.push(e.to_string());
                     let raw = self.synchronize_statement();
@@ -612,7 +626,7 @@ impl Parser {
             self.expect(&TokenKind::Then)?;
             let mut body = Vec::new();
             while !self.check(&TokenKind::When) && !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-                body.push(self.parse_statement()?);
+                body.push(self.parse_statement_recovering());
             }
             handlers.push(ExceptionHandler { exceptions, body });
         }
@@ -653,6 +667,25 @@ impl Parser {
             }
         }
         stmts
+    }
+
+    /// Parses one statement inside a nested body (IF/LOOP/block). A statement that fails to
+    /// parse becomes an [`Statement::Opaque`] carrying the error (so running it reports the
+    /// problem) instead of aborting the whole enclosing construct, which used to leave the
+    /// matching `END IF;` / `END LOOP;` unconsumed and desynchronise the rest of the unit.
+    fn parse_statement_recovering(&mut self) -> Statement {
+        let before = self.pos;
+        match self.parse_statement() {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                self.errors.push(e.to_string());
+                let mut raw = self.synchronize_statement();
+                if self.pos == before {
+                    raw = self.advance().text;
+                }
+                Statement::Opaque { raw, error: Some(e.to_string()) }
+            }
+        }
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, ParseError> {
@@ -777,8 +810,9 @@ impl Parser {
                 }
             }
             TokenKind::Identifier(_) => {
-                // Could be assignment (var := expr;) or procedure call (proc(a, b);)
-                if self.peek_ahead(1) == &TokenKind::Assign {
+                // Could be assignment (`var := expr;`, `rec.field := expr;`, `pkg.var := expr;`)
+                // or procedure call (`proc(a, b);`, `pkg.proc(a, b);`).
+                if self.dotted_assignment_ahead() {
                     let target_expr = self.parse_primary_expr()?;
                     self.expect(&TokenKind::Assign)?;
                     let value = self.parse_expr()?;
@@ -814,6 +848,15 @@ impl Parser {
         }
     }
 
+    /// True when the tokens ahead are `name {. name} :=`.
+    fn dotted_assignment_ahead(&self) -> bool {
+        let mut n = 1;
+        while self.peek_ahead(n) == &TokenKind::Dot {
+            n += 2;
+        }
+        self.peek_ahead(n) == &TokenKind::Assign
+    }
+
     fn parse_if_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(&TokenKind::If)?;
         let condition = self.parse_expr()?;
@@ -824,7 +867,7 @@ impl Parser {
             self.peek_kind(),
             TokenKind::Elsif | TokenKind::Else | TokenKind::End | TokenKind::Eof
         ) {
-            then_branch.push(self.parse_statement()?);
+            then_branch.push(self.parse_statement_recovering());
         }
 
         let mut elsifs = Vec::new();
@@ -836,7 +879,7 @@ impl Parser {
                 self.peek_kind(),
                 TokenKind::Elsif | TokenKind::Else | TokenKind::End | TokenKind::Eof
             ) {
-                branch.push(self.parse_statement()?);
+                branch.push(self.parse_statement_recovering());
             }
             elsifs.push((cond, branch));
         }
@@ -844,7 +887,7 @@ impl Parser {
         let else_branch = if self.match_token(&TokenKind::Else) {
             let mut branch = Vec::new();
             while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-                branch.push(self.parse_statement()?);
+                branch.push(self.parse_statement_recovering());
             }
             Some(branch)
         } else {
@@ -867,7 +910,7 @@ impl Parser {
         self.expect(&TokenKind::Loop)?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_statement()?);
+            body.push(self.parse_statement_recovering());
         }
         self.expect(&TokenKind::End)?;
         self.expect(&TokenKind::Loop)?;
@@ -881,7 +924,7 @@ impl Parser {
         self.expect(&TokenKind::Loop)?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_statement()?);
+            body.push(self.parse_statement_recovering());
         }
         self.expect(&TokenKind::End)?;
         self.expect(&TokenKind::Loop)?;
@@ -893,7 +936,7 @@ impl Parser {
         self.expect(&TokenKind::Loop)?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_statement()?);
+            body.push(self.parse_statement_recovering());
         }
         self.expect(&TokenKind::End)?;
         self.expect(&TokenKind::Loop)?;
@@ -974,7 +1017,7 @@ impl Parser {
         self.expect(&TokenKind::Loop)?;
         let mut body = Vec::new();
         while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-            body.push(self.parse_statement()?);
+            body.push(self.parse_statement_recovering());
         }
         self.expect(&TokenKind::End)?;
         self.expect(&TokenKind::Loop)?;
@@ -1064,14 +1107,14 @@ impl Parser {
             self.expect(&TokenKind::Then)?;
             let mut body = Vec::new();
             while !matches!(self.peek_kind(), TokenKind::When | TokenKind::Else | TokenKind::End | TokenKind::Eof) {
-                body.push(self.parse_statement()?);
+                body.push(self.parse_statement_recovering());
             }
             whens.push((cond, body));
         }
         let else_branch = if self.match_token(&TokenKind::Else) {
             let mut body = Vec::new();
             while !self.check(&TokenKind::End) && !self.check(&TokenKind::Eof) {
-                body.push(self.parse_statement()?);
+                body.push(self.parse_statement_recovering());
             }
             Some(body)
         } else {

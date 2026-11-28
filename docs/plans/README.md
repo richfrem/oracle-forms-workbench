@@ -11,6 +11,7 @@ documents below are 100% complete yet, so none were moved to `completed/`.
 - [Implementation roadmap and milestones](06-IMPLEMENTATION-ROADMAP-AND-MILESTONES.md) — Phases A–G and Track T done; ROS.60050/XML/dual-engine parity updates, Track K, and Phase H active/proposed.
 - [Conformance testing](09-CONFORMANCE-TESTING.md) — Track K golden-trace design (open) plus current regression & `ROS.60050` round-trip test status.
 - [Next-phase session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) — current session continuation status and prompt.
+- [16: Runtime gap closure](16-RUNTIME-GAP-CLOSURE.md) — execution budgets/runaway protection (done), parameter lists, timers, LOV dialogs, record groups, multi-form design note.
 - [UI review backlog](UI-REVIEW-BACKLOG.md) — source-inspected UI gaps and parity follow-ups.
 
 ## Proposed post-G design

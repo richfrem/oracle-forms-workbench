@@ -257,5 +257,5 @@ fn test_conf_03_step_budget_guardrail() {
     interpreter.max_steps = 100; // Constrain step budget to 100 steps
 
     let res = interpreter.execute_unit(&PlsqlUnit::StatementList(vec![infinite_loop]), &mut session);
-    assert!(matches!(res, Err(RuntimeError::StepBudgetExceeded)));
+    assert!(matches!(res, Err(RuntimeError::StepBudgetExceeded(_))));
 }

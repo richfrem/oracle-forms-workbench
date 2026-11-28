@@ -40,8 +40,18 @@ pub enum RuntimeError {
     #[error("Record lock or concurrency conflict: {0}")]
     RecordLockedOrChanged(String),
 
-    #[error("Step budget exceeded")]
-    StepBudgetExceeded,
+    /// The step budget ran out (runaway loop or runaway recursion). The text names the
+    /// trigger, the program-unit call chain and the statement kind that was running.
+    #[error("Execution budget exceeded: {0}")]
+    StepBudgetExceeded(String),
+
+    /// The wall-clock limit for the trigger or command ran out.
+    #[error("Execution time limit exceeded: {0}")]
+    TimeBudgetExceeded(String),
+
+    /// The host (server) cancelled the running command, e.g. after a request timeout.
+    #[error("Execution cancelled: {0}")]
+    Cancelled(String),
 
     #[error("Recursion limit exceeded")]
     RecursionLimitExceeded,
@@ -145,6 +155,10 @@ pub struct FormSession {
     /// the outermost trigger finishes (Forms fires them only when input focus settles).
     focus_dirty: bool,
     settling: bool,
+    /// Set by the host to abort whatever PL/SQL is running (checked every few steps).
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// Wall-clock limit for the command currently being processed (set by the host).
+    pub command_deadline: Option<std::time::Instant>,
 }
 
 /// Where input focus is: (block, buffer generation, record index, item).
@@ -217,6 +231,8 @@ impl FormSession {
             trigger_depth: 0,
             focus_dirty: false,
             settling: false,
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            command_deadline: None,
         }
     }
 
@@ -545,7 +561,7 @@ impl FormSession {
                 (Some(b), None) => format!("{}({})", trigger.name, b),
                 _ => trigger.name.clone(),
             };
-            self.trace_log.push(trace_entry);
+            self.trace_log.push(trace_entry.clone());
 
             if let Some(parsed) = self.parse_trigger(&trigger) {
                 let unit = match parsed {
@@ -567,7 +583,7 @@ impl FormSession {
                 };
 
                 self.trigger_depth += 1;
-                let mut interpreter = Interpreter::new();
+                let mut interpreter = Interpreter::for_trigger(self, &trace_entry);
                 let outcome = interpreter.execute_unit(&unit, self);
                 self.trigger_depth -= 1;
                 (self.system.trigger_block, self.system.trigger_item) = saved_trigger_item;

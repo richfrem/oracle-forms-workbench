@@ -382,6 +382,47 @@ def compile_fmb_to_fmx(fmb_path: Path, repo_root: Path, userid: str, offline: bo
     return fmx_path
 
 
+# Builds a form together with every module it depends on (manifest pipeline, Stages 1-3).
+def build_with_dependencies(form_path: Path, source_dir: Path, repo_root: Path, userid: Optional[str], offline: bool,
+                            app_name: Optional[str] = None) -> Path:
+    """Build one form and its recursive dependencies from the folder that holds them, in waves.
+
+    Stage 1 keeps only the form's dependency closure (attached libraries, object libraries, parent modules, menus,
+    the libraries those attach, and libraries its PL/SQL calls without attaching), Stage 2 converts it in a build
+    folder under the work folder, Stage 3 compiles wave by wave and skips modules whose inputs are unchanged.
+    The source folder is only read.
+
+    Returns:
+        Path to the published .fmx.
+    """
+    stem = form_path.stem[:-4] if form_path.stem.lower().endswith("_fmb") else form_path.stem
+    build_dir = _compile_form().ensure_work_dir(repo_root) / "dependency-builds" / stem.lower()
+    build_dir.mkdir(parents=True, exist_ok=True)
+    scripts = Path(__file__).resolve().parent
+    manifest_script = scripts.parent.parent / "converting-oracle-artifacts" / "scripts" / "build_dependency_manifest.py"
+    print(f"[1/3] Finding the dependencies of {form_path.name} in {source_dir} and converting them (build folder {build_dir})...")
+    stage = subprocess.run([sys.executable, "-u", str(manifest_script), "--source-dir", str(source_dir), "--build-dir", str(build_dir),
+                            "--target", form_path.name, "--normalize"])
+    if stage.returncode != 0:
+        raise RuntimeError("Building the dependencies failed (see the messages above); nothing was compiled.")
+    print("[2/3] Compiling wave by wave (unchanged modules are skipped)...")
+    compile_cmd = [sys.executable, "-u", str(scripts / "compile_from_manifest.py"), "--build-dir", str(build_dir)]
+    if app_name:
+        compile_cmd += ["--app-name", app_name]
+    env = os.environ.copy()
+    if offline or not userid:
+        compile_cmd.append("--offline")
+    else:
+        compile_cmd.append("--compile-from-env")
+        env["OFW_PREVIEW_DB_LOGON"] = userid  # passed in the environment, never on a command line
+    if subprocess.run(compile_cmd, env=env).returncode != 0:
+        raise RuntimeError("Compilation failed for at least one module (see the summary above).")
+    fmx = _compile_form().app_output_dir(repo_root, app_name) / f"{stem.lower()}.fmx"
+    if not fmx.is_file():
+        raise RuntimeError(f"{fmx.name} was not produced in {fmx.parent}.")
+    return fmx
+
+
 # Launches the compiled form in the host desktop Forms Standalone Launcher client.
 def launch_fsal_desktop(fmx_path: Path, repo_root: Path, port: int, userid: str, interactive: bool,
                         params: Optional[List[str]] = None, config: Optional[str] = None) -> int:
@@ -460,6 +501,8 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="URL-encoded Forms module parameter (repeatable)")
     parser.add_argument("--app-name", default=None, help="Dedicated app directory name under <OFW_ORACLE_HOME>/forms_apps/<app_name>/ (default: OFW_APP_NAME or 'default')")
     parser.add_argument("--config", default=None, help="formsweb.cfg config section name (default: OFW_FORMS_CONFIG or 'standaloneapp')")
+    parser.add_argument("--source-dir", default=None, help="Folder that holds the form's dependencies: build the form with "
+                        "everything it depends on (manifest pipeline, in waves) instead of the form alone")
     args = parser.parse_args(argv)
     if args.userid is None:
         args.userid = _default_userid()
@@ -495,6 +538,13 @@ def main() -> int:
 
     suffix = input_file.suffix.lower()
     try:
+        if args.source_dir and suffix == ".xml":
+            fmx_file = build_with_dependencies(input_file, Path(args.source_dir).resolve(), repo_root,
+                                               None if args.userid in (None, "", "none") else args.userid, args.offline, args.app_name)
+            if args.no_launch:
+                print(f"[3/3] Compiled and published {fmx_file.name} with its dependencies (compile-only; FSAL not launched).")
+                return 0
+            return launch_fsal_desktop(fmx_file, repo_root, args.port, args.userid, args.interactive, args.param, args.config)
         if suffix in (".xml", ".fmb", ".fmx"):
             # Work only on a copy in the work folder (outside the repository), never beside the source.
             input_file = _compile_form().stage_module(input_file, repo_root)

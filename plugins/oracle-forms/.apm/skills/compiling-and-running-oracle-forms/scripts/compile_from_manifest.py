@@ -40,6 +40,7 @@ Key Functions:
 
 import argparse
 import fnmatch
+import hashlib
 import getpass
 import json
 import os
@@ -290,6 +291,37 @@ def _is_already_compiled(module: Dict, build_dir: Path, publish: bool, app_dir: 
     return target.is_file()
 
 
+DEP_TYPES = {"objectLibraries": ("OLB",), "attachedLibraries": ("PLL",), "menus": ("MMB",), "parentModules": ("FMB", "OLB")}
+
+
+def build_keys(manifest: Dict, build_dir: Path) -> Dict[Tuple[str, str], str]:
+    """A build key per module: a hash of its staged input (XML, PLD or binary) and the keys of the modules it
+    depends on, so a change anywhere below a module changes its key. Manifest order puts providers first."""
+    keys: Dict[Tuple[str, str], str] = {}
+    by_name: Dict[Tuple[str, str], Dict] = {(m["artifactType"], m["name"].casefold()): m for m in manifest["modules"]}
+    for module in manifest["modules"]:
+        digest = hashlib.sha256()
+        for rel in (module.get("stagedInputFile"), module.get("binaryFile") if not module.get("requiresConversion") else None):
+            path = build_dir / rel if rel else None
+            if path is not None and path.is_file():
+                digest.update(path.read_bytes())
+        for dep_key, kinds in DEP_TYPES.items():
+            for name in sorted((module.get("dependencies") or {}).get(dep_key, []), key=str.casefold):
+                provider = next(((k, name.casefold()) for k in kinds if (k, name.casefold()) in by_name), None)
+                digest.update(f"|{dep_key}:{name.casefold()}={keys.get(provider, 'missing') if provider else 'external'}".encode())
+        keys[(module["artifactType"], module["name"].casefold())] = digest.hexdigest()
+    return keys
+
+
+def _is_up_to_date(module: Dict, key: str, build_dir: Path, publish: bool, app_dir: Optional[Path] = None) -> bool:
+    """True when the module compiled from the same inputs (same build key) and its executable still exists. Reads
+    the `compiled` record, not `status`, which a Stage 2 re-run resets to "converted"."""
+    record = module.get("compiled") or {}
+    if record.get("status") != "done" or record.get("buildKey") != key:
+        return False
+    return _is_already_compiled({**module, "status": "compiled"}, build_dir, publish, app_dir)
+
+
 def run_manifest(
     manifest_path: Path,
     userid: Optional[str],
@@ -300,10 +332,15 @@ def run_manifest(
     app_name: Optional[str] = None,
     output_dir: Optional[str] = None,
     module_patterns: Optional[List[str]] = None,
+    rebuild_all: bool = False,
 ) -> int:
-    """Compile every selected module in tier and manifest order, skipping dependents of failures."""
+    """Compile every selected module in tier and manifest order, skipping dependents of failures. Incremental
+    by default: a module whose build key is unchanged since it last compiled is skipped; changing a module or
+    anything it depends on (at any depth) recompiles it. `rebuild_all` compiles everything; `skip_compiled`
+    also skips modules compiled before build keys were recorded."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     build_dir = Path(manifest["buildDir"])
+    keys = build_keys(manifest, build_dir)
     repo = cf.resolve_workspace_root()
     app_dir: Optional[Path] = None
     app_cpath = ""
@@ -314,7 +351,8 @@ def run_manifest(
         print(f"Publishing compiled binaries to: {app_dir} (container: {app_cpath})")
     failed: Set[Tuple[str, str]] = set()
     ensure_manifest_case_symlinks(manifest, build_dir / "stage", app_dir)
-    ordered_modules = sorted(manifest["modules"], key=lambda m: TYPE_TIER.get(m.get("artifactType", ""), 9))
+    # Wave by wave (no-dependency modules first); manifests written before waves existed fall back to type tier.
+    ordered_modules = sorted(manifest["modules"], key=lambda m: (m.get("wave", 0), TYPE_TIER.get(m.get("artifactType", ""), 9), m.get("order", 0)))
     selected = [
         m for m in ordered_modules
         if m["artifactType"] != "OLB"  # provider only: already in stage/
@@ -326,10 +364,19 @@ def run_manifest(
     compiled_count = 0
     skipped_count = 0
     for idx, module in enumerate(selected, 1):
-        prefix = f"[{idx}/{total} | #{module['order']}]"
-        if skip_compiled and _is_already_compiled(module, build_dir, not no_publish, app_dir):
+        prefix = f"[{idx}/{total} | wave {module['wave']} | #{module['order']}]" if "wave" in module else f"[{idx}/{total} | #{module['order']}]"
+        key = keys.get((module["artifactType"], module["name"].casefold()), "")
+        if not rebuild_all and _is_up_to_date(module, key, build_dir, not no_publish, app_dir):
+            print(f"{prefix} skip {module['name']} (up to date)")
+            skipped_count += 1
+            continue
+        record = module.get("compiled") or {}
+        if not rebuild_all and skip_compiled and not record.get("buildKey") and record.get("status") == "done" \
+                and _is_already_compiled({**module, "status": "compiled"}, build_dir, not no_publish, app_dir):
+            module.setdefault("compiled", {})["buildKey"] = key
             print(f"{prefix} skip {module['name']} (already compiled)")
             skipped_count += 1
+            _save_manifest(manifest_path, manifest)
             continue
         blocked = _blocked_by(module, failed, _index_casefold(build_dir / "stage"))
         if blocked:
@@ -343,7 +390,7 @@ def run_manifest(
         print(f"{prefix} compile {module['name']} ({MODULE_TYPE[module['artifactType']]})")
         ok, detail = compile_module(module, build_dir, userid, not no_publish, *([app_dir] if app_dir is not None else []))
         module["status"], module["diagnostics"] = ("compiled" if ok else "failed"), detail
-        module["compiled"] = {"status": "done" if ok else "failed", "diagnostics": detail}
+        module["compiled"] = {"status": "done" if ok else "failed", "diagnostics": detail, **({"buildKey": key} if ok else {})}
         if ok:
             compiled_count += 1
             if not no_publish and app_cpath:
@@ -366,7 +413,9 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--types", default=None, help="Comma-separated artifact types to compile (e.g. PLL or PLL,MMB)")
     parser.add_argument("--modules", default=None, help="Comma-separated module names or wildcards to compile (e.g. 'apple*,applj*,agt*')")
     parser.add_argument("--no-deps", action="store_true", help="Compile only modules with zero upstream dependencies")
-    parser.add_argument("--skip-compiled", action="store_true", help="Skip modules already marked compiled whose output exists")
+    parser.add_argument("--skip-compiled", action="store_true", help="Also skip modules compiled before build keys were recorded (status compiled and output present)")
+    parser.add_argument("--rebuild-all", action="store_true", help="Compile every selected module even when its inputs are unchanged")
+    parser.add_argument("--compile-from-env", action="store_true", help="Read the logon (user/password@db) from OFW_PREVIEW_DB_LOGON instead of prompting")
     parser.add_argument("-u", "--userid", help="user@db (password is prompted) or user/password@db")
     parser.add_argument("--offline", action="store_true", help="Compile with logon=no")
     parser.add_argument("--no-publish", action="store_true", help="Compile into stage/ instead of straight into <OFW_ORACLE_HOME>/forms_apps/<app_name>/")
@@ -398,6 +447,11 @@ def main() -> int:
         print(f"Error: {CONTAINER} is not running (state: {state or 'not found'}). Nothing was compiled and no login "
               "was attempted. Start the stack first: python3 start_testbed.py", file=sys.stderr)
         return 2
+    if args.compile_from_env:
+        args.userid = os.environ.pop("OFW_PREVIEW_DB_LOGON", "")
+        if not args.userid:
+            print("Error: --compile-from-env was given but OFW_PREVIEW_DB_LOGON is empty", file=sys.stderr)
+            return 1
     userid = resolve_userid(args.userid, args.offline, args.use_local_env)
     if userid and not args.skip_preflight:
         ok, out = preflight(userid)
@@ -407,7 +461,7 @@ def main() -> int:
             return 2
     return run_manifest(
         manifest_path, userid, args.no_publish, types_filter, args.no_deps, args.skip_compiled,
-        args.app_name, args.output_dir, _parse_modules(args.modules),
+        args.app_name, args.output_dir, _parse_modules(args.modules), args.rebuild_all,
     )
 
 

@@ -517,5 +517,113 @@ class ManifestCompile(unittest.TestCase):
                     ok2, _ = manifest_compiler.compile_module(mod, bdir, None, True, out_dir)
                 self.assertFalse(ok2)
 
+class ManifestRecursionAndWaves(unittest.TestCase):
+    """Recursive dependency discovery, undeclared library use, build waves and incremental build keys."""
+
+    PLD_UTIL = 'PACKAGE Toolbar IS\n  procedure Press;\nEND;\nPACKAGE BODY Toolbar IS\n  procedure Press IS BEGIN null; END;\nEND;\nPROCEDURE KeyOthers IS BEGIN null; END;\n'
+
+    def _src(self, directory, files):
+        root = Path(directory) / 'src'
+        root.mkdir()
+        for name, text in files.items():
+            (root / name).write_text(text)
+        return root
+
+    def test_library_called_but_not_attached_is_inferred_and_ordered_first(self):
+        form = '<FormModule Name="ORDERS"><Trigger Name="KEY-OTHERS" TriggerText="KeyOthers;&amp;#10;Toolbar.Press; -- Ghost.Call"/></FormModule>'
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL})
+            manifest = manifest_builder.build_manifest(src, Path(directory))
+        orders = next(m for m in manifest['modules'] if m['name'] == 'orders')
+        self.assertEqual(orders['dependencies']['attachedLibraries'], ['util'])
+        self.assertEqual(orders['inferredAttachedLibraries'], [{'library': 'util', 'uses': ['keyothers', 'toolbar']}])
+        self.assertEqual([m['name'] for m in manifest['modules']], ['util', 'orders'])
+
+    def test_declared_library_strings_and_own_units_are_not_inferred(self):
+        form = ('<FormModule Name="ORDERS"><AttachedLibrary Name="UTIL"/>'
+                '<ProgramUnit Name="KEYOTHERS" ProgramUnitText="procedure KeyOthers is begin message(\'Toolbar\'); end;"/></FormModule>')
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL, 'other.pld': 'PROCEDURE KeyOthers IS BEGIN null; END;\n'})
+            manifest = manifest_builder.build_manifest(src, Path(directory))
+        orders = next(m for m in manifest['modules'] if m['name'] == 'orders')
+        self.assertNotIn('inferredAttachedLibraries', orders)
+        self.assertEqual(manifest['ambiguousLibraryUnits'], [])
+
+    def test_inference_can_be_switched_off(self):
+        form = '<FormModule Name="ORDERS"><Trigger Name="T" TriggerText="Toolbar.Press;"/></FormModule>'
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL})
+            manifest = manifest_builder.build_manifest(src, Path(directory), infer=False)
+        self.assertEqual(next(m for m in manifest['modules'] if m['name'] == 'orders')['dependencies']['attachedLibraries'], [])
+
+    def test_target_keeps_only_its_recursive_dependencies(self):
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {
+                'logon_fmb.xml': '<FormModule Name="LOGON" MenuModule="MAINMENU"><AttachedLibrary Name="APPLIB"/></FormModule>',
+                'mainmenu_mmb.xml': '<MenuModule Name="MAINMENU"/>',
+                'applib.pld': '.attach LIBRARY baselib END NOCONFIRM\nPROCEDURE A IS BEGIN null; END;\n',
+                'baselib.pld': 'PROCEDURE B IS BEGIN null; END;\n',
+                'unrelated_fmb.xml': '<FormModule Name="UNRELATED"/>'})
+            manifest = manifest_builder.build_manifest(src, Path(directory), targets=['logon_fmb.xml'])
+            with self.assertRaisesRegex(RuntimeError, 'not in the source folder'):
+                manifest_builder.build_manifest(src, Path(directory), targets=['missing'])
+        self.assertEqual(sorted(m['name'] for m in manifest['modules']), ['applib', 'baselib', 'logon', 'mainmenu'])
+        waves = {m['name']: m['wave'] for m in manifest['modules']}
+        self.assertEqual(waves, {'baselib': 1, 'mainmenu': 1, 'applib': 2, 'logon': 3})
+
+    def test_inferred_attachment_is_written_to_the_staged_copy_only(self):
+        form = '<Module><FormModule Name="ORDERS">\n      <Alert Name="A1"/>\n      <Block Name="B"><Trigger Name="T" TriggerText="Toolbar.Press;"/></Block></FormModule></Module>'
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL})
+            build = Path(directory) / 'build'
+            build.mkdir()
+            manifest = manifest_builder.build_manifest(src, build, targets=['orders'])
+            with patch.object(manifest_builder.rt, 'ensure_dir', lambda p: p.mkdir(parents=True, exist_ok=True)):
+                manifest_builder.stage_sources(src, build, manifest)
+            staged = (build / 'stage' / 'orders_fmb.xml').read_text()
+            self.assertEqual((src / 'orders_fmb.xml').read_text(), form)
+        self.assertIn('<Alert Name="A1"/>\n      <AttachedLibrary Name="UTIL" LibraryLocation="util" LibrarySource="File"/>\n      <Block', staged)
+
+    def test_build_keys_change_when_a_dependency_changes(self):
+        with TemporaryDirectory() as directory:
+            build = Path(directory)
+            (build / 'stage').mkdir()
+            for name, text in {'base.pld': 'b1', 'app.pld': 'a1', 'form_fmb.xml': 'f1'}.items():
+                (build / 'stage' / name).write_text(text)
+            entry = lambda name, kind, staged, libs: {'name': name, 'artifactType': kind, 'stagedInputFile': f'stage/{staged}',
+                                                     'requiresConversion': True, 'dependencies': {'attachedLibraries': libs}}
+            manifest = {'modules': [entry('base', 'PLL', 'base.pld', []), entry('app', 'PLL', 'app.pld', ['BASE']),
+                                    entry('form', 'FMB', 'form_fmb.xml', ['APP'])]}
+            before = manifest_compiler.build_keys(manifest, build)
+            (build / 'stage' / 'base.pld').write_text('b2')
+            after = manifest_compiler.build_keys(manifest, build)
+        self.assertTrue(all(before[k] != after[k] for k in before))  # the change below reaches every consumer
+
+    def test_unchanged_module_with_matching_key_is_up_to_date(self):
+        with TemporaryDirectory() as directory:
+            app = Path(directory)
+            (app / 'form.fmx').write_bytes(b'x')
+            module = {'status': 'converted', 'executableFile': 'stage/form.fmx', 'compiled': {'status': 'done', 'buildKey': 'k1'}}
+            self.assertTrue(manifest_compiler._is_up_to_date(module, 'k1', app, True, app))  # Stage 2 re-run reset status
+            self.assertFalse(manifest_compiler._is_up_to_date(module, 'k2', app, True, app))
+            module['compiled']['status'] = 'failed'
+            self.assertFalse(manifest_compiler._is_up_to_date(module, 'k1', app, True, app))
+
+    def test_prefer_binaries_stages_the_original_binary_with_the_xml_dependency_list(self):
+        form = '<FormModule Name="ORDERS"><AttachedLibrary Name="UTIL"/><Trigger Name="T" TriggerText="Toolbar.Press;"/></FormModule>'
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL})
+            (src / 'orders.fmb').write_bytes(b'binary')
+            default = manifest_builder.build_manifest(src, Path(directory))
+            preferred = manifest_builder.build_manifest(src, Path(directory), prefer_binaries=True)
+        pick = lambda m: next(x for x in m['modules'] if x['name'] == 'orders')
+        self.assertTrue(pick(default)['sourceFile'].endswith('orders_fmb.xml'))
+        self.assertTrue(pick(default)['requiresConversion'])
+        self.assertTrue(pick(preferred)['sourceFile'].endswith('orders.fmb'))
+        self.assertFalse(pick(preferred)['requiresConversion'])
+        self.assertEqual(pick(preferred)['dependencies']['attachedLibraries'], ['UTIL'])
+        self.assertNotIn('inferredAttachedLibraries', pick(preferred))  # a binary keeps its own attachments
+
+
 if __name__ == '__main__':
     unittest.main()

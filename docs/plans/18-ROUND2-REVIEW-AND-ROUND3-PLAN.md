@@ -108,3 +108,27 @@ tests (status is tracked at the end of this file).
     **Files:** `crates/oracle-forms-server/src/runtime_sessions.rs`, UI file-transfer code, server/UI tests  
     **Acceptance tests:** synthetic upload and download are isolated by session, reject traversal and oversized payloads, and preserve bytes across `TEXT_IO` reads and writes.  
     **Size:** L
+
+## Round 3 status
+
+Verification result: every claim implemented below was first reproduced or confirmed by a test
+(A1 `CALL_FORM('x','BOGUS')` reported a missing list; A2 silent shared SESSION; A3 failed child left
+open; A5 unbounded `NEW_LINE`; A6 `OTHER.SAVE` accepted; B2/B3 no unsaved-change handling). Details
+in [16](16-RUNTIME-GAP-CLOSURE.md) section "Round 3". Commit hashes are on branch
+`feat/runtime-gap-closure`.
+
+| Task (round 3 list) | Plan item | Status | Commit |
+|---|---|---|---|
+| 1. Bound TEXT_IO / HOST, no HOST text in trace under Execute | D, list 1 | done | bd063a0 |
+| 2. Signature-aware navigation arguments | A1, list 2 | done | 27398eb |
+| 3. Explicit navigation startup and SESSION failures | A2, A3, list 3 | done | 6693279 |
+| 4. NEW_FORM / CLOSE_FORM unsaved changes | B2, B3, list 4-5 | done (savepoint semantics not modelled; Yes path checks completion, not a cross-session read-back) | 1ca80d0 |
+| 5. Menu runtime basics | A6, list 6 | partial: path validation done; UI mapping covers the standard default-menu names only, custom menus have no DOM, roles/submenus/`DO_REPLACE` replacement open, not exercised in a browser | c80ded9 |
+| 6. Record group selection built-ins | list 9 | done (14c details of `GET_GROUP_RECORD_NUMBER` unverified) | b63b02f, 5cd01ef |
+| 7. Virtual file transfer API | list 10 | partial: server API and tests done, no UI file list | a4a9a71 |
+| 8. Timer lifecycle across navigation | B4, B5, list 7 | pinned only (behaviour unverified against 14c, unchanged) | 16373c8 |
+
+Not attempted in round 3 (outside the task list): A4 `GET_LINE`/`PUTF` argument validation, A7
+`VISUAL_ATTRIBUTE` validation, B1 menu stack for `HIDE`/`DO_REPLACE`, B6 LOV filter/position, B7
+`RUN_PRODUCT` and repeated instances, list item 8 (browser-level tests), parser/loader cancellation
+and host allowlist tokenizer tests (D).

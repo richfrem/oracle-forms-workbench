@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_22_NAV_BADSTART" Title="Navigation conformance: child whose startup fails">
+    <Block Name="B">
+      <Item Name="INFO" ItemType="Text Item" DataType="Char"/>
+    </Block>
+    <Trigger Name="PRE-FORM" TriggerText="BEGIN :GLOBAL.BADSTART := 'ran'; RAISE FORM_TRIGGER_FAILURE; END;"/>
+  </FormModule>
+</Module>

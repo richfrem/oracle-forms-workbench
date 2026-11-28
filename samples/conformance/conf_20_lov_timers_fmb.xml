@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_20_LOV_TIMERS" Title="Runtime objects conformance: LOV, record groups, timers, parameter lists">
+    <Block Name="CUSTOMERS">
+      <Item Name="CUST_NAME" ItemType="Text Item" DataType="Char" LovName="LOV_CUST" ValidateFromList="true"/>
+      <Item Name="CITY" ItemType="Text Item" DataType="Char"/>
+      <Item Name="ITEM_NAME" ItemType="Text Item" DataType="Char" LovName="LOV_ITEMS"/>
+      <Item Name="PRICE" ItemType="Text Item" DataType="Number"/>
+      <Item Name="COLOR" ItemType="List Item" DataType="Char">
+        <ListItemElement Name="Red" Value="R"/>
+        <ListItemElement Name="Blue" Value="B"/>
+      </Item>
+      <Item Name="BTN_PICK" ItemType="Push Button" Label="Pick">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE ok BOOLEAN; BEGIN ok := SHOW_LOV('LOV_ITEMS'); IF ok THEN :GLOBAL.PICKED := 'YES'; ELSE :GLOBAL.PICKED := 'NO'; END IF; END;"/>
+      </Item>
+      <Item Name="BTN_TIMER" ItemType="Push Button" Label="Start timer">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN IF ID_NULL(FIND_TIMER('T_UI')) THEN CREATE_TIMER('T_UI', 30, NO_REPEAT); ELSE SET_TIMER('T_UI', 30, NO_REPEAT); END IF; END;"/>
+      </Item>
+    </Block>
+    <LOV Name="LOV_CUST" RecordGroupName="RG_STATIC" Title="Customers" AutoRefresh="false">
+      <LOVColumnMapping Name="NAME" ReturnItem="CUSTOMERS.CUST_NAME" Title="Customer"/>
+      <LOVColumnMapping Name="CITY" ReturnItem="CUSTOMERS.CITY" Title="City"/>
+    </LOV>
+    <LOV Name="LOV_ITEMS" RecordGroupName="RG_ITEMS" Title="Items">
+      <LOVColumnMapping Name="ITEM_NAME" ReturnItem="CUSTOMERS.ITEM_NAME"/>
+      <LOVColumnMapping Name="AMOUNT" ReturnItem="CUSTOMERS.PRICE"/>
+    </LOV>
+    <RecordGroup Name="RG_STATIC" RecordGroupType="Static">
+      <RecordGroupColumn Name="NAME" ColumnDataType="Character">
+        <RecordGroupColumnRow Index="1" Value="Acme Corp"/>
+        <RecordGroupColumnRow Index="2" Value="Apex Ltd"/>
+        <RecordGroupColumnRow Index="3" Value="Birch Co"/>
+      </RecordGroupColumn>
+      <RecordGroupColumn Name="CITY" ColumnDataType="Character">
+        <RecordGroupColumnRow Index="1" Value="Victoria"/>
+        <RecordGroupColumnRow Index="2" Value="Vancouver"/>
+        <RecordGroupColumnRow Index="3" Value="Kelowna"/>
+      </RecordGroupColumn>
+    </RecordGroup>
+    <RecordGroup Name="RG_ITEMS" RecordGroupType="Query" RecordGroupQuery="SELECT item_name, amount FROM test_items ORDER BY item_id">
+      <RecordGroupColumn Name="ITEM_NAME" ColumnDataType="Character"/>
+      <RecordGroupColumn Name="AMOUNT" ColumnDataType="Number"/>
+    </RecordGroup>
+    <Trigger Name="WHEN-TIMER-EXPIRED" TriggerText="BEGIN :GLOBAL.TIMER_LOG := :GLOBAL.TIMER_LOG || GET_APPLICATION_PROPERTY(TIMER_NAME) || ';'; END;"/>
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="BEGIN :GLOBAL.TIMER_LOG := ''; CREATE_TIMER('T_STARTUP', 1, NO_REPEAT); END;"/>
+  </FormModule>
+</Module>

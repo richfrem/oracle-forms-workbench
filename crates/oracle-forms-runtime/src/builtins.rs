@@ -10,7 +10,7 @@
 //!
 //! Purpose: Module implementation (builtins.rs).
 //! Key Input Dependencies: None (std/crate-internal only)
-//! Index: BuiltinResult, is_forms_constant, arg_text, dispatch
+//! Index: BuiltinResult, out_arg_start, is_forms_constant, arg_text, dispatch (parameter lists, record groups, timers and LOVs dispatch to param_lists, record_groups, timers, lov)
 
 use crate::interpreter::{InteractionRequest, InteractionResponse};
 use crate::session::FormSession;
@@ -36,10 +36,41 @@ pub const FORMS_CONSTANTS: &[&str] = &[
     "NO_VALIDATE", "DO_COMMIT", "NO_COMMIT", "FULL_ROLLBACK", "ASK_COMMIT", "NO_SCREEN",
     "PRIMARY_KEY", "LOCKING_MODE", "ITEM_IS_VALID", "STATUS", "RECORD_STATUS", "CURRENT_FORM",
     "USERNAME", "PASSWORD", "CONNECT_STRING", "OPERATING_SYSTEM", "USER_INTERFACE", "CALLING_FORM",
-    "NO_ACKNOWLEDGE", "ACKNOWLEDGE", "TEXT_PARAMETER", "DATA_PARAMETER", "ALERT_MESSAGE_TEXT",
+    "NO_ACKNOWLEDGE", "ACKNOWLEDGE", "QUERY_ONLY", "NO_QUERY_ONLY", "ACTIVATE", "NO_ACTIVATE", "SESSION",
+    "NEW_STATUS", "INSERT_STATUS", "QUERY_STATUS", "CHANGED_STATUS", "CHECKED", "ICON_NAME",
+    "NO_SESSION", "TO_SAVEPOINT", "NO_ROLLBACK", "FORM_NAME", "FIRST_BLOCK", "LAST_BLOCK", "CURRENT_BLOCK", "CHAR_COLUMN", "NUMBER_COLUMN", "DATE_COLUMN", "LONG_COLUMN",
+    "END_OF_GROUP", "ALL_ROWS", "NO_CHANGE", "REPEAT", "NO_REPEAT", "RESTRICT", "NO_RESTRICT", "TIMER_NAME", "GROUP_NAME",
+    "AUTO_REFRESH", "FILTER_BEFORE_DISPLAY", "TEXT_PARAMETER", "DATA_PARAMETER", "ALERT_MESSAGE_TEXT",
     "BUTTON1", "BUTTON2", "BUTTON3", "ALL_RECORDS", "FIRST_RECORD", "NEXT_RECORD", "LAST_RECORD",
     "HIDE", "NO_HIDE", "DO_REPLACE", "NO_REPLACE", "FORMS_BUILTIN", "PROPERTY_ON", "PROPERTY_OFF",
 ];
+
+/// `WEB.SHOW_DOCUMENT(url [, target])`: asks the browser to open a document. Only `http`,
+/// `https` and workbench-relative (`/...`) URLs are allowed.
+fn show_document(name: &str, args: &[OracleValue], session: &mut FormSession) -> Option<BuiltinResult> {
+    if name != "WEB.SHOW_DOCUMENT" {
+        return None;
+    }
+    let url = arg_text(args, 0).unwrap_or_default();
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://") || (lower.starts_with('/') && !lower.starts_with("//"))) {
+        return Some(BuiltinResult::Failure(format!("WEB.SHOW_DOCUMENT: '{url}' is not an http, https or workbench URL")));
+    }
+    let target = arg_text(args, 1).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "_blank".to_string());
+    session.actions.push(serde_json::json!({ "kind": "openUrl", "url": url.trim(), "target": target }));
+    Some(BuiltinResult::Void)
+}
+
+/// Built-ins whose trailing arguments are OUT parameters: the index of the first OUT
+/// argument. The interpreter evaluates only the IN arguments, runs the built-in, and then
+/// assigns `RuntimeObjects::pending_out` to the OUT argument targets.
+pub fn out_arg_start(name_upper: &str) -> Option<usize> {
+    match name_upper {
+        "GET_PARAMETER_ATTR" => Some(2),
+        "TEXT_IO.GET_LINE" => Some(1),
+        _ => None,
+    }
+}
 
 pub fn is_forms_constant(name: &str) -> bool {
     FORMS_CONSTANTS.iter().any(|c| c.eq_ignore_ascii_case(name))
@@ -55,27 +86,19 @@ pub enum BuiltinResult {
     Failure(String),
     /// Built-in exists in Forms but this runtime cannot run it.
     Unsupported(String),
+    /// The built-in raises a PL/SQL exception (for example `NO_DATA_FOUND` at end of file).
+    Raise { name: String, code: i64, message: String },
 }
 
 /// Built-ins that exist in Forms but are deliberately not provided by this runtime.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    ("HOST", "runs an operating-system command"),
     ("RUN_PRODUCT", "launches Oracle Reports/Graphics"),
     ("RUN_REPORT_OBJECT", "runs an Oracle Report"),
-    ("WEB.SHOW_DOCUMENT", "opens a browser window"),
-    ("CALL_FORM", "multi-form navigation is not supported yet"),
-    ("OPEN_FORM", "multi-form navigation is not supported yet"),
-    ("NEW_FORM", "multi-form navigation is not supported yet"),
-    ("SHOW_LOV", "LOV dialogs are not supported by the runtime yet"),
-    ("LIST_VALUES", "LOV dialogs are not supported by the runtime yet"),
-    ("CREATE_TIMER", "timers are not supported yet"),
-    ("DELETE_TIMER", "timers are not supported yet"),
     ("EXEC_SQL", "dynamic SQL via EXEC_SQL is not supported"),
     ("FORMS_DDL", "dynamic SQL via FORMS_DDL is not supported"),
 ];
 const UNSUPPORTED_PREFIXES: &[(&str, &str)] = &[
     ("OLE2.", "OLE automation"),
-    ("TEXT_IO.", "server file I/O"),
     ("CLIENT_TEXT_IO.", "client file I/O"),
     ("WEBUTIL", "WebUtil client integration"),
     ("CLIENT_", "WebUtil client integration"),
@@ -148,11 +171,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             BuiltinResult::Void
         }
         "COMMIT_FORM" => nav(session.commit()),
-        "POST" => BuiltinResult::Unsupported("POST (posting without commit is not supported yet)".into()),
-        "EXIT_FORM" => {
-            session.exit_requested = true;
-            BuiltinResult::Void
-        }
+        "POST" => nav(session.post()),
         "DO_KEY" => match arg_text(args, 0) {
             Some(key) => nav(session.do_key(&key)),
             None => BuiltinResult::Failure("DO_KEY requires a built-in name".into()),
@@ -191,7 +210,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             let button = match session.interaction_handler.as_mut() {
                 Some(handler) => match handler(&request) {
                     InteractionResponse::AlertButton(code) => code,
-                    InteractionResponse::Acknowledge => ALERT_BUTTON1 + def.default_button.saturating_sub(1) as i64,
+                    InteractionResponse::Acknowledge | InteractionResponse::LovSelection(_) => ALERT_BUTTON1 + def.default_button.saturating_sub(1) as i64,
                 },
                 None => {
                     // No user attached (batch run, tests): answer with the default button
@@ -278,28 +297,45 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
                 "CURRENT_FORM" | "CURRENT_FORM_NAME" => OracleValue::varchar2(session.module.key.name.clone()),
                 "OPERATING_SYSTEM" => OracleValue::varchar2(std::env::consts::OS.to_ascii_uppercase()),
                 "USER_INTERFACE" => OracleValue::varchar2("WEB"),
+                "CALLING_FORM" => session.calling_form.clone().map(OracleValue::varchar2).unwrap_or(OracleValue::Null),
+                "TIMER_NAME" => session.objects.expired_timer.clone().map(OracleValue::varchar2).unwrap_or(OracleValue::Null),
                 _ => OracleValue::Null,
             })
         }
         // Visual-only properties: accepted so form logic continues; recorded in the trace.
         "SET_WINDOW_PROPERTY" | "SET_CANVAS_PROPERTY" | "SET_VIEW_PROPERTY" | "SET_TAB_PAGE_PROPERTY"
-        | "SET_RADIO_BUTTON_PROPERTY" | "SET_LOV_PROPERTY" | "SET_FORM_PROPERTY" | "SHOW_VIEW" | "HIDE_VIEW"
+        | "SET_RADIO_BUTTON_PROPERTY" | "SET_FORM_PROPERTY" | "SHOW_VIEW" | "HIDE_VIEW"
         | "SHOW_WINDOW" | "HIDE_WINDOW" | "SET_APPLICATION_PROPERTY" => {
             session.trace_log.push(format!("UI_PROPERTY_NOT_RENDERED: {}", name_upper));
             BuiltinResult::Void
         }
-        "GET_WINDOW_PROPERTY" | "GET_CANVAS_PROPERTY" | "GET_VIEW_PROPERTY" | "GET_FORM_PROPERTY" => {
+        "GET_WINDOW_PROPERTY" | "GET_CANVAS_PROPERTY" | "GET_VIEW_PROPERTY" => {
             BuiltinResult::Value(OracleValue::Null)
         }
 
         // Object lookup: ids are represented by the object name.
-        "FIND_ITEM" | "FIND_BLOCK" | "FIND_ALERT" | "FIND_WINDOW" | "FIND_CANVAS" | "FIND_VIEW" | "FIND_LOV"
-        | "FIND_FORM" | "FIND_RECORD_GROUP" | "FIND_TAB_PAGE" | "FIND_RELATION" | "FIND_TIMER" => {
+        "FIND_ITEM" | "FIND_BLOCK" | "FIND_ALERT" | "FIND_WINDOW" | "FIND_CANVAS" | "FIND_VIEW"
+        | "FIND_TAB_PAGE" | "FIND_RELATION" => {
             BuiltinResult::Value(args.first().cloned().unwrap_or(OracleValue::Null))
         }
         "ID_NULL" => BuiltinResult::Value(OracleValue::boolean(args.first().map(|v| v.is_null()).unwrap_or(true))),
 
-        _ => return None,
+        _ => {
+            let name = name_upper.as_str();
+            match crate::param_lists::dispatch(name, args, session)
+                .or_else(|| crate::record_groups::dispatch(name, args, session))
+                .or_else(|| crate::timers::dispatch(name, args, session))
+                .or_else(|| crate::lov::dispatch(name, args, session))
+                .or_else(|| crate::nav::dispatch(name, args, session))
+                .or_else(|| crate::textio::dispatch(name, args, session))
+                .or_else(|| crate::host::dispatch(name, args, session))
+                .or_else(|| crate::ui_builtins::dispatch(name, args, session))
+                .or_else(|| show_document(name, args, session))
+            {
+                Some(r) => r,
+                None => return None,
+            }
+        }
     };
 
     if let BuiltinResult::Failure(msg) = &result {

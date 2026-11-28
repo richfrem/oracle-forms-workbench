@@ -140,10 +140,25 @@ impl FormsXmlWriter {
             let mut rg_attrs = vec![format!("Name=\"{}\"", escape_attr(&rg.name))];
             if let Some(q) = &rg.query_text {
                 rg_attrs.push(format!("RecordGroupType=\"Query\" RecordGroupQuery=\"{}\"", escape_attr(q)));
+            } else if rg.group_type.as_deref().map(|t| t.eq_ignore_ascii_case("Static") || t == "1").unwrap_or(false) {
+                rg_attrs.push("RecordGroupType=\"Static\"".to_string());
             }
             let _ = writeln!(out, "    <RecordGroup {}>", rg_attrs.join(" "));
             for col in &rg.columns {
-                let _ = writeln!(out, "      <RecordGroupColumn Name=\"{}\" ColumnDataType=\"Character\"/>", escape_attr(col));
+                let spec = rg.column_specs.iter().find(|c| c.name.eq_ignore_ascii_case(col));
+                let dt = spec.and_then(|c| c.data_type.as_deref()).unwrap_or("Character");
+                match spec.filter(|c| !c.rows.is_empty()) {
+                    Some(c) => {
+                        let _ = writeln!(out, "      <RecordGroupColumn Name=\"{}\" ColumnDataType=\"{}\">", escape_attr(col), escape_attr(dt));
+                        for (i, v) in c.rows.iter().enumerate() {
+                            let _ = writeln!(out, "        <RecordGroupColumnRow Index=\"{}\" Value=\"{}\"/>", i + 1, escape_attr(v));
+                        }
+                        out.push_str("      </RecordGroupColumn>\n");
+                    }
+                    None => {
+                        let _ = writeln!(out, "      <RecordGroupColumn Name=\"{}\" ColumnDataType=\"{}\"/>", escape_attr(col), escape_attr(dt));
+                    }
+                }
             }
             out.push_str("    </RecordGroup>\n");
         }
@@ -153,9 +168,29 @@ impl FormsXmlWriter {
             if let Some(rg) = &lov.record_group_name {
                 l_attrs.push(format!("RecordGroupName=\"{}\"", escape_attr(rg)));
             }
+            if let Some(t) = &lov.title {
+                l_attrs.push(format!("Title=\"{}\"", escape_attr(t)));
+            }
+            if let Some(b) = lov.filter_before_display {
+                l_attrs.push(format!("FilterBeforeDisplay=\"{}\"", b));
+            }
+            if let Some(b) = lov.auto_refresh {
+                l_attrs.push(format!("AutoRefresh=\"{}\"", b));
+            }
             let _ = writeln!(out, "    <LOV {}>", l_attrs.join(" "));
             for col_map in &lov.column_mappings {
-                let _ = writeln!(out, "      <LOVColumnMapping Name=\"{}\"/>", escape_attr(col_map));
+                let detail = lov.mappings.iter().find(|m| m.name.eq_ignore_ascii_case(col_map));
+                let mut m_attrs = vec![format!("Name=\"{}\"", escape_attr(col_map))];
+                if let Some(ri) = detail.and_then(|m| m.return_item.as_deref()) {
+                    m_attrs.push(format!("ReturnItem=\"{}\"", escape_attr(ri)));
+                }
+                if let Some(t) = detail.and_then(|m| m.title.as_deref()) {
+                    m_attrs.push(format!("Title=\"{}\"", escape_attr(t)));
+                }
+                if let Some(w) = detail.and_then(|m| m.display_width) {
+                    m_attrs.push(format!("DisplayWidth=\"{}\"", w));
+                }
+                let _ = writeln!(out, "      <LOVColumnMapping {}/>", m_attrs.join(" "));
             }
             out.push_str("    </LOV>\n");
         }
@@ -461,6 +496,9 @@ impl FormsXmlWriter {
         }
         if let Some(lov) = &item.lov_name {
             i_attrs.push(format!("LovName=\"{}\"", escape_attr(lov)));
+            if let Some(v) = item.validate_from_list {
+                i_attrs.push(format!("ValidateFromList=\"{}\"", v));
+            }
         }
         if let Some(pc) = &item.property_class {
             i_attrs.push(format!("ParentModule=\"{}\"", escape_attr(&module.key.name)));

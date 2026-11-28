@@ -61,6 +61,13 @@ DEP_KEYS = ("objectLibraries", "attachedLibraries", "menus", "parentModules")
 DEP_TYPE = {"objectLibraries": "OLB", "attachedLibraries": "PLL", "menus": "MMB", "parentModules": "FMB"}
 BUILTIN_MENUS = {"DEFAULT", "DEFAULT&SMARTBAR"}  # Forms built-in menus, not files
 PLD_ATTACH = re.compile(r"^\s*\.?attach\s+library\s+['\"]?([A-Za-z0-9_$#]+)", re.IGNORECASE | re.MULTILINE)
+# Top-level program units of a .pld text export start in column 1 (members inside a package are indented).
+PLD_DEFINES = re.compile(r"^(?:PACKAGE(?:\s+BODY)?|PROCEDURE|FUNCTION)\s+([A-Za-z][A-Za-z0-9_$#]*)", re.IGNORECASE | re.MULTILINE)
+# Attributes that carry PL/SQL in a Forms XML export (TriggerText, ProgramUnitText, StartupCode, MenuItemCode, ...).
+PLSQL_ATTR = re.compile(r"(Text|Code)$")
+PLSQL_NOISE = re.compile(r"'(?:[^']|'')*'|--[^\n]*|/\*.*?\*/", re.DOTALL)
+# An identifier not preceded by a dot (package members such as Foo.Bar count once, as Foo).
+PLSQL_IDENT = re.compile(r"(?<![A-Za-z0-9_$#.])([A-Za-z][A-Za-z0-9_$#]*)")
 
 
 def require_external(path: Path) -> Path:
@@ -128,7 +135,89 @@ def scan_xml(path: Path) -> Optional[Dict]:
     own = {_module_stem(path.name).casefold(), inner.casefold()}
     for key in DEP_KEYS:
         deps[key] = [n for n in deps[key] if n.casefold() not in own]
-    return {"type": kind, "name": _module_stem(path.name), "moduleName": inner, "source": path, "deps": deps, "convert": True}
+    return {"type": kind, "name": _module_stem(path.name), "moduleName": inner, "source": path, "deps": deps, "convert": True,
+            "identifiers": _plsql_identifiers(root), "ownUnits": _own_units(root)}
+
+
+def _plsql_identifiers(root: ET.Element) -> set:
+    """Casefolded identifiers used in the module's PL/SQL (strings and comments removed). Some 12c exports
+    double-encode line breaks, so a literal `&#10;` is read as a line break first."""
+    found: set = set()
+    for element in root.iter():
+        for attr, value in element.attrib.items():
+            if value and PLSQL_ATTR.search(attr):
+                code = PLSQL_NOISE.sub(" ", value.replace("&#10;", "\n").replace("&#13;", ""))
+                found.update(m.casefold() for m in PLSQL_IDENT.findall(code))
+    return found
+
+
+def _own_units(root: ET.Element) -> set:
+    """Program units the module defines itself; they shadow library units of the same name."""
+    return {e.get("Name", "").casefold() for e in root.iter() if _local(e.tag) == "ProgramUnit" and e.get("Name")}
+
+
+def scan_pld_defines(path: Path) -> List[str]:
+    """Top-level packages, procedures and functions a .pld text export defines."""
+    return sorted({m for m in PLD_DEFINES.findall(path.read_text(encoding="utf-8", errors="ignore"))}, key=str.casefold)
+
+
+def infer_library_attachments(nodes: List[Dict]) -> List[Dict]:
+    """Add the libraries an XML module calls but does not attach (12c exports can omit <AttachedLibrary>).
+
+    A library counts as used when the module's PL/SQL names one of the library's top-level units and the
+    module does not define a unit of that name itself. Each inferred library is added to the module's
+    attachedLibraries (so ordering, closure and symlinks include it) and listed in node["inferred"] with the
+    names that matched. Names defined by more than one library are not inferred; they are returned as notes."""
+    owners: Dict[str, List[str]] = {}
+    for node in nodes:
+        for unit in {u.casefold() for u in node.get("defines", [])}:  # a package and its body count once
+            owners.setdefault(unit, []).append(node["name"])
+    notes: List[Dict] = []
+    for node in nodes:
+        used = node.get("identifiers")
+        if not used or node["type"] not in ("FMB", "MMB"):  # object libraries are not compiled; their consumers attach
+            continue
+        attached = {n.casefold() for n in node["deps"]["attachedLibraries"]}
+        found: Dict[str, List[str]] = {}
+        for ident in sorted(used - node.get("ownUnits", set())):
+            libs = owners.get(ident, [])
+            if len(libs) > 1:
+                notes.append({"module": node["name"], "identifier": ident, "definedBy": sorted(libs)})
+            elif libs and libs[0].casefold() not in attached and not (node["type"] == "PLL" and libs[0].casefold() == node["name"].casefold()):
+                found.setdefault(libs[0], []).append(ident)
+        for lib, idents in sorted(found.items()):
+            node["deps"]["attachedLibraries"].append(lib)
+            node.setdefault("inferred", []).append({"library": lib, "uses": idents[:10]})
+    return notes
+
+
+def dependency_closure(nodes: List[Dict], targets: List[str]) -> List[Dict]:
+    """The target modules plus every module they depend on, followed recursively (a target is a module name,
+    optionally with its extension or _fmb.xml suffix; a form is preferred when several types share the name)."""
+    index: Dict[Tuple[str, str], Dict] = {}
+    for n in nodes:
+        index[(n["type"], n["name"].casefold())] = n
+        if n.get("moduleName"):
+            index.setdefault((n["type"], n["moduleName"].casefold()), n)
+    pending: List[Dict] = []
+    for target in targets:
+        stem = _module_stem(Path(target).name).casefold()
+        match = next((index[(kind, stem)] for kind in ("FMB", "MMB", "PLL", "OLB") if (kind, stem) in index), None)
+        if match is None:
+            raise RuntimeError(f"Target {target} is not in the source folder.")
+        pending.append(match)
+    keep: Dict[int, Dict] = {}
+    while pending:
+        node = pending.pop()
+        if id(node) in keep:
+            continue
+        keep[id(node)] = node
+        for key in DEP_KEYS:
+            for name in node["deps"][key]:
+                provider = _find_provider(index, key, name)
+                if provider is not None and id(provider) not in keep:
+                    pending.append(provider)
+    return [n for n in nodes if id(n) in keep]
 
 
 def scan_pld(path: Path) -> List[str]:
@@ -146,15 +235,24 @@ def _binary_node(path: Path, source_dir: Path) -> Dict:
     return {"type": BINARY_EXT[path.suffix.lower()], "name": path.stem, "source": path, "deps": deps, "convert": False}
 
 
-def scan_source(source_dir: Path) -> List[Dict]:
+def scan_source(source_dir: Path, prefer_binaries: bool = False) -> List[Dict]:
     """Nodes for every module in the source folder. XML wins over a binary of the same name; .pld is the
-    authoritative source for a PLL when present, falling back to a raw .pll binary if no .pld exists."""
+    authoritative source for a PLL when present, falling back to a raw .pll binary if no .pld exists.
+
+    With `prefer_binaries`, an original .fmb/.mmb/.olb wins over its XML export: the binary is staged and
+    compiled as is (no XML2Forms round-trip, which loses named colours and inherited content). Its dependencies
+    still come from the XML export of the same module when there is one (exact), else from the name heuristic."""
     nodes: Dict[Tuple[str, str], Dict] = {}
     files = sorted((p for p in source_dir.iterdir() if p.is_file()), key=lambda p: (p.name.casefold(), p.name))
+    binaries = {(BINARY_EXT[p.suffix.lower()], p.stem.casefold()): p for p in files
+                if p.suffix.lower() in (".fmb", ".mmb", ".olb")} if prefer_binaries else {}
     for path in files:
         if path.suffix.lower() == ".xml":
             node = scan_xml(path)
             if node:
+                binary = binaries.get((node["type"], node["name"].casefold()))
+                if binary is not None:  # stage the original binary, keep the XML's exact dependency list
+                    node = {**node, "source": binary, "convert": False, "xmlExport": path}
                 nodes[(node["type"], node["name"].casefold())] = node
     for path in files:
         if path.suffix.lower() == ".pld":
@@ -167,6 +265,7 @@ def scan_source(source_dir: Path) -> List[Dict]:
                 "source": path,
                 "deps": deps,
                 "convert": True,
+                "defines": scan_pld_defines(path),
             }
     for path in files:
         kind = BINARY_EXT.get(path.suffix.lower())
@@ -325,6 +424,7 @@ def _module_entry(order: int, node: Dict) -> Dict:
         "stagedInputFile": f"stage/{source.name}", "binaryFile": f"stage/{name}{binary_ext}",
         "executableFile": f"stage/{name}{exe_ext}" if exe_ext else None,
         "requiresConversion": is_convert, "dependencies": node["deps"], "status": "pending",
+        **({"inferredAttachedLibraries": node["inferred"]} if node.get("inferred") else {}),
     }
 
 
@@ -414,14 +514,40 @@ def compute_required_symlinks(modules: List[Dict]) -> List[Dict]:
     ]
 
 
-def build_manifest(source_dir: Path, build_dir: Path) -> Dict:
-    """Stage 1: scan, resolve and order; return the manifest dictionary."""
-    ordered, unresolved, cycles = resolve_and_order(scan_source(source_dir))
+def assign_waves(modules: List[Dict]) -> None:
+    """Wave 1 holds modules with no dependency in the manifest; wave N holds modules whose dependencies are all
+    in earlier waves (1 + the deepest provider). Modules in one wave do not depend on each other."""
+    index: Dict[Tuple[str, str], Dict] = {(m["artifactType"], m["name"].casefold()): m for m in modules}
+    for module in modules:  # manifest order puts every provider before its consumers
+        waves = [0]
+        for key in DEP_KEYS:
+            kinds = ("FMB", "OLB") if key == "parentModules" else (DEP_TYPE[key],)
+            for name in module["dependencies"][key]:
+                provider = next((index[(k, name.casefold())] for k in kinds if (k, name.casefold()) in index), None)
+                if provider is not None and provider is not module:
+                    waves.append(provider.get("wave", 1))
+        module["wave"] = max(waves) + 1
+
+
+def build_manifest(source_dir: Path, build_dir: Path, targets: Optional[List[str]] = None, infer: bool = True,
+                   prefer_binaries: bool = False) -> Dict:
+    """Stage 1: scan, infer undeclared library attachments, keep only the targets' recursive dependency
+    closure (when targets are given), resolve and order; return the manifest dictionary."""
+    nodes = scan_source(source_dir, prefer_binaries)
+    notes = infer_library_attachments([n for n in nodes if n.get("convert", True)]) if infer else []
+    if targets:
+        nodes = dependency_closure(nodes, targets)
+        names = {n["name"] for n in nodes}
+        notes = [n for n in notes if n["module"] in names]
+    ordered, unresolved, cycles = resolve_and_order(nodes)
     modules = [_module_entry(i, n) for i, n in enumerate(ordered, 1)]
+    assign_waves(modules)
     _carry_over_stage_records(modules, build_dir)
     return {
         "schemaVersion": 1, "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "sourceDir": str(source_dir), "buildDir": str(build_dir),
+        **({"targets": list(targets)} if targets else {}),
+        "ambiguousLibraryUnits": notes,
         "modules": modules,
         "unresolvedDependencies": unresolved,
         "requiredSymlinks": compute_required_symlinks(modules),
@@ -439,14 +565,51 @@ def write_manifest(manifest: Dict) -> Path:
     return target
 
 
-def stage_sources(source_dir: Path, build_dir: Path) -> Path:
-    """Copy source files into <build-dir>/stage/ (the source folder is never modified)."""
+def stage_sources(source_dir: Path, build_dir: Path, manifest: Optional[Dict] = None) -> Path:
+    """Copy source files into <build-dir>/stage/ (the source folder is never modified). With a targeted
+    manifest only the modules in it are copied. Inferred library attachments are then written into the
+    staged XML copies."""
     stage = build_dir / "stage"
     rt.ensure_dir(stage)
+    wanted = {Path(m["sourceFile"]).name for m in manifest["modules"]} if manifest and manifest.get("targets") else None
     for path in sorted(source_dir.iterdir()):
-        if path.is_file() and path.suffix.lower() in STAGE_EXT:
+        if path.is_file() and path.suffix.lower() in STAGE_EXT and (wanted is None or path.name in wanted):
             shutil.copy2(path, stage / path.name)
+    if manifest:
+        add_inferred_attachments(manifest, stage)
     return stage
+
+
+ATTACH_ANCHOR = re.compile(r"<(FormModule|MenuModule|ObjectLibrary)\b[^>]*?(/?)>")
+
+
+def add_inferred_attachments(manifest: Dict, stage: Path) -> List[str]:
+    """Insert <AttachedLibrary> tags for each module's inferred libraries into its staged XML copy, after any
+    leading Coordinate/Alert elements (the position a Forms2XML export uses). Returns the changed file names."""
+    changed: List[str] = []
+    for module in manifest["modules"]:
+        libs = [item["library"] for item in module.get("inferredAttachedLibraries", [])]
+        staged = stage / Path(module["stagedInputFile"]).name
+        if not libs or staged.suffix.lower() != ".xml" or not staged.is_file():
+            continue
+        text = staged.read_text(encoding="utf-8")
+        anchor = ATTACH_ANCHOR.search(text)
+        if anchor is None or anchor.group(2):
+            continue
+        pos = anchor.end()
+        while True:
+            child = re.match(r"\s*<(Coordinate|Alert)\b", text[pos:])
+            if not child:
+                break
+            start = pos + child.start(1) - 1
+            closed = re.match(r"<%s\b[^>]*/>" % child.group(1), text[start:])
+            pos = start + closed.end() if closed else text.index("</%s>" % child.group(1), start) + len(child.group(1)) + 3
+        tags = "".join(f'\n      <AttachedLibrary Name="{lib.upper()}" LibraryLocation="{lib.lower()}" LibrarySource="File"/>'
+                       for lib in libs if not re.search(r'<AttachedLibrary\b[^>]*Name="%s"' % re.escape(lib), text, re.IGNORECASE))
+        if tags:
+            staged.write_text(text[:pos] + tags + text[pos:], encoding="utf-8")
+            changed.append(staged.name)
+    return changed
 
 
 def _normalize_xml(xml_path: Path) -> Path:
@@ -615,6 +778,12 @@ def parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--validate-xml", action="store_true", help="After the decompile step, validate each module's XML against the 14c schema and record `validated` in the manifest")
     parser.add_argument("--convert-only", action="store_true", help="Stage 2 only: convert the modules in the existing <build-dir>/build-manifest.json (no Stage 1 re-run, no re-staging)")
     parser.add_argument("--normalize", action="store_true", help="Apply the Oracle-compatibility XML normalization before XML2Forms")
+    parser.add_argument("--target", action="append", default=[], metavar="MODULE",
+                        help="Keep only this module and its recursive dependencies (repeatable; default: every module in the folder)")
+    parser.add_argument("--prefer-binaries", action="store_true",
+                        help="Use an original .fmb/.mmb/.olb instead of its XML export when both are present (keeps named colours and inherited content)")
+    parser.add_argument("--no-infer-libraries", action="store_true",
+                        help="Do not add libraries that a module calls but does not attach (12c exports can omit <AttachedLibrary>)")
     return parser.parse_args(argv)
 
 
@@ -637,12 +806,21 @@ def main() -> int:
             raise RuntimeError(f"Source folder not found: {source_dir}")
         build_dir = require_external(Path(args.build_dir) if args.build_dir else rt.work_dir() / "build")
         rt.ensure_dir(build_dir)
-        manifest = build_manifest(source_dir.resolve(), build_dir)
+        manifest = build_manifest(source_dir.resolve(), build_dir, args.target, not args.no_infer_libraries, args.prefer_binaries)
     except RuntimeError as err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
     path = write_manifest(manifest)
     print(f"Manifest: {path} ({len(manifest['modules'])} modules, {len(manifest.get('requiredSymlinks', []))} case symlinks)")
+    for wave in sorted({m["wave"] for m in manifest["modules"]}):
+        members = [f"{m['name']} ({m['artifactType']})" for m in manifest["modules"] if m["wave"] == wave]
+        print(f"  Wave {wave}: {', '.join(members)}")
+    for module in manifest["modules"]:
+        for item in module.get("inferredAttachedLibraries", []):
+            print(f"  INFERRED: {module['name']} ({module['artifactType']}) calls {item['library']} without attaching it"
+                  f" (uses {', '.join(item['uses'][:5])}); the staged copy gets <AttachedLibrary Name=\"{item['library'].upper()}\">")
+    for note in manifest.get("ambiguousLibraryUnits", []):
+        print(f"  AMBIGUOUS: {note['module']} uses {note['identifier']}, defined by {', '.join(note['definedBy'])}; attach one by hand", file=sys.stderr)
     for item in manifest["unresolvedDependencies"]:
         print(f"  UNRESOLVED: {item['module']} needs {item['dependency']} ({item['kind']}) {item.get('reason', '')}".rstrip()
               + (f" - similar present: {', '.join(item['suggestions'])}" if item.get("suggestions") else ""), file=sys.stderr)
@@ -657,7 +835,7 @@ def main() -> int:
     if args.analyze_only:
         return 0
     try:
-        stage_sources(source_dir.resolve(), build_dir)
+        stage_sources(source_dir.resolve(), build_dir, manifest)
         return convert_manifest(manifest, args.normalize)
     except RuntimeError as err:
         print(f"Error: {err}", file=sys.stderr)

@@ -1917,6 +1917,50 @@ input[type="range"] {
   white-space: pre-wrap;
 }
 
+.runtime-form-tabs {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.runtime-form-tab {
+  border: 1px solid var(--border, #c8ccd0);
+  background: var(--panel-bg, #f4f5f7);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px 3px 0 0;
+}
+.runtime-form-tab.active {
+  background: var(--accent-soft, #cfe3ff);
+  font-weight: 600;
+}
+.runtime-form-tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.runtime-lov-scroll {
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 8px;
+  border: 1px solid var(--border, #c8ccd0);
+}
+.runtime-lov-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.runtime-lov-table th,
+.runtime-lov-table td {
+  padding: 4px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.runtime-lov-table tbody tr {
+  cursor: pointer;
+}
+.runtime-lov-table tbody tr.selected {
+  background: var(--accent-soft, #cfe3ff);
+}
+
 .runtime-alert-buttons {
   display: flex;
   gap: 8px;
@@ -2920,3 +2964,8 @@ input[type="range"] {
 .oracle-compile-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .oracle-compile-fields[hidden], .oracle-preview-steps[hidden], #oracleCompileHelp[hidden], #oracleCompileNotes[hidden], #oraclePrecompiledNote[hidden], #convertArtifactXmlBtn[hidden] { display: none; }
 @media(max-width: 560px) { .oracle-compile-fields { grid-template-columns: 1fr; } }
+
+/* Menu items disabled / checked by SET_MENU_ITEM_PROPERTY in a running form */
+.dropdown-item.menu-disabled { opacity: 0.45; pointer-events: auto; cursor: not-allowed; }
+.dropdown-item.menu-checked > span::before { content: "\2713  "; }
+.dropdown-item[hidden] { display: none !important; }

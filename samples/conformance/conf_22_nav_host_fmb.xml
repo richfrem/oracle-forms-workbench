@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_22_NAV_HOST" Title="Navigation conformance round 3: clean host form">
+    <Block Name="MAIN">
+      <Item Name="RESULT" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_CALL_BAD" ItemType="Push Button" Label="BTN_CALL_BAD">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CALL_FORM(&#x27;conf_22_nav_badstart&#x27;); IF FORM_FAILURE THEN :MAIN.RESULT := &#x27;call failed&#x27;; ELSE :MAIN.RESULT := &#x27;call ok&#x27;; END IF; END;"/>
+      </Item>
+      <Item Name="BTN_OPEN_BAD" ItemType="Push Button" Label="BTN_OPEN_BAD">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN OPEN_FORM(&#x27;conf_22_nav_badstart&#x27;); :MAIN.RESULT := &#x27;queued&#x27;; END;"/>
+      </Item>
+      <Item Name="BTN_NEW_BAD" ItemType="Push Button" Label="BTN_NEW_BAD">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN :MAIN.RESULT := &#x27;before-new&#x27;; NEW_FORM(&#x27;conf_22_nav_badstart&#x27;); END;"/>
+      </Item>
+      <Item Name="BTN_OPEN_SESSION" ItemType="Push Button" Label="BTN_OPEN_SESSION">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN OPEN_FORM(&#x27;conf_21_nav_peer&#x27;, ACTIVATE, SESSION); END;"/>
+      </Item>
+      <Item Name="BTN_OPEN_DIRTY" ItemType="Push Button" Label="BTN_OPEN_DIRTY">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN OPEN_FORM(&#x27;conf_22_nav_dirty&#x27;, NO_ACTIVATE); END;"/>
+      </Item>
+      <Item Name="BTN_CLOSE_DIRTY" ItemType="Push Button" Label="BTN_CLOSE_DIRTY">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CLOSE_FORM(&#x27;conf_22_nav_dirty&#x27;); END;"/>
+      </Item>
+    </Block>
+  </FormModule>
+</Module>

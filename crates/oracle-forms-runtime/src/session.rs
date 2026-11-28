@@ -40,8 +40,18 @@ pub enum RuntimeError {
     #[error("Record lock or concurrency conflict: {0}")]
     RecordLockedOrChanged(String),
 
-    #[error("Step budget exceeded")]
-    StepBudgetExceeded,
+    /// The step budget ran out (runaway loop or runaway recursion). The text names the
+    /// trigger, the program-unit call chain and the statement kind that was running.
+    #[error("Execution budget exceeded: {0}")]
+    StepBudgetExceeded(String),
+
+    /// The wall-clock limit for the trigger or command ran out.
+    #[error("Execution time limit exceeded: {0}")]
+    TimeBudgetExceeded(String),
+
+    /// The host (server) cancelled the running command, e.g. after a request timeout.
+    #[error("Execution cancelled: {0}")]
+    Cancelled(String),
 
     #[error("Recursion limit exceeded")]
     RecursionLimitExceeded,
@@ -63,7 +73,7 @@ pub type ValidationHook =
 
 /// Answers `SHOW_ALERT` (and future interactive requests) synchronously. The server runs
 /// each session on its own thread, so a handler may block until the browser responds.
-pub type InteractionHandler = Box<dyn FnMut(&InteractionRequest) -> InteractionResponse + Send>;
+pub type InteractionHandler = Box<dyn FnMut(&InteractionRequest) -> InteractionResponse>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlertDefinition {
@@ -145,6 +155,27 @@ pub struct FormSession {
     /// the outermost trigger finishes (Forms fires them only when input focus settles).
     focus_dirty: bool,
     settling: bool,
+    /// A `POST` wrote rows that no database `COMMIT` has made permanent yet.
+    pub posted_uncommitted: bool,
+    /// Set by the host to abort whatever PL/SQL is running (checked every few steps).
+    pub objects: crate::objects::RuntimeObjects,
+    /// What `HOST` may do (default: refuse).
+    pub host_policy: crate::host::HostPolicy,
+    /// Effects for the browser (open a URL, ...) not yet delivered.
+    pub actions: Vec<serde_json::Value>,
+    /// Id of this form within its application (host assigned).
+    pub form_id: u32,
+    /// Form that called this one with `CALL_FORM`.
+    pub calling_form: Option<String>,
+    /// Names of the forms currently open in the application (host maintained).
+    pub open_forms: Vec<String>,
+    /// Navigation to apply after the running trigger finishes.
+    pub nav_queue: Vec<crate::nav::NavRequest>,
+    /// Host callback that runs a called form to completion.
+    pub nav_handler: Option<crate::nav::NavHandler>,
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// Wall-clock limit for the command currently being processed (set by the host).
+    pub command_deadline: Option<std::time::Instant>,
 }
 
 /// Where input focus is: (block, buffer generation, record index, item).
@@ -188,6 +219,7 @@ impl FormSession {
         }
 
         let programs = Arc::new(ProgramRegistry::from_module(&module));
+        let objects = crate::objects::RuntimeObjects::from_module(&module);
 
         Self {
             module,
@@ -217,6 +249,17 @@ impl FormSession {
             trigger_depth: 0,
             focus_dirty: false,
             settling: false,
+            posted_uncommitted: false,
+            objects,
+            host_policy: crate::host::HostPolicy::Deny,
+            actions: Vec::new(),
+            form_id: 1,
+            calling_form: None,
+            open_forms: Vec::new(),
+            nav_queue: Vec::new(),
+            nav_handler: None,
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            command_deadline: None,
         }
     }
 
@@ -248,7 +291,7 @@ impl FormSession {
         })
     }
 
-    fn block_info(&self, name: &str) -> Option<&BlockInfo> {
+    pub(crate) fn block_info(&self, name: &str) -> Option<&BlockInfo> {
         self.module.blocks.iter().find(|b| b.name.eq_ignore_ascii_case(name))
     }
 
@@ -268,6 +311,9 @@ impl FormSession {
         let clean = bind.trim().trim_start_matches(':').to_ascii_uppercase();
 
         if let Some(var_name) = clean.strip_prefix("SYSTEM.") {
+            if var_name == "CURRENT_FORM" {
+                return OracleValue::varchar2(self.module.key.name.clone());
+            }
             return self.system.get_var(var_name).map(OracleValue::varchar2).unwrap_or(OracleValue::Null);
         }
 
@@ -424,6 +470,16 @@ impl FormSession {
     }
 
     /// Clears all blocks in the form.
+    /// True when a database block holds changes that have not been committed. Control
+    /// blocks (no base table) never count: assigning their items does not make the form
+    /// "changed" in Forms.
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.blocks.iter().any(|(name, b)| {
+            matches!(b.status(), FormsRecordStatus::Changed | FormsRecordStatus::Insert)
+                && self.block_info(name).map(|i| i.query_data_source_name.is_some()).unwrap_or(false)
+        })
+    }
+
     pub fn clear_form(&mut self) {
         for buf in self.blocks.values_mut() {
             buf.clear_block();
@@ -545,7 +601,7 @@ impl FormSession {
                 (Some(b), None) => format!("{}({})", trigger.name, b),
                 _ => trigger.name.clone(),
             };
-            self.trace_log.push(trace_entry);
+            self.trace_log.push(trace_entry.clone());
 
             if let Some(parsed) = self.parse_trigger(&trigger) {
                 let unit = match parsed {
@@ -567,7 +623,7 @@ impl FormSession {
                 };
 
                 self.trigger_depth += 1;
-                let mut interpreter = Interpreter::new();
+                let mut interpreter = Interpreter::for_trigger(self, &trace_entry);
                 let outcome = interpreter.execute_unit(&unit, self);
                 self.trigger_depth -= 1;
                 (self.system.trigger_block, self.system.trigger_item) = saved_trigger_item;
@@ -615,6 +671,11 @@ impl FormSession {
     }
 
     /// True if a trigger for `event` exists at block or form level for `block`.
+    /// True while a trigger body is executing (timers and other idle work wait).
+    pub fn is_inside_trigger(&self) -> bool {
+        self.trigger_depth > 0
+    }
+
     fn has_trigger(&self, event: &str, block: &str) -> bool {
         self.module.triggers.iter().any(|t| {
             t.name.eq_ignore_ascii_case(event)
@@ -688,8 +749,11 @@ impl FormSession {
             "CREATE_RECORD" => self.create_record(),
             "DELETE_RECORD" => self.delete_record(),
             "EXIT_FORM" => {
-                self.exit_requested = true;
-                Ok(())
+                // Same commit-mode handling as the built-in (asks to save unsaved changes).
+                match crate::builtins::dispatch("EXIT_FORM", &[], self) {
+                    Some(crate::builtins::BuiltinResult::Failure(m)) => Err(RuntimeError::NavigationFailed(m)),
+                    _ => Ok(()),
+                }
             }
             "CLEAR_FORM" => {
                 self.clear_form();
@@ -701,6 +765,10 @@ impl FormSession {
                 }
                 Ok(())
             }
+            "LIST_VALUES" => match crate::builtins::dispatch("LIST_VALUES", &[], self) {
+                Some(crate::builtins::BuiltinResult::Failure(m)) => Err(RuntimeError::NavigationFailed(m)),
+                _ => Ok(()),
+            },
             other => Err(RuntimeError::Unsupported(format!("DO_KEY('{}')", other))),
         }
     }
@@ -1361,11 +1429,25 @@ impl FormSession {
     /// Any failure rolls the database back to the savepoint and leaves the block buffers
     /// exactly as they were, so the user can fix the problem and commit again.
     pub fn commit(&mut self) -> Result<(), RuntimeError> {
-        self.trace_log.push("COMMIT_FORM".to_string());
+        self.commit_or_post(false)
+    }
+
+    /// `POST`: runs the commit sequence up to and including the DML and `POST-FORMS-COMMIT`
+    /// but issues no database `COMMIT`; the transaction stays open until a later commit.
+    /// Posted records become query records; `COMMIT_FORM` then only commits the database.
+    pub fn post(&mut self) -> Result<(), RuntimeError> {
+        self.commit_or_post(true)
+    }
+
+    fn commit_or_post(&mut self, post_only: bool) -> Result<(), RuntimeError> {
+        self.trace_log.push(if post_only { "POST" } else { "COMMIT_FORM" }.to_string());
         let has_changes = self.blocks.iter().any(|(name, b)| {
             self.is_database_block(name) && (!b.deleted_records.is_empty() || b.records.iter().any(|r| r.is_dirty()))
         });
         if !has_changes {
+            if !post_only && self.posted_uncommitted {
+                return self.commit_posted();
+            }
             self.messages.push("FRM-40401: No changes to save.".to_string());
             return Ok(());
         }
@@ -1394,7 +1476,7 @@ impl FormSession {
         let result = self.commit_inner(driver.as_ref());
         match result {
             Ok(()) => {
-                if let Some(d) = &driver {
+                if let (false, Some(d)) = (post_only, &driver) {
                     if let Err(e) = block_on_future(d.commit()) {
                         let _ = block_on_future(d.rollback_to_savepoint(SAVEPOINT));
                         self.blocks = snapshot;
@@ -1402,7 +1484,9 @@ impl FormSession {
                         return Err(RuntimeError::Database(format!("COMMIT failed: {}", e)));
                     }
                 }
-                self.trace_log.push("DATABASE_COMMIT".to_string());
+                if !post_only {
+                    self.trace_log.push("DATABASE_COMMIT".to_string());
+                }
                 let db_blocks: Vec<String> = self.blocks.keys().filter(|n| self.is_database_block(n)).cloned().collect();
                 for name in db_blocks {
                     let Some(buf) = self.blocks.get_mut(&name) else { continue };
@@ -1417,6 +1501,12 @@ impl FormSession {
                     }
                 }
                 self.update_system_status();
+                if post_only {
+                    // Rows are written but not committed: remember, so COMMIT_FORM finishes it.
+                    self.posted_uncommitted = true;
+                    return Ok(());
+                }
+                self.posted_uncommitted = false;
                 self.messages.push("FRM-40400: Transaction complete.".to_string());
                 let _ = self.dispatch_event("POST-DATABASE-COMMIT", None, None);
                 Ok(())
@@ -1433,6 +1523,21 @@ impl FormSession {
                 Err(e)
             }
         }
+    }
+
+    /// Commits rows that an earlier `POST` already wrote.
+    fn commit_posted(&mut self) -> Result<(), RuntimeError> {
+        if self.read_only {
+            return Err(RuntimeError::ReadOnly("COMMIT_FORM: enable writes for this session to save changes".to_string()));
+        }
+        if let Some(d) = self.database_driver.clone() {
+            block_on_future(d.commit()).map_err(|e| RuntimeError::Database(format!("COMMIT failed: {}", e)))?;
+        }
+        self.trace_log.push("DATABASE_COMMIT".to_string());
+        self.posted_uncommitted = false;
+        self.messages.push("FRM-40400: Transaction complete.".to_string());
+        let _ = self.dispatch_event("POST-DATABASE-COMMIT", None, None);
+        Ok(())
     }
 
     fn run_dml(&mut self, driver: Option<&Arc<dyn DatabaseDriver>>, stmt: oracle_forms_db::BoundSql, expect_row: bool, what: &str) -> Result<(), RuntimeError> {
@@ -1613,6 +1718,11 @@ impl FormSession {
     }
 
     /// Synchronizes aggregate status in SystemVariables.
+    /// Recomputes `:SYSTEM.*_STATUS` after code changed record statuses.
+    pub fn refresh_system_status(&mut self) {
+        self.update_system_status();
+    }
+
     fn update_system_status(&mut self) {
         if let Some(cb) = &self.system.cursor_block {
             let cb_upper = cb.to_ascii_uppercase();

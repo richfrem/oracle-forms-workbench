@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_21_NAV_REPL" Title="Navigation conformance: replacement">
+    <Block Name="R">
+      <Item Name="MARK" ItemType="Text Item" DataType="Char"/>
+    </Block>
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="BEGIN :GLOBAL.TRAIL := :GLOBAL.TRAIL || &#x27;&gt;R&#x27;; :R.MARK := :GLOBAL.TRAIL; END;"/>
+  </FormModule>
+</Module>

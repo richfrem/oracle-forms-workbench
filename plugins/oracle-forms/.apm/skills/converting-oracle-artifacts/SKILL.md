@@ -18,6 +18,7 @@ Runs Oracle's conversion tools inside the Forms 14c container (`oracle-forms-14c
 3. In 14c, `bin/*.sh` scripts are templates; the scripts call the Java classes and binaries (`rwconverter`, `frmcmp_batch`) directly ([references/conversion-notes.md](references/conversion-notes.md)).
 4. Keep attached `.pll`, `.olb`, and `.mmb` files beside inputs; the scripts stage dependencies automatically (`setting-up-oracle-testbed/references/module-dependencies-and-compile-order.md`).
 5. Validate XML before `XML2Forms` (`validate_forms_xml.py` in `compiling-and-running-oracle-forms`). Only claim PASS when `test_conversions.py` or a recorded run verifies it.
+6. Prefer original binaries over XML when fidelity matters. XML round-trips on headless Linux lose inherited canvas colours (black canvas) and named colours; from XML, give each inheriting canvas an explicit `BackColor` (`rNNgNNbNN`, percentages) in the staged copy and check the converted `.fmb` with a round trip before compiling ([references/conversion-notes.md](references/conversion-notes.md), "Named Color Palette Loss").
 
 ## Quick start
 
@@ -36,7 +37,7 @@ python3 plugins/oracle-forms/.apm/skills/converting-oracle-artifacts/scripts/tes
 
 ## Interactive guided workflow (agent protocol)
 
-At each gate, summarize counts in a table and ask one direct question; all outputs go under `OFW_WORK_DIR`. **Gate 0 (intake):** confirm read-only primary XML/PLD and secondary binary folders, external `OFW_WORK_DIR`, duplicate policy, and permission to copy to `<OFW_WORK_DIR>/source/`. **Gate 1 (analysis):** run `--analyze-only`, report module counts, `unresolvedDependencies`, `cycles`, and duplicates; confirm cleanup or `--allow-missing` and `--normalize`. **Decompile rule:** never re-decompile existing server XML or `.txt`/`.pld` exports—rename library `.txt` to `.pld`, decompile only binary-only gaps (`--decompile-binaries` / `--validate-xml`), and keep one merged `<build-dir>/decompiled/out/` folder. **Gate 2 (Stage 2):** convert in dependency order, report converted/failed, and hand off to Stage 3 in `compiling-and-running-oracle-forms` ([references/batch-dependency-conversion.md](references/batch-dependency-conversion.md)).
+At each gate, summarize counts in a table and ask one direct question; all outputs go under `OFW_WORK_DIR`. **Gate 0 (intake):** confirm read-only primary XML/PLD and secondary binary folders, external `OFW_WORK_DIR`, duplicate policy, and permission to copy to `<OFW_WORK_DIR>/source/`. **Gate 1 (analysis):** run `--analyze-only` (add `--target <form>` to keep one form's recursive dependencies), report module counts, waves, `inferredAttachedLibraries` (libraries called but not attached; added to the staged copy only), `ambiguousLibraryUnits`, `unresolvedDependencies`, `cycles`, and duplicates; confirm cleanup or `--allow-missing` and `--normalize`. **Decompile rule:** never re-decompile existing server XML or `.txt`/`.pld` exports—rename library `.txt` to `.pld`, decompile only binary-only gaps (`--decompile-binaries` / `--validate-xml`), and keep one merged `<build-dir>/decompiled/out/` folder. **Gate 2 (Stage 2):** convert in dependency order, report converted/failed, and hand off to Stage 3 in `compiling-and-running-oracle-forms` ([references/batch-dependency-conversion.md](references/batch-dependency-conversion.md)).
 
 ## Scripts and references
 
@@ -44,7 +45,7 @@ At each gate, summarize counts in a table and ask one direct question; all outpu
 |---|---|
 | `scripts/converter_runtime.py` | Shared 14c/12c image, `OFW_ORACLE_HOME`, Podman wrapper, `--check` |
 | `scripts/convert_fmb.py`, `convert_pll.py`, `convert_rpt.py` | Forms/menus/OLBs, PL/SQL libraries, and Reports (`rwconverter`) conversions |
-| `scripts/build_dependency_manifest.py` | Stage 0–2 dependency analyzer, decompiler, and `XML2Forms` batch builder (`build-manifest.json`) |
+| `scripts/build_dependency_manifest.py` | Stage 0–2 dependency analyzer (recursive closure with `--target`, inferred library attachments, build waves), decompiler, and `XML2Forms` batch builder (`build-manifest.json`) |
 | `scripts/test_conversions.py`, `extract_forms_schema.py` | Conversion matrix runner (`--only`); 14c `SchemaGenerator` extractor (`--usage` unverified) |
 | `references/converting-oracle-artifacts-flow.mmd` | Flowchart: Rust offline conversion vs. Oracle 14c Stage 1–2 pipeline |
 | `references/rust-native-binary-conversion.md` | Rust `ROS.60050` (`export-xml`/`export-binary`) vs. Oracle 14c `Forms2XML` & Web UI routes |

@@ -235,6 +235,7 @@ impl BinaryFmbParser {
                         name: rg_name,
                         query_text: Some(sql),
                         columns: Vec::new(),
+                        ..Default::default()
                     });
                 }
             }

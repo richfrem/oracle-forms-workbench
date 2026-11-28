@@ -2,7 +2,7 @@
 //!
 //! Purpose: Integration/conformance tests (parser_regressions.rs).
 //! Key Input Dependencies: oracle_forms_plsql
-//! Index: stmts, is_null_is_a_two_valued_test_not_equality_with_null, select_into_keeps_exact_sql_text_including_quotes, dml_and_transaction_control_statements_are_recognised, builtin_calls_named_like_sql_keywords_stay_calls, exit_when_in_loop, out_and_in_out_parameter_modes, package_function_call_has_dotted_name, in_list_between_not_like_and_attributes, cursors_open_fetch_close_and_cursor_for_loops, case_statement_and_expression_and_named_args
+//! Index: qualified_type_names_parse_in_declarations, dotted_assignment_targets_parse_as_assignments, bad_statement_inside_if_does_not_orphan_end_if, stray_top_level_end_terminates_and_is_reported, stmts, is_null_is_a_two_valued_test_not_equality_with_null, select_into_keeps_exact_sql_text_including_quotes, dml_and_transaction_control_statements_are_recognised, builtin_calls_named_like_sql_keywords_stay_calls, exit_when_in_loop, out_and_in_out_parameter_modes, package_function_call_has_dotted_name, in_list_between_not_like_and_attributes, cursors_open_fetch_close_and_cursor_for_loops, case_statement_and_expression_and_named_args
 
 use oracle_forms_plsql::ast::*;
 use oracle_forms_plsql::Parser;
@@ -135,4 +135,58 @@ fn case_statement_and_expression_and_named_args() {
     assert!(matches!(&s[0], Statement::Case { selector: Some(_), .. }));
     assert!(matches!(&s[1], Statement::Assignment { value: Expr::Case { .. }, .. }));
     assert!(matches!(&s[2], Statement::Call { args, .. } if matches!(args[0], Expr::NamedArg { .. })));
+}
+
+/// A stray top-level `END;` (for example one extra `END` after a package body in a library
+/// export) used to make `parse_all_units` loop forever pushing empty units until memory was
+/// exhausted. It must terminate, keep the good units, and report the stray tokens.
+#[test]
+fn stray_top_level_end_terminates_and_is_reported() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let src = "PROCEDURE p IS BEGIN NULL; END; END; END pkg_x; PROCEDURE q IS BEGIN NULL; END;";
+        let mut parser = Parser::new(src);
+        let units = parser.parse_all_units();
+        let errors = parser.errors.clone();
+        let _ = tx.send((units, errors));
+    });
+    let (units, errors) = rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("parse_all_units must terminate on a stray END");
+    assert!(units.len() < 20, "no unbounded unit growth, got {}", units.len());
+    let procs = units.iter().filter(|u| matches!(u, PlsqlUnit::Procedure(_))).count();
+    assert_eq!(procs, 2, "both real procedures are kept");
+    assert!(errors.iter().any(|e| e.contains("unexpected top-level")), "stray END reported: {errors:?}");
+}
+
+/// Root cause of the library-load hang: `rec.field := value;` (dotted assignment target)
+/// was parsed as a call, the failure aborted the enclosing IF, and the orphaned
+/// `END IF;` / `END;` tokens then looped `parse_all_units` forever.
+#[test]
+fn dotted_assignment_targets_parse_as_assignments() {
+    let s = stmts("rec.field := 1; pkg.counter := pkg.counter + 1; plain := 2;");
+    assert_eq!(s.len(), 3);
+    for st in &s {
+        assert!(matches!(st, Statement::Assignment { .. }), "{st:?}");
+    }
+    // Calls with dotted names stay calls.
+    assert!(matches!(&stmts("pkg.proc(1);")[0], Statement::Call { .. }));
+}
+
+#[test]
+fn bad_statement_inside_if_does_not_orphan_end_if() {
+    let src = "PROCEDURE p IS BEGIN IF 1 = 1 THEN @@@ bad ; NULL; END IF; NULL; END; PROCEDURE q IS BEGIN NULL; END;";
+    let mut parser = Parser::new(src);
+    let units = parser.parse_all_units();
+    let procs = units.iter().filter(|u| matches!(u, PlsqlUnit::Procedure(_))).count();
+    assert_eq!(procs, 2, "{units:?}");
+    assert!(!parser.errors.iter().any(|e| e.contains("unexpected top-level")), "{:?}", parser.errors);
+}
+
+#[test]
+fn qualified_type_names_parse_in_declarations() {
+    let mut parser = Parser::new("DECLARE f TEXT_IO.FILE_TYPE; r pkg.rec_t; c scott.emp.ename%TYPE; BEGIN NULL; END;");
+    let units = parser.parse_all_units();
+    assert!(parser.errors.is_empty(), "{:?}", parser.errors);
+    assert!(matches!(units[0], PlsqlUnit::AnonymousBlock(_)));
 }

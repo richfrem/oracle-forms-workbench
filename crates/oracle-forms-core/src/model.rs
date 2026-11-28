@@ -453,6 +453,9 @@ pub struct ItemInfo {
     pub visible: Option<bool>,
     pub required: Option<bool>,
     pub lov_name: Option<String>,
+    /// `ValidateFromList`: the value must be one of the item's LOV values.
+    #[serde(default)]
+    pub validate_from_list: Option<bool>,
     #[serde(default)]
     pub trigger_names: Vec<String>,
     pub inherited: Option<InheritanceRef>,
@@ -546,6 +549,7 @@ impl Default for ItemInfo {
             visible: Some(true),
             required: None,
             lov_name: None,
+            validate_from_list: None,
             trigger_names: vec![],
             inherited: None,
             dml: None,
@@ -943,22 +947,62 @@ pub struct AttachedLibraryInfo {
     pub library_location: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LovInfo {
     pub name: String,
     pub record_group_name: Option<String>,
+    /// Column names only (kept for the binary reader/writer); see `mappings` for detail.
     #[serde(default)]
     pub column_mappings: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Column mappings with their return items, in LOV column order.
+    #[serde(default)]
+    pub mappings: Vec<LovColumnMappingInfo>,
+    /// `FilterBeforeDisplay`: ask for a filter value before showing the list.
+    #[serde(default)]
+    pub filter_before_display: Option<bool>,
+    /// `AutoRefresh`: re-run the record group query every time the LOV is shown.
+    #[serde(default)]
+    pub auto_refresh: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LovColumnMappingInfo {
+    /// LOV column name (matches a record group column).
+    pub name: String,
+    /// Item that receives the column value when the user picks a row.
+    pub return_item: Option<String>,
+    pub title: Option<String>,
+    pub display_width: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordGroupInfo {
     pub name: String,
     pub query_text: Option<String>,
     #[serde(default)]
     pub columns: Vec<String>,
+    /// `Query` or `Static` (`RecordGroupType`).
+    #[serde(default)]
+    pub group_type: Option<String>,
+    /// Column detail including the rows of a static group.
+    #[serde(default)]
+    pub column_specs: Vec<RecordGroupColumnInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordGroupColumnInfo {
+    pub name: String,
+    pub data_type: Option<String>,
+    pub max_length: Option<i32>,
+    /// Static data, one value per row in order (`RecordGroupColumnRow`).
+    #[serde(default)]
+    pub rows: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 //! Purpose: Axum HTTP API routes for the workbench server.
 //! Key Input Dependencies: axum, serde, oracle_forms_core, oracle_forms_db, tower
-//! Index: SourceQuery, XmlQuery, EffectiveItemQuery, QueryBlockRequest, TestDbRequest, TestDbResponse, DescribeTableRequest, StartSessionRequest, AlertAnswer, ExportXmlRequest, ExportXmlResponse, SaveFormRequest, ConvertArtifactRequest, DiffRequest, UpdateItemRequest, AttachMenuRequest, RunReportRequest, RunReportResponse, app_router, app_router_with_security, get_samples, open_sample, get_source, get_xml, get_effective_item (+60 more)
+//! Index: SourceQuery, XmlQuery, EffectiveItemQuery, QueryBlockRequest, TestDbRequest, TestDbResponse, DescribeTableRequest, StartSessionRequest, AlertAnswer, LovAnswer, session_lov, session_tick, FileQuery, session_files, session_file_download, session_file_upload, ExportXmlRequest, ExportXmlResponse, SaveFormRequest, ConvertArtifactRequest, DiffRequest, UpdateItemRequest, AttachMenuRequest, RunReportRequest, RunReportResponse, app_router, app_router_with_security, get_samples, open_sample, get_source, get_xml, get_effective_item (+60 more)
 
 use std::path::{Path, PathBuf};
 use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path as AxumPath, Query, Request, State};
@@ -55,6 +55,15 @@ pub fn app_router_with_security(service: FormsService, security_cfg: SecurityCon
         .route("/api/sessions/{id}", get(session_state).delete(end_session))
         .route("/api/sessions/{id}/events", post(session_event))
         .route("/api/sessions/{id}/alert", post(session_alert))
+        .route("/api/sessions/{id}/lov", post(session_lov))
+        .route("/api/sessions/{id}/tick", post(session_tick))
+        .route("/api/sessions/{id}/files", get(session_files))
+        .route(
+            "/api/sessions/{id}/files/{*path}",
+            get(session_file_download)
+                .put(session_file_upload)
+                .layer(DefaultBodyLimit::max(oracle_forms_runtime::textio::MAX_FILE_BYTES + 1024)),
+        )
         .fallback(static_handler)
         .with_state(service)
         .layer(axum::middleware::from_fn_with_state(
@@ -349,6 +358,9 @@ struct StartSessionRequest {
     /// Off by default: the session refuses DML, locks and commits.
     #[serde(default)]
     allow_writes: bool,
+    /// Startup parameters, readable by the form as `:PARAMETER.NAME`.
+    #[serde(default)]
+    parameters: std::collections::HashMap<String, String>,
 }
 
 fn session_error(code: u16, message: String) -> Response {
@@ -396,6 +408,8 @@ async fn start_session(State(service): State<FormsService>, Json(req): Json<Star
         missing_libraries: missing,
         db,
         allow_writes: req.allow_writes,
+        parameters: req.parameters.into_iter().collect(),
+        loader: Some(form_loader(service.clone())),
     };
     match service.sessions.start(opts).await {
         Ok(state) => Json(state).into_response(),
@@ -403,12 +417,50 @@ async fn start_session(State(service): State<FormsService>, Json(req): Json<Star
     }
 }
 
+/// Finds the forms that `CALL_FORM` / `OPEN_FORM` / `NEW_FORM` name, with their libraries.
+/// Names are tried as given and in lower case, with the usual `_fmb.xml` file suffix.
+fn form_loader(service: FormsService) -> oracle_forms_runtime::FormLoader {
+    std::sync::Arc::new(move |name: &str| {
+        let plain = name.trim();
+        if plain.is_empty() || plain.contains(['/', '\\']) {
+            return Err(format!("{name} is not a plain form name"));
+        }
+        let mut last = format!("form {name} was not found");
+        for cand in [plain.to_string(), plain.to_ascii_lowercase(), plain.to_ascii_uppercase()] {
+            match service.get_or_load_module(&cand) {
+                Ok(module) => {
+                    let mut libraries = Vec::new();
+                    let mut missing = Vec::new();
+                    for lib in &module.attached_libraries {
+                        match service.resolve_library(&cand, &lib.name) {
+                            Some(idx) => libraries.push(idx),
+                            None => missing.push(lib.name.clone()),
+                        }
+                    }
+                    return Ok(oracle_forms_runtime::LoadedForm { module, libraries, missing_libraries: missing });
+                }
+                Err(e) => last = format!("cannot open form {name}: {e}"),
+            }
+        }
+        Err(last)
+    })
+}
+
+/// A browser event, optionally addressed to one form of the application.
+#[derive(Deserialize)]
+struct EventEnvelope {
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
+    #[serde(flatten)]
+    event: crate::runtime_sessions::SessionEvent,
+}
+
 async fn session_event(
     State(service): State<FormsService>,
     AxumPath(id): AxumPath<String>,
-    Json(event): Json<crate::runtime_sessions::SessionEvent>,
+    Json(envelope): Json<EventEnvelope>,
 ) -> Response {
-    match service.sessions.send_event(&id, event).await {
+    match service.sessions.send_event_to(&id, envelope.event, envelope.form_id).await {
         Ok(state) => Json(state).into_response(),
         Err((code, msg)) => session_error(code, msg),
     }
@@ -418,6 +470,9 @@ async fn session_event(
 struct AlertAnswer {
     /// 1, 2 or 3.
     button: u8,
+    /// The form that asked (must match when given).
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
 }
 
 async fn session_alert(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Json(answer): Json<AlertAnswer>) -> Response {
@@ -427,8 +482,87 @@ async fn session_alert(State(service): State<FormsService>, AxumPath(id): AxumPa
         3 => oracle_forms_runtime::ALERT_BUTTON3,
         _ => return session_error(400, "button must be 1, 2 or 3".to_string()),
     };
-    match service.sessions.answer_alert(&id, code).await {
+    match service.sessions.answer_alert_for(&id, code, answer.form_id).await {
         Ok(state) => Json(state).into_response(),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+#[derive(Deserialize)]
+struct LovAnswer {
+    /// Index of the picked row in the list that was sent; absent or null cancels.
+    #[serde(default)]
+    selected: Option<usize>,
+    /// The form that asked (must match when given).
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
+}
+
+/// Answers a pending list of values (`SHOW_LOV` / `LIST_VALUES`).
+async fn session_lov(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Json(answer): Json<LovAnswer>) -> Response {
+    match service.sessions.answer_lov_for(&id, answer.selected, answer.form_id).await {
+        Ok(state) => Json(state).into_response(),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+/// Runs due timers (`WHEN-TIMER-EXPIRED`) and returns the new state; the UI polls this
+/// while `nextTimerMs` is set.
+async fn session_tick(State(service): State<FormsService>, AxumPath(id): AxumPath<String>) -> Response {
+    match service.sessions.tick(&id).await {
+        Ok(state) => Json(state).into_response(),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FileQuery {
+    form_id: Option<u32>,
+}
+
+/// `GET /api/sessions/{id}/files[?formId=n]`: the sandbox files of a form (default: the active form).
+async fn session_files(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Query(q): Query<FileQuery>) -> Response {
+    use crate::runtime_sessions::{FileOp, FileReply};
+    match service.sessions.file_op(&id, FileOp::List, q.form_id).await {
+        Ok(FileReply::List(files)) => Json(serde_json::json!({
+            "files": files.iter().map(|(p, n)| serde_json::json!({ "path": p, "size": n })).collect::<Vec<_>>(),
+            "maxFileBytes": oracle_forms_runtime::textio::MAX_FILE_BYTES,
+            "maxSessionBytes": oracle_forms_runtime::textio::MAX_SESSION_BYTES,
+        }))
+        .into_response(),
+        Ok(_) => session_error(500, "Unexpected file reply".to_string()),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+/// `GET /api/sessions/{id}/files/{path}`: downloads one sandbox file as an attachment.
+async fn session_file_download(State(service): State<FormsService>, AxumPath((id, path)): AxumPath<(String, String)>, Query(q): Query<FileQuery>) -> Response {
+    use crate::runtime_sessions::{FileOp, FileReply};
+    match service.sessions.file_op(&id, FileOp::Get(path), q.form_id).await {
+        Ok(FileReply::Bytes(key, bytes)) => {
+            let name: String = key.rsplit('/').next().unwrap_or("file").chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' }).collect();
+            (
+                [
+                    (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
+                    (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+                    (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+                ],
+                bytes,
+            )
+                .into_response()
+        }
+        Ok(_) => session_error(500, "Unexpected file reply".to_string()),
+        Err((c, msg)) => session_error(c, msg),
+    }
+}
+
+/// `PUT /api/sessions/{id}/files/{path}`: uploads (replaces) one sandbox file; the body is the file.
+async fn session_file_upload(State(service): State<FormsService>, AxumPath((id, path)): AxumPath<(String, String)>, Query(q): Query<FileQuery>, body: axum::body::Bytes) -> Response {
+    use crate::runtime_sessions::{FileOp, FileReply};
+    match service.sessions.file_op(&id, FileOp::Put(path, body.to_vec()), q.form_id).await {
+        Ok(FileReply::Stored(key, size)) => Json(serde_json::json!({ "path": key, "size": size })).into_response(),
+        Ok(_) => session_error(500, "Unexpected file reply".to_string()),
         Err((c, msg)) => session_error(c, msg),
     }
 }
@@ -1663,6 +1797,46 @@ mod tests {
 
         let (status, _, _) = send(service, Request::builder().method("DELETE").uri(format!("/api/sessions/{}", id)).body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
+        let _ = std::fs::remove_dir_all(cache);
+    }
+
+    #[tokio::test]
+    async fn session_file_endpoints_upload_download_list_and_refuse_bad_requests() {
+        let (service, cache) = security_test_service("session-files");
+        let (status, body, _) = send(
+            service.clone(),
+            Request::builder().method("POST").uri("/api/sessions").header("content-type", "application/json").body(Body::from(r#"{"moduleName": "test_db_fmb.xml", "backend": "sqlite"}"#)).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let state: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        let put = |path: &str, data: Vec<u8>| Request::builder().method("PUT").uri(format!("/api/sessions/{id}/files/{path}")).body(Body::from(data)).unwrap();
+        let get = |path: &str| Request::builder().uri(format!("/api/sessions/{id}/files/{path}")).body(Body::empty()).unwrap();
+
+        let (status, body, _) = send(service.clone(), put("temp/in.txt", b"hello\nworld\n".to_vec())).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body, headers) = send(service.clone(), get("temp/in.txt")).await;
+        assert_eq!((status, body.as_str()), (StatusCode::OK, "hello\nworld\n"));
+        assert_eq!(headers["content-disposition"], "attachment; filename=\"in.txt\"");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        let (status, body, _) = send(service.clone(), Request::builder().uri(format!("/api/sessions/{id}/files")).body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let listing: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(listing["files"][0]["path"], "temp/in.txt");
+        assert_eq!(listing["maxFileBytes"], 8 * 1024 * 1024);
+
+        // Traversal (encoded), unknown file, oversize body, unknown session.
+        let (status, _, _) = send(service.clone(), put("..%2F..%2Fescape.txt", b"x".to_vec())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, _, _) = send(service.clone(), get("a%2F..%2F..%2Fescape.txt")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, _, _) = send(service.clone(), get("nothing.txt")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = send(service.clone(), put("big.bin", vec![0; oracle_forms_runtime::textio::MAX_FILE_BYTES + 1])).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        let (status, _, _) = send(service.clone(), Request::builder().uri("/api/sessions/nope/files").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
         let _ = std::fs::remove_dir_all(cache);
     }
 

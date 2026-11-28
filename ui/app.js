@@ -177,6 +177,13 @@
   const sessionTracePanel = document.getElementById('sessionTracePanel');
   const sessionTrace = document.getElementById('sessionTrace');
   const runtimeAlertDialog = document.getElementById('runtimeAlertDialog');
+  const runtimeLovDialog = document.getElementById('runtimeLovDialog');
+  const runtimeLovBtn = document.getElementById('runtimeLovBtn');
+  const runtimeFormTabs = document.getElementById('runtimeFormTabs');
+  let switchingForm = false;
+  let pendingLov = null;
+  let selectedLovIndex = null;
+  let timerPollHandle = null;
 
   // Query engine state
   const queryRecordsByBlock = new Map();
@@ -717,6 +724,10 @@
     oracleWindowShell?.addEventListener('click', (e) => {
       const cmdEl = e.target.closest('[data-ora-cmd]');
       if (!cmdEl) return;
+      if (cmdEl.classList.contains('menu-disabled')) {
+        e.stopPropagation();
+        return;
+      }
       const cmd = cmdEl.getAttribute('data-ora-cmd');
       if (!cmd) return;
       e.stopPropagation();
@@ -998,6 +1009,21 @@
           showBanner(`Alert answer failed: ${err.message}`);
         }
       });
+    });
+    runtimeLovBtn?.addEventListener('click', () => runtimeSend({ kind: 'pickLov' }));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F9' && runtime.active && !runtimeLovDialog?.open) {
+        e.preventDefault();
+        runtimeSend({ kind: 'pickLov' });
+      }
+    });
+    document.getElementById('runtimeLovFind')?.addEventListener('input', () => renderLovRows());
+    document.getElementById('runtimeLovOk')?.addEventListener('click', () => finishLov(selectedLovIndex));
+    document.getElementById('runtimeLovCancel')?.addEventListener('click', () => finishLov(null));
+    // Escape must not leave the server trigger waiting forever: it cancels the list.
+    runtimeLovDialog?.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      finishLov(null);
     });
     // Escape must not leave the server trigger waiting forever: treat it as the default button.
     runtimeAlertDialog?.addEventListener('cancel', (e) => {
@@ -2148,8 +2174,8 @@
   }
 
   // Set active module
-  function setModulePayload(payload) {
-    if (runtime.active) {
+  function setModulePayload(payload, { keepRuntime = false } = {}) {
+    if (runtime.active && !keepRuntime) {
       runtime.stop();
       queryRecordsByBlock.clear();
       activeRecordIndexByBlock.clear();
@@ -2894,11 +2920,41 @@
     return topRecordIndex(blockName) + (row || 0);
   }
 
+  /**
+   * Applies `state.menuItems` (SET_MENU_ITEM_PROPERTY) to the web menu bar: enabled, displayed,
+   * checked and label per item. Only the standard default-menu names map to the bar's fixed
+   * commands (see FormsRuntime.menuCommandFor); custom menu modules have no per-item DOM.
+   */
+  function applyMenuState(state) {
+    const touched = applyMenuState.touched || (applyMenuState.touched = new Map());
+    for (const [el, original] of touched) {
+      el.classList.remove('menu-disabled', 'menu-checked');
+      el.hidden = false;
+      el.removeAttribute('aria-disabled');
+      const span = el.querySelector('span');
+      if (span && original != null) span.textContent = original;
+    }
+    touched.clear();
+    for (const u of window.FormsRuntime.menuUiUpdates(state?.menuItems)) {
+      document.querySelectorAll(`.oracle-menu-bar .dropdown-item[data-ora-cmd="${u.cmd}"]`).forEach(el => {
+        const span = el.querySelector('span');
+        touched.set(el, span ? span.textContent : null);
+        el.hidden = !u.displayed;
+        el.classList.toggle('menu-disabled', !u.enabled);
+        el.classList.toggle('menu-checked', u.checked);
+        if (!u.enabled) el.setAttribute('aria-disabled', 'true');
+        if (span && u.label) span.textContent = u.label;
+      });
+    }
+  }
+
   function setRuntimeUi(state) {
     const running = runtime.active;
     runFormBtn?.classList.toggle('hidden', running);
     stopFormBtn?.classList.toggle('hidden', !running);
     runtimeCommitBtn?.classList.toggle('hidden', !running);
+    runtimeLovBtn?.classList.toggle('hidden', !running);
+    if (!running) runtimeFormTabs?.classList.add('hidden');
     sessionBadge?.classList.toggle('hidden', !running);
     sessionTracePanel?.classList.toggle('hidden', !running);
     if (dbBackendSelect) dbBackendSelect.disabled = running;
@@ -2980,6 +3036,8 @@
   }
 
   async function stopRuntimeSession() {
+    clearTimeout(timerPollHandle);
+    timerPollHandle = null;
     await runtime.stop();
     queryRecordsByBlock.clear();
     activeRecordIndexByBlock.clear();
@@ -2997,10 +3055,143 @@
     }
   }
 
+  /** Fills the list-of-values table from the pending LOV, honouring the Find box. */
+  function renderLovRows() {
+    if (!pendingLov) return;
+    const find = document.getElementById('runtimeLovFind').value;
+    const body = document.getElementById('runtimeLovBody');
+    const rows = FormsRuntime.lovRows(pendingLov, find);
+    body.textContent = '';
+    if (!rows.some(r => r.index === selectedLovIndex)) selectedLovIndex = rows.length ? rows[0].index : null;
+    for (const { index, cells } of rows) {
+      const tr = document.createElement('tr');
+      tr.dataset.index = String(index);
+      tr.classList.toggle('selected', index === selectedLovIndex);
+      for (const c of cells) {
+        const td = document.createElement('td');
+        td.textContent = c == null ? '' : String(c);
+        tr.appendChild(td);
+      }
+      tr.addEventListener('click', () => {
+        selectedLovIndex = index;
+        body.querySelectorAll('tr').forEach(r => r.classList.toggle('selected', r === tr));
+      });
+      tr.addEventListener('dblclick', () => finishLov(index));
+      body.appendChild(tr);
+    }
+    document.getElementById('runtimeLovEmpty').classList.toggle('hidden', rows.length > 0);
+    document.getElementById('runtimeLovOk').disabled = selectedLovIndex == null;
+  }
+
+  function showLovDialog(lov) {
+    pendingLov = lov;
+    selectedLovIndex = null;
+    document.getElementById('runtimeLovTitle').textContent = lov.title || lov.lovName;
+    const head = document.getElementById('runtimeLovHead');
+    head.textContent = '';
+    const tr = document.createElement('tr');
+    for (const c of lov.columns || []) {
+      const th = document.createElement('th');
+      th.textContent = c.title || c.name;
+      tr.appendChild(th);
+    }
+    head.appendChild(tr);
+    document.getElementById('runtimeLovFind').value = lov.filter || '';
+    renderLovRows();
+    runtimeLovDialog.showModal();
+    document.getElementById('runtimeLovFind').focus();
+  }
+
+  async function finishLov(index) {
+    if (!pendingLov) return;
+    pendingLov = null;
+    if (runtimeLovDialog.open) runtimeLovDialog.close();
+    try {
+      applySessionState(await runtime.answerLov(index));
+    } catch (err) {
+      showBanner(`List of values answer failed: ${err.message}`);
+    }
+  }
+
+  /** Polls the server for expired timers while the running form has pending ones. */
+  function scheduleTimerPoll(state) {
+    clearTimeout(timerPollHandle);
+    timerPollHandle = null;
+    const delay = FormsRuntime.timerPollDelay(state);
+    if (delay == null || !runtime.active) return;
+    timerPollHandle = setTimeout(async () => {
+      timerPollHandle = null;
+      if (!runtime.active || pendingLov || runtimeAlertDialog?.open) return;
+      try {
+        applySessionState(await runtime.tick());
+      } catch (err) {
+        if (!/waiting for an answer/i.test(err.message)) showBanner(err.message);
+      }
+    }, delay);
+  }
+
+  /** Tab strip over the application's forms (CALL_FORM / OPEN_FORM / NEW_FORM). */
+  function renderFormTabs(state) {
+    if (!runtimeFormTabs) return;
+    const tabs = FormsRuntime.formTabs(state);
+    runtimeFormTabs.classList.toggle('hidden', tabs.length < 2);
+    runtimeFormTabs.textContent = '';
+    for (const t of tabs) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `runtime-form-tab${t.active ? ' active' : ''}`;
+      b.textContent = t.label;
+      b.disabled = !t.enabled;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', t.active ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        if (!t.active) runtimeSend({ kind: 'activateForm', formId: t.id });
+      });
+      runtimeFormTabs.appendChild(b);
+    }
+  }
+
+  /** Effects requested by form code (WEB.SHOW_DOCUMENT). The server validates the URL; so does the UI. */
+  function runBrowserAction(action) {
+    const url = FormsRuntime.safeActionUrl(action);
+    if (!url) return;
+    const target = ['_self', '_blank', '_top', '_parent'].includes(action.target) ? action.target : '_blank';
+    const opened = window.open(url, target, 'noopener');
+    if (!opened && target !== '_self') showBanner(`The form asked to open ${url}; your browser blocked the window. Allow pop-ups for this site and run it again.`);
+  }
+
+  /** Shows the module of another form of the running application, keeping the session. */
+  async function showFormModule(state) {
+    if (switchingForm) return;
+    switchingForm = true;
+    try {
+      const res = await fetch(`/api/open-sample/${encodeURIComponent(state.sourceFile || state.moduleName)}`, { method: 'POST' });
+      if (res.ok) setModulePayload(await res.json(), { keepRuntime: true });
+      else showBanner(`Could not display form ${state.moduleName}.`);
+    } catch (err) {
+      showBanner(`Could not display form ${state.moduleName}: ${err.message}`);
+    } finally {
+      switchingForm = false;
+    }
+    applySessionState(state);
+  }
+
   let lastSessionState = null;
   function applySessionState(state) {
     if (!state) return;
-    if (!state.alert) lastSessionState = state;
+    if (state.formId != null && !state.alert && !state.lov) runtime.formId = state.formId;
+    if (state.forms) renderFormTabs(state);
+    for (const action of state.actions || []) runBrowserAction(action);
+    const shown = currentPayload?.summary?.moduleName;
+    if (!state.alert && !state.lov && state.moduleName && shown && shown.toUpperCase() !== state.moduleName.toUpperCase() && !switchingForm) {
+      showFormModule(state);
+      return;
+    }
+    if (!state.alert && !state.lov) lastSessionState = state;
+    if (state.lov) {
+      showLovDialog(state.lov);
+      return;
+    }
     if (state.alert) {
       const a = state.alert;
       document.getElementById('runtimeAlertTitle').textContent = a.alertName;
@@ -3020,6 +3211,7 @@
       activeRecordIndexByBlock.set(b.name, b.currentRecord || 0);
     }
     preview.reset();
+    preview.runtimeLists = state.listElements || {};
     for (const b of state.blocks || []) applyRecordsToBlock(b.name);
     if (state.cursorBlock) updateRecordNavigator(state.cursorBlock);
 
@@ -3034,11 +3226,14 @@
     }
     if (state.error) showBanner(state.error);
     setRuntimeUi(state);
+    applyMenuState(state);
     renderCanvasSvg();
     if (state.exitRequested) {
       showBanner('The form called EXIT_FORM. Session ended.');
       stopRuntimeSession();
+      return;
     }
+    scheduleTimerPoll(state);
   }
 
   function canvasCoordinateScale(coordinate, canvas, override) {

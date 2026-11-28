@@ -931,6 +931,7 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     name,
                     record_group_name: prop_str(rec, &vbytes, 0x0111),
                     column_mappings: Vec::new(),
+                    ..Default::default()
                 });
             }
             0x0d => {
@@ -943,6 +944,7 @@ pub fn decode_ros60050_module(bytes: &[u8]) -> Option<DecodedRosModule> {
                     name,
                     query_text: prop_str(rec, &vbytes, 0x0113),
                     columns: Vec::new(),
+                    ..Default::default()
                 });
             }
             0x0f => {

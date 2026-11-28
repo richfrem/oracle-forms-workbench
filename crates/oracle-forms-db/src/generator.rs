@@ -269,9 +269,12 @@ impl SqlGenerator {
             return Err(DbError::NoDatabaseColumns(block.name.clone()));
         }
 
-        // Prepend hidden ROWID for Oracle backend
-        if backend == DbBackend::Oracle || backend == DbBackend::OracleThin {
+        // Prepend hidden ROWID (Oracle, and SQLite's implicit rowid) so UPDATE/DELETE can address the row.
+        // SQLite names a `SELECT ROWID` column after an INTEGER PRIMARY KEY alias, so it is aliased.
+        if matches!(backend, DbBackend::Oracle | DbBackend::OracleThin) {
             selected_columns.insert(0, "ROWID".to_string());
+        } else if backend == DbBackend::Sqlite {
+            selected_columns.insert(0, "ROWID AS ROWID".to_string());
         }
 
         let select_list = selected_columns.join(", ");

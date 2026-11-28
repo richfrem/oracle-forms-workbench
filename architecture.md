@@ -199,7 +199,7 @@ Model synchronization and durable XML save are separate operations. A successful
 
 `POST /api/sessions` creates a `FormSession` with a selected backend and explicit connection configuration. Startup triggers execute against the model. Subsequent UI events drive item edits, buttons, navigation, queries, validation, alerts, master-detail handling, and supported record operations through the session API.
 
-The PL/SQL runtime implements a subset of Oracle Forms behavior. Unsupported operations must be reported rather than silently accepted. Database configuration errors must not be hidden by switching to Mock. Blank data can be correct when the source has no startup query trigger; layout rendering and query execution are separate concerns.
+The PL/SQL runtime implements a subset of Oracle Forms behavior. Unsupported operations must be reported rather than silently accepted. Session objects (parameter lists, record groups, timers, LOVs) live in `oracle-forms-runtime` (`objects.rs`, `param_lists.rs`, `record_groups.rs`, `timers.rs`, `lov.rs`). Runaway PL/SQL is bounded by a step budget, a per-trigger wall-clock limit and host cancellation, and each session runs on its own thread with request timeouts (see [plan 16](docs/plans/16-RUNTIME-GAP-CLOSURE.md)). Database configuration errors must not be hidden by switching to Mock. Blank data can be correct when the source has no startup query trigger; layout rendering and query execution are separate concerns.
 
 Native Oracle Thin communicates directly with the database; the reference Free database normally exposes `localhost:1521/FREEPDB1`. SQLite and explicit Mock support offline development. Native sessions are read-only by default. DML and commits require the user's write opt-in. Database username/password entry for native Run is separate from Oracle compilation credentials and the FSAL runtime Logon prompt.
 
@@ -273,7 +273,7 @@ AI-assisted authoring uses XML, PL/SQL, CLI JSON inspection, extracted source, a
 | Open/inspect | `/api/samples`, `/api/files/browse`, `/api/open-sample/{name}`, `/api/open-file`, `/api/module/{module_name}/source`, `/api/module/{module_name}/xml` |
 | Author/save/export | `/api/forms/new`, `/api/forms/module/{module_name}/item`, `/sync`, `/attach-menu`, `/api/forms/export-xml`, `/api/forms/export-binary`, `/api/artifacts/convert-to-xml`, `/api/forms/save` (short suffixes share the module prefix) |
 | Database | `/api/db/test`, `/api/db/describe`, `/api/forms/query-block` |
-| Native sessions | `/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/events`, `/api/sessions/{id}/alert` |
+| Native sessions | `/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/events`, `/api/sessions/{id}/alert`, `/api/sessions/{id}/lov` (answer a list of values), `/api/sessions/{id}/tick` (run due timers); events/answers may carry `formId`, start accepts `parameters` (multi-form stack: `form_app.rs`) |
 | Oracle preview | `/api/forms/oracle-preview`, `/api/forms/oracle-preview/compiled`, `/api/forms/oracle-preview/{id}`, `/api/forms/oracle-preview/readiness` |
 | Diff/reports | `/api/forms/diff`, `/api/reports`, `/api/reports/run`, `/api/reports/{name}/definition`, `/api/reports/{name}/html` |
 

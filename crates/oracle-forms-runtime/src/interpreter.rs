@@ -45,6 +45,15 @@ pub enum InteractionRequest {
         button3: Option<String>,
         default_button: u8,
     },
+    /// `SHOW_LOV` / `LIST_VALUES`: the user picks one of `rows` (or cancels).
+    ShowLov {
+        lov_name: String,
+        title: String,
+        columns: Vec<crate::lov::LovColumn>,
+        rows: Vec<Vec<serde_json::Value>>,
+        /// Initial search text (the typed value when the list was restricted).
+        filter: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,6 +62,8 @@ pub enum InteractionResponse {
     AlertButton(i64),
     /// Accept the default.
     Acknowledge,
+    /// Index into the rows sent with `ShowLov`, or `None` when the user cancelled.
+    LovSelection(Option<usize>),
 }
 
 /// Outcome of running a unit of PL/SQL.
@@ -143,10 +154,23 @@ struct Frame {
     package: Option<String>,
 }
 
+/// Default wall-clock limit for a single trigger.
+pub const DEFAULT_TRIGGER_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
+
 pub struct Interpreter {
     pub step_count: usize,
     pub max_steps: usize,
     pub max_depth: usize,
+    /// Wall-clock limit for one trigger (default [`DEFAULT_TRIGGER_TIME_LIMIT`]).
+    pub deadline: Option<std::time::Instant>,
+    /// Host cancellation flag (shared with the session).
+    pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Trigger (or entry point) being run, for budget error messages.
+    unit_label: String,
+    /// Program-unit call chain (outermost first), for budget error messages.
+    call_chain: Vec<String>,
+    /// Kind of the statement most recently started, for budget error messages.
+    last_stmt: &'static str,
     frames: Vec<Frame>,
     /// Exceptions currently being handled (innermost last): for `RAISE;`, `SQLERRM`.
     handling: Vec<RaisedException>,
@@ -159,6 +183,11 @@ impl Default for Interpreter {
             step_count: 0,
             max_steps: 100_000,
             max_depth: 64,
+            deadline: None,
+            cancel: None,
+            unit_label: String::new(),
+            call_chain: Vec::new(),
+            last_stmt: "",
             frames: vec![Frame { boundary: true, ..Default::default() }],
             handling: Vec::new(),
             sql_rowcount: None,
@@ -186,6 +215,30 @@ fn dotted(expr: &Expr) -> Option<String> {
 impl Interpreter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An interpreter for one trigger of `session`: inherits the session's cancellation
+    /// flag and command deadline, adds its own wall-clock limit and names the trigger in
+    /// budget errors.
+    pub fn for_trigger(session: &FormSession, label: &str) -> Self {
+        let own = std::time::Instant::now() + DEFAULT_TRIGGER_TIME_LIMIT;
+        let deadline = match session.command_deadline {
+            Some(d) if d < own => d,
+            _ => own,
+        };
+        Self {
+            deadline: Some(deadline),
+            cancel: Some(session.cancel.clone()),
+            unit_label: label.to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// Where execution was when a budget ran out.
+    fn budget_context(&self) -> String {
+        let chain = if self.call_chain.is_empty() { "(trigger body)".to_string() } else { self.call_chain.join(" > ") };
+        let stmt = if self.last_stmt.is_empty() { "unknown" } else { self.last_stmt };
+        format!("in trigger {}, program unit {}, at a {} statement (after {} steps)", self.unit_label, chain, stmt, self.step_count)
     }
 
     // ------------------------------------------------------------------
@@ -236,10 +289,22 @@ impl Interpreter {
     fn tick(&mut self) -> Result<(), RuntimeError> {
         self.step_count += 1;
         if self.step_count > self.max_steps {
-            Err(RuntimeError::StepBudgetExceeded)
-        } else {
-            Ok(())
+            return Err(RuntimeError::StepBudgetExceeded(format!("step limit {} reached {}", self.max_steps, self.budget_context())));
         }
+        // Cheap checks on every step would cost a syscall; sample the clock every 256 steps.
+        if self.step_count % 256 == 0 || self.step_count == 1 {
+            if let Some(c) = &self.cancel {
+                if c.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Err(RuntimeError::Cancelled(self.budget_context()));
+                }
+            }
+            if let Some(d) = self.deadline {
+                if std::time::Instant::now() >= d {
+                    return Err(RuntimeError::TimeBudgetExceeded(self.budget_context()));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn current_package(&self) -> Option<String> {
@@ -438,6 +503,7 @@ impl Interpreter {
     }
 
     fn exec_statement(&mut self, stmt: &Statement, session: &mut FormSession) -> ExecResult {
+        self.last_stmt = statement_kind(stmt);
         match stmt {
             Statement::Null => Ok(Flow::Normal),
 
@@ -712,6 +778,14 @@ impl Interpreter {
                     }
                     if let Some(slot) = session.package_vars.get_mut(&key) {
                         *slot = value;
+                        return Ok(Flow::Normal);
+                    }
+                }
+                // Field of a declared record variable (`rec.field := ...`): fields are created
+                // on first assignment (any record type is accepted).
+                if let Some((root, _)) = name.split_once('.') {
+                    if self.lookup_var(&upper(root)).is_some() || self.lookup_var(root).is_some() {
+                        self.declare(&upper(&name), value);
                         return Ok(Flow::Normal);
                     }
                 }
@@ -1014,6 +1088,29 @@ impl Interpreter {
             return self.call_routine(&routine, args, session);
         }
 
+        // Built-ins with OUT parameters (GET_PARAMETER_ATTR): evaluate only the IN
+        // arguments, then assign the produced OUT values to the argument targets.
+        if let Some(k) = builtins::out_arg_start(&upper(name)) {
+            if args.len() > k {
+                let mut ins = Vec::with_capacity(k);
+                for a in &args[..k] {
+                    match self.eval(a, session)? {
+                        Ok(v) => ins.push(v),
+                        Err(ex) => return Ok(Err(ex)),
+                    }
+                }
+                session.objects.pending_out.clear();
+                let result = self.run_builtin(name, &ins, session)?;
+                let outs = std::mem::take(&mut session.objects.pending_out);
+                for (target, value) in args[k..].iter().zip(outs) {
+                    if let Flow::Raise(ex) = self.assign(target, value, session)? {
+                        return Ok(Err(ex));
+                    }
+                }
+                return Ok(result.map(|v| v.or(Some(OracleValue::Null))));
+            }
+        }
+
         // Everything else takes evaluated IN arguments.
         let mut values = Vec::with_capacity(args.len());
         for a in args {
@@ -1071,6 +1168,10 @@ impl Interpreter {
             Some(BuiltinResult::Value(v)) => {
                 session.last_builtin_failed = false;
                 Ok(Ok(Some(v)))
+            }
+            Some(BuiltinResult::Raise { name, code, message }) => {
+                session.last_builtin_failed = true;
+                Ok(Err(RaisedException::new(&name, code, message)))
             }
             Some(BuiltinResult::Void) => {
                 session.last_builtin_failed = false;
@@ -1130,6 +1231,17 @@ impl Interpreter {
     }
 
     fn call_routine(&mut self, routine: &Arc<Routine>, args: &[Expr], session: &mut FormSession) -> Result<Result<Option<OracleValue>, RaisedException>, RuntimeError> {
+        let label = match &routine.package {
+            Some(p) => format!("{}.{}", p, routine.name),
+            None => routine.name.clone(),
+        };
+        self.call_chain.push(label);
+        let result = self.call_routine_inner(routine, args, session);
+        self.call_chain.pop();
+        result
+    }
+
+    fn call_routine_inner(&mut self, routine: &Arc<Routine>, args: &[Expr], session: &mut FormSession) -> Result<Result<Option<OracleValue>, RaisedException>, RuntimeError> {
         let depth = self.frames.iter().filter(|f| f.boundary).count();
         if depth >= self.max_depth {
             return Err(RuntimeError::RecursionLimitExceeded);
@@ -1448,6 +1560,24 @@ impl Interpreter {
         }
         session.trace_log.push(format!("LOCAL_SEQUENCE: {} (no Oracle database attached)", name));
         Ok(Ok(session.get_bind_value(&format!("SEQUENCE.{}.NEXTVAL", name))))
+    }
+}
+
+/// Short name of a statement kind, for budget error messages.
+fn statement_kind(stmt: &Statement) -> &'static str {
+    match stmt {
+        Statement::Null => "NULL",
+        Statement::Assignment { .. } => "assignment",
+        Statement::Call { .. } => "call",
+        Statement::If { .. } => "IF",
+        Statement::Loop { .. } => "LOOP",
+        Statement::WhileLoop { .. } => "WHILE",
+        Statement::ForLoop { .. } => "FOR",
+        Statement::CursorForLoop { .. } => "cursor FOR",
+        Statement::Case { .. } => "CASE",
+        Statement::Block(_) => "nested block",
+        Statement::Sql(_) => "SQL",
+        _ => "other",
     }
 }
 

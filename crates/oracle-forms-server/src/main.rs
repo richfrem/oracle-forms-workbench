@@ -5,6 +5,8 @@
 mod assets;
 mod oracle_preview;
 mod routes;
+mod form_app;
+mod host_exec;
 mod runtime_sessions;
 mod security;
 mod service;

@@ -384,6 +384,7 @@
                   <button id="runFormBtn" class="ora-run-pill" title="Preview in Native Rust Runtime (limited built-ins; no .pll / CALL_FORM)">▶ Rust Preview</button>
                   <button id="stopFormBtn" class="ora-stop-pill hidden" title="Stop Running Form Session">■ Stop</button>
                   <button id="dbConfigBtn" class="tool-btn" title="Database Logon & Connection Settings (Action -> Connect)">🔑</button>
+                  <button id="runtimeLovBtn" class="tool-btn hidden" title="List of values for the current item (F9)">📋 LOV</button>
                   <button id="runtimeCommitBtn" class="tool-btn hidden" title="Save Record: commit database changes (Ctrl+S)">💾 Record</button>
                   <button class="tool-btn" data-ora-cmd="commit" title="Save Record: commit database changes (Ctrl+S)">💾 Record</button>
                   <button class="tool-btn" data-ora-cmd="print" title="Print (Ctrl+P)">🖨️</button>
@@ -419,6 +420,7 @@
                   <div class="ora-toolbar-right">
                     <span id="dbStatusLabel" class="ora-db-tag" data-ora-cmd="logon" title="Click to open Oracle Forms Logon / Database Settings">Oracle Thin :1521</span>
                     <span id="sessionBadge" class="ora-session-tag hidden" aria-live="polite"></span>
+                    <div id="runtimeFormTabs" class="runtime-form-tabs hidden" role="tablist" aria-label="Open forms"></div>
                     <div id="recordNavControls" class="ora-record-nav hidden">
                       <button id="prevRecordBtn" class="ora-micro-btn" title="Previous Record">◀</button>
                       <span id="recordNavBadge" class="ora-rec-count">1 / 1</span>
@@ -930,7 +932,7 @@ python3 plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/healt
               <input id="oracleBrowseFmxInput" type="file" accept=".fmx,.FMX" hidden>
             </label>
             <label for="oracleFormsConfig">Forms config section (formsweb.cfg)<input id="oracleFormsConfig" placeholder="e.g. standaloneapp or app config" aria-describedby="oracleLaunchSummary"></label>
-            <label for="oracleLaunchParams">Launch parameters (optional)<input id="oracleLaunchParams" placeholder="e.g. APPL4=Y (leave blank for form login)" aria-describedby="oracleLaunchSummary"></label>
+            <label for="oracleLaunchParams">Launch parameters (optional)<input id="oracleLaunchParams" placeholder="e.g. MODE=Y (leave blank for form login)" aria-describedby="oracleLaunchSummary"></label>
           </div>
           <p id="oraclePrecompiledNote" class="preview-help">List populated from <code>OFW_FORMS_APPS_DIR</code> / <code>OFW_APP_NAME</code> and <code>OFW_ORACLE_HOME/forms</code> in <code>.env</code> (not the top-left <code>samples/</code> / <code>OFW_FORMS_PATH_EXTRA</code> source list).</p>
         </fieldset>
@@ -959,7 +961,7 @@ python3 plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/healt
         <ul>
           <li>External <code>.pll</code> library execution (e.g., shared helper or security libraries)</li>
           <li>Multi-form navigation (<code>CALL_FORM</code>, <code>OPEN_FORM</code>, <code>NEW_FORM</code>)</li>
-          <li>Full Forms built-in coverage (<code>CLEAR_LIST</code>, <code>ADD_LIST_ELEMENT</code>, <code>LOGON</code>, <code>SHOW_LOV</code>, <code>EXEC_SQL</code>, <code>WEBUTIL</code>, etc.)</li>
+          <li>Full Forms built-in coverage (<code>CLEAR_LIST</code>, <code>ADD_LIST_ELEMENT</code>, <code>LOGON</code>, <code>EXEC_SQL</code>, <code>WEBUTIL</code>, etc.)</li>
         </ul>
         <p><strong>Want a fully functional Oracle Forms runtime?</strong> Use <strong>Launch in 14c</strong> to run the compiled <code>.fmx</code> via Oracle 14c FSAL.</p>
       </div>
@@ -972,6 +974,25 @@ python3 plugins/oracle-forms/.apm/skills/setting-up-oracle-testbed/scripts/healt
         <button id="rustNoticeContinueBtn" type="button" class="btn btn-primary">▶ Continue with Rust Preview</button>
         <button type="button" class="btn btn-secondary" data-close-modal="rustPreviewNoticeDialog">Cancel</button>
       </div>
+    </div>
+  </dialog>
+  <dialog id="runtimeLovDialog" class="preview-dialog workbench-modal">
+    <div class="modal-header">
+      <h3 id="runtimeLovTitle"></h3>
+    </div>
+    <div class="modal-body">
+      <label class="runtime-lov-find">Find <input id="runtimeLovFind" type="text" autocomplete="off" placeholder="Starts with…"></label>
+      <div class="runtime-lov-scroll">
+        <table id="runtimeLovTable" class="runtime-lov-table">
+          <thead id="runtimeLovHead"></thead>
+          <tbody id="runtimeLovBody"></tbody>
+        </table>
+      </div>
+      <p id="runtimeLovEmpty" class="hidden">No matching values.</p>
+    </div>
+    <div class="modal-footer runtime-alert-buttons">
+      <button id="runtimeLovOk" class="btn btn-primary">OK</button>
+      <button id="runtimeLovCancel" class="btn btn-secondary">Cancel</button>
     </div>
   </dialog>
   <dialog id="runtimeAlertDialog" class="preview-dialog workbench-modal">

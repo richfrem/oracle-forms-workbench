@@ -24,6 +24,7 @@ Validate XML, compile in the Forms 14c container (`forms-server-14c`), and run w
 3. FSAL needs Java 17 or 21 (WSL OpenJDK 21 works; Windows Java 26 fails with `java/applet/AppletStub`).
 4. Never test via **Build & Compile (14c)** in the Rust app (it rewrites the form's XML); use `launch_fsal.py` or staged copies in `OFW_WORK_DIR`.
 5. Schema/compile/launch success is a pipeline check, not visual or behavioral parity.
+6. A black canvas with invisible prompts after compiling from XML is a conversion problem, not look-and-feel: inherited canvas colours were lost by `XML2Forms`. Fix in the staged XML and reconvert (`setting-up-oracle-testbed/references/troubleshooting.md`); `lookAndFeel`/`colorScheme` do not help.
 
 ## Quick start
 
@@ -46,9 +47,9 @@ python3 plugins/oracle-forms/.apm/skills/compiling-and-running-oracle-forms/scri
 |---|---|
 | `scripts/validate_forms_xml.py`, `scripts/ValidateXml.java` | XSD/DTD check via xmllint, lxml, or container Java (`--version`, `--schema`, `--list-versions`) |
 | `scripts/compile_form.py` | Headless `frmcmp_batch` compile-only (`.fmb`, `.mmb`, `.pll`; `-u user@db`, `--use-local-env`, `--offline`) |
-| `scripts/run_form.py` | Stage, XML2Forms, `frmcmp_batch`, publish, and launch FSAL (`--no-launch`, `--param NAME=VALUE`, `--app-name`, `--config`) |
+| `scripts/run_form.py` | Stage, XML2Forms, `frmcmp_batch`, publish, and launch FSAL (`--no-launch`, `--param NAME=VALUE`, `--app-name`, `--config`; `--source-dir DIR` builds the form with its recursive dependencies in waves) |
 | `scripts/launch_fsal.py` | Launch deployed `.fmx` via FSAL (`--param NAME=VALUE`, `--interactive`) |
-| `scripts/compile_from_manifest.py` | Batch Stage 3 (`OLB`→`PLL`→`MMB`→`FMB`), `sqlplus -L` preflight, publishes to `forms_apps/<app_name>/` (**user runs in terminal, never the agent**) |
+| `scripts/compile_from_manifest.py` | Batch Stage 3 wave by wave, incremental (unchanged modules skipped; `--rebuild-all`), `sqlplus -L` preflight, publishes to `forms_apps/<app_name>/` (**user runs in terminal, never the agent**) |
 | `references/rust-vs-14c-build-and-preview.md`, `references/compiling-and-running-oracle-forms-flow.mmd` | Full local-to-dev-DB dev flow: Rust inner loop, Web App `Target database` field, compile-only gap, `RosBinaryWriter` vs `XML2Forms` |
 | `references/batch-manifest-compilation.md`, `references/batch-pipeline-stages.mmd` | Stage 0–3 manifest compile protocol and visual pipeline |
 | `references/forms-path-and-dependencies.md`, `references/linux-case-sensitivity-and-symlinks.md` | Staging external sources, container `TNS_ADMIN`/`sqlplus` checks, case symlinks, `forms_apps/<app_name>/` |

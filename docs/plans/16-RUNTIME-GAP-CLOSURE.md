@@ -180,9 +180,10 @@ exact `FORM_SUCCESS`/message texts for failed loads are unverified against 14c.
   triggers and statements, `POST-FORMS-COMMIT`) inside the savepoint but issues no database
   `COMMIT`; posted records become query records; `posted_uncommitted` makes the next
   `COMMIT_FORM` only commit (and fire `POST-DATABASE-COMMIT`). Needs write opt-in like commit.
-  Finding while testing: queries on the SQLite backend return no `ROWID`, so updates and deletes
-  of queried records fail there with "changed record has no ROWID" (existing limitation, not
-  changed here; the POST test uses the Mock driver).
+  Finding while testing: queries on the SQLite backend returned no `ROWID` (SQLite names a `SELECT ROWID`
+  column after an INTEGER PRIMARY KEY alias), so updates and deletes of queried records failed with
+  "changed record has no ROWID". Fixed: the SQLite select list is `ROWID AS ROWID, ...`; verified by an update that is
+  written and re-read.
 - `WEB.SHOW_DOCUMENT(url [, target])`: queues an `openUrl` action (`actions` in the state); only
   `http`, `https` and workbench-relative URLs pass (server and UI both check); the UI opens
   the window and shows a banner if the browser blocks it.

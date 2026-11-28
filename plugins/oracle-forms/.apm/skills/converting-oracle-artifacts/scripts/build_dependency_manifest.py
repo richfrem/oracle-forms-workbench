@@ -534,7 +534,9 @@ def build_manifest(source_dir: Path, build_dir: Path, targets: Optional[List[str
     """Stage 1: scan, infer undeclared library attachments, keep only the targets' recursive dependency
     closure (when targets are given), resolve and order; return the manifest dictionary."""
     nodes = scan_source(source_dir, prefer_binaries)
-    notes = infer_library_attachments([n for n in nodes if n.get("convert", True)]) if infer else []
+    # Binary-preferred modules are inferred too (their dependency list comes from an XML export that may omit
+    # <AttachedLibrary>), so they are ordered after the libraries they call; their staged binary is never edited.
+    notes = infer_library_attachments(nodes) if infer else []
     if targets:
         nodes = dependency_closure(nodes, targets)
         names = {n["name"] for n in nodes}

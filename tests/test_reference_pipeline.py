@@ -622,7 +622,23 @@ class ManifestRecursionAndWaves(unittest.TestCase):
         self.assertTrue(pick(preferred)['sourceFile'].endswith('orders.fmb'))
         self.assertFalse(pick(preferred)['requiresConversion'])
         self.assertEqual(pick(preferred)['dependencies']['attachedLibraries'], ['UTIL'])
-        self.assertNotIn('inferredAttachedLibraries', pick(preferred))  # a binary keeps its own attachments
+        self.assertNotIn('inferredAttachedLibraries', pick(preferred))  # UTIL is declared, nothing to infer
+
+    def test_binary_preferred_module_is_ordered_after_a_library_its_xml_omits(self):
+        form = '<FormModule Name="ORDERS"><Trigger Name="T" TriggerText="Toolbar.Press;"/></FormModule>'
+        with TemporaryDirectory() as directory:
+            src = self._src(directory, {'orders_fmb.xml': form, 'util.pld': self.PLD_UTIL})
+            (src / 'orders.fmb').write_bytes(b'binary')
+            build = Path(directory) / 'build'
+            build.mkdir()
+            manifest = manifest_builder.build_manifest(src, build, targets=['orders'], prefer_binaries=True)
+            with patch.object(manifest_builder.rt, 'ensure_dir', lambda p: p.mkdir(parents=True, exist_ok=True)):
+                manifest_builder.stage_sources(src, build, manifest)
+            staged = (build / 'stage' / 'orders.fmb').read_bytes()
+        orders = next(m for m in manifest['modules'] if m['name'] == 'orders')
+        self.assertEqual([m['name'] for m in manifest['modules']], ['util', 'orders'])
+        self.assertEqual(orders['wave'], 2)
+        self.assertEqual(staged, b'binary')  # the original binary is staged unchanged
 
 
 if __name__ == '__main__':

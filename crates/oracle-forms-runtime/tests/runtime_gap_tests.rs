@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database, execute_policy_never_logs_command_arguments_or_output, new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer, file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte, open_handle_count_is_capped
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -695,7 +695,87 @@ fn host_can_use_a_host_supplied_executor() {
     exec(&mut s, "BEGIN HOST('tool --x'); HOST('fail now'); IF FORM_FAILURE THEN :GLOBAL.F := 'failed'; END IF; END;");
     assert_eq!(*seen.lock().unwrap(), vec!["tool --x".to_string(), "fail now".to_string()]);
     assert_eq!(global(&s, "F"), "failed");
-    assert!(s.trace_log.iter().any(|t| t == "HOST output: done"));
+    assert!(s.trace_log.iter().any(|t| t == "HOST: tool"), "only the program name is logged under Execute");
+    let joined = s.trace_log.join("\n");
+    assert!(!joined.contains("--x") && !joined.contains("done") && !joined.contains("now"), "no arguments or output in the trace: {joined}");
+}
+
+#[test]
+fn execute_policy_never_logs_command_arguments_or_output() {
+    let mut s = objects_session();
+    s.host_policy = oracle_forms_runtime::HostPolicy::Execute(Arc::new(|_cmd: &str| Ok("secret-output".into())));
+    exec(&mut s, "BEGIN HOST('tool --password=hunter2'); END;");
+    let joined = s.trace_log.join("\n") + &s.messages.join("\n");
+    assert!(!joined.contains("hunter2") && !joined.contains("secret-output"), "{joined}");
+    s.host_policy = oracle_forms_runtime::HostPolicy::Emulate;
+    exec(&mut s, "BEGIN HOST('echo visible'); END;");
+    assert!(s.trace_log.iter().any(|t| t == "HOST: echo visible"), "Emulate keeps the command in the trace");
+}
+
+#[test]
+fn new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer() {
+    use oracle_forms_runtime::textio::MAX_NEW_LINES;
+    let mut s = objects_session();
+    let ok = format!("DECLARE f TEXT_IO.FILE_TYPE; BEGIN f := TEXT_IO.FOPEN('n.txt', 'w'); TEXT_IO.NEW_LINE(f, {MAX_NEW_LINES}); END;");
+    assert_eq!(exec(&mut s, &ok), ExecutionStatus::Success(None), "{:?}", s.messages);
+    assert_eq!(s.objects.files["n.txt"].len(), MAX_NEW_LINES as usize);
+    let bad = format!("DECLARE f TEXT_IO.FILE_TYPE; BEGIN f := TEXT_IO.FOPEN('n.txt', 'a'); BEGIN TEXT_IO.NEW_LINE(f, {}); EXCEPTION WHEN OTHERS THEN :GLOBAL.NL := SQLERRM; END; END;", MAX_NEW_LINES + 1);
+    exec(&mut s, &bad);
+    assert!(global(&s, "NL").contains("29285"), "{}", global(&s, "NL"));
+    assert_eq!(s.objects.files["n.txt"].len(), MAX_NEW_LINES as usize, "nothing written by the rejected call");
+    let huge = "DECLARE f TEXT_IO.FILE_TYPE; BEGIN f := TEXT_IO.FOPEN('n.txt', 'a'); BEGIN TEXT_IO.NEW_LINE(f, 9000000000000); EXCEPTION WHEN OTHERS THEN :GLOBAL.NL2 := SQLERRM; END; END;";
+    exec(&mut s, huge);
+    assert!(global(&s, "NL2").contains("29285"));
+}
+
+#[test]
+fn file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte() {
+    use oracle_forms_runtime::textio::{MAX_FILE_BYTES, MAX_SESSION_BYTES};
+    let mut s = objects_session();
+    s.objects.files.insert("big.txt".into(), vec![b'x'; MAX_FILE_BYTES - 1]);
+    let put = |s: &mut FormSession, c: &str, g: &str| {
+        let code = format!("DECLARE f TEXT_IO.FILE_TYPE; BEGIN f := TEXT_IO.FOPEN('big.txt', 'a'); BEGIN TEXT_IO.PUT(f, '{c}'); :GLOBAL.{g} := 'ok'; EXCEPTION WHEN OTHERS THEN :GLOBAL.{g} := SQLERRM; END; END;");
+        exec(s, &code);
+    };
+    put(&mut s, "a", "P1");
+    assert_eq!(global(&s, "P1"), "ok", "the largest accepted file");
+    assert_eq!(s.objects.files["big.txt"].len(), MAX_FILE_BYTES);
+    put(&mut s, "b", "P2");
+    assert!(global(&s, "P2").contains("29285") && global(&s, "P2").contains("file size limit"), "{}", global(&s, "P2"));
+    assert_eq!(s.objects.files["big.txt"].len(), MAX_FILE_BYTES);
+
+    // Session total: fill to the cap with several files, then the next byte anywhere is refused.
+    let mut s = objects_session();
+    let full = MAX_SESSION_BYTES / MAX_FILE_BYTES;
+    for i in 0..full {
+        s.objects.files.insert(format!("f{i}.bin"), vec![0; MAX_FILE_BYTES]);
+    }
+    exec(&mut s, "DECLARE f TEXT_IO.FILE_TYPE; BEGIN f := TEXT_IO.FOPEN('extra.txt', 'w'); BEGIN TEXT_IO.PUT(f, 'a'); EXCEPTION WHEN OTHERS THEN :GLOBAL.S := SQLERRM; END; END;");
+    assert!(global(&s, "S").contains("session file storage limit"), "{}", global(&s, "S"));
+    // HOST emulation shares the caps.
+    s.host_policy = oracle_forms_runtime::HostPolicy::Emulate;
+    exec(&mut s, "BEGIN HOST('echo hi > extra2.txt'); IF FORM_FAILURE THEN :GLOBAL.H := 'refused'; END IF; END;");
+    assert_eq!(global(&s, "H"), "refused");
+    assert!(!s.objects.files.contains_key("extra2.txt"));
+    // Freeing space makes room again.
+    s.objects.files.remove("f0.bin");
+    exec(&mut s, "BEGIN HOST('echo hi > extra3.txt'); END;");
+    assert!(s.objects.files.contains_key("extra3.txt"));
+}
+
+#[test]
+fn open_handle_count_is_capped() {
+    use oracle_forms_runtime::textio::MAX_OPEN_HANDLES;
+    let mut s = objects_session();
+    let code = format!(
+        "DECLARE f TEXT_IO.FILE_TYPE; BEGIN FOR i IN 1..{} LOOP f := TEXT_IO.FOPEN('h' || i || '.txt', 'w'); END LOOP; \
+           BEGIN f := TEXT_IO.FOPEN('over.txt', 'w'); EXCEPTION WHEN OTHERS THEN :GLOBAL.O := SQLERRM; END; END;",
+        MAX_OPEN_HANDLES
+    );
+    exec(&mut s, &code);
+    assert_eq!(s.objects.open_files.len(), MAX_OPEN_HANDLES);
+    assert!(global(&s, "O").contains("29283"), "{}", global(&s, "O"));
+    assert!(!s.objects.files.contains_key("over.txt"));
 }
 
 #[test]

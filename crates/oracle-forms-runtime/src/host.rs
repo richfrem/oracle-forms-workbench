@@ -12,11 +12,16 @@
 //!
 //! Purpose: Module implementation (host.rs).
 //! Key Input Dependencies: crate::textio, crate::objects
+//!
+//! Round 3: emulated writes go through `textio::store` (same per-file / per-session caps as
+//! `TEXT_IO`; exceeding one fails the command). Under `Execute` only the program name is
+//! logged (no arguments, no output): command lines can carry secrets. `Emulate` keeps the full
+//! command and output in `trace_log` because it only touches the virtual file system.
 //! Index: HostPolicy, HostExec, dispatch, run_emulated, run_one, split_commands, redirect
 
 use crate::builtins::BuiltinResult;
 use crate::session::FormSession;
-use crate::textio::normalize_path;
+use crate::textio::{normalize_path, store};
 use crate::value::OracleValue;
 use std::sync::Arc;
 
@@ -49,7 +54,13 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
     if command.trim().is_empty() {
         return Some(BuiltinResult::Failure("HOST requires a command".into()));
     }
-    session.trace_log.push(format!("HOST: {command}"));
+    let emulate = matches!(session.host_policy, HostPolicy::Emulate);
+    if emulate {
+        session.trace_log.push(format!("HOST: {command}"));
+    } else {
+        let program = command.split_whitespace().next().unwrap_or("");
+        session.trace_log.push(format!("HOST: {program}"));
+    }
     Some(match session.host_policy.clone() {
         HostPolicy::Deny => BuiltinResult::Failure("HOST is disabled by policy (set OFW_HOST_POLICY=emulate or allow:<programs> on the server to enable it)".into()),
         HostPolicy::Emulate => match run_emulated(session, &command) {
@@ -57,12 +68,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             Err(e) => BuiltinResult::Failure(format!("HOST: {e}")),
         },
         HostPolicy::Execute(exec) => match exec(&command) {
-            Ok(out) => {
-                if !out.trim().is_empty() {
-                    session.trace_log.push(format!("HOST output: {}", out.trim()));
-                }
-                BuiltinResult::Void
-            }
+            Ok(_) => BuiltinResult::Void,
             Err(e) => BuiltinResult::Failure(format!("HOST: {e}")),
         },
     })
@@ -139,12 +145,9 @@ fn run_one(session: &mut FormSession, cmd: &str) -> Result<(), String> {
             match target {
                 Some((file, append)) => {
                     let key = path_of(&file)?;
-                    let entry = session.objects.files.entry(key).or_default();
-                    if !append {
-                        entry.clear();
-                    }
-                    entry.extend_from_slice(text.as_bytes());
-                    entry.extend_from_slice(b"\n");
+                    let mut data = text.into_bytes();
+                    data.push(b'\n');
+                    store(session, &key, &data, append)?;
                 }
                 None => session.trace_log.push(format!("HOST output: {text}")),
             }
@@ -173,7 +176,7 @@ fn run_one(session: &mut FormSession, cmd: &str) -> Result<(), String> {
             };
             let (from, to) = (path_of(from)?, path_of(to)?);
             let content = session.objects.files.get(&from).cloned().ok_or_else(|| format!("{from}: no such file"))?;
-            session.objects.files.insert(to, content);
+            store(session, &to, &content, false)?;
             if prog == "move" || prog == "mv" {
                 session.objects.files.remove(&from);
             }

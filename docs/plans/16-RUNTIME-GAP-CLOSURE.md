@@ -217,3 +217,16 @@ exact `FORM_SUCCESS`/message texts for failed loads are unverified against 14c.
   (`NEW_STATUS` ...), `CURRENT_RECORD` (get), `VISUAL_ATTRIBUTE` (stored, not rendered).
 Remaining: `GET/SET_RECORD_PROPERTY` properties beyond these, `LIST_VALUES` for list items,
 menu item roles/sub-menus, applying `menuItems` in the UI.
+
+## Round 3 (verification-driven follow-up to the independent review in [18](18-ROUND2-REVIEW-AND-ROUND3-PLAN.md))
+
+All items use synthetic fixtures; behaviours not checked against Forms 14c are marked unverified.
+
+### R3.1 Bounded TEXT_IO / virtual files / HOST (done)
+- Limits (`textio.rs` constants): `NEW_LINE` count 10,000; 8 MiB per file; 32 MiB per session over
+  all files; 64 open handles. Exceeding raises `WRITE_ERROR` (ORA-29285, `INVALID_OPERATION` for
+  handles) before any buffer of that size exists; the rejected call writes nothing.
+- HOST emulation writes (`echo >`, `copy`, `move`) use the same `textio::store` check.
+- `HostPolicy::Execute`: only the program name is traced; arguments and output are never logged
+  (they can hold credentials). `Emulate` still traces the full command because it only touches the
+  virtual file system.

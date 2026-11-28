@@ -15,11 +15,26 @@
 //!
 //! Purpose: Module implementation (textio.rs).
 //! Key Input Dependencies: crate::objects, crate::builtins
-//! Index: OpenFile, normalize_path, dispatch, fopen, handle_of, put, get_line, format_putf
+//!
+//! Limits (round 3, bounded virtual files): [`MAX_NEW_LINES`] per `NEW_LINE`, [`MAX_FILE_BYTES`]
+//! per file, [`MAX_SESSION_BYTES`] over all files of a session and [`MAX_OPEN_HANDLES`] open
+//! handles. Exceeding one raises `WRITE_ERROR` (ORA-29285; `INVALID_OPERATION` for handles)
+//! *before* any buffer of that size is allocated. `HOST` emulation and the server's upload
+//! API use the same checks through [`check_room`] / [`store`].
+//! Index: OpenFile, MAX_NEW_LINES, MAX_FILE_BYTES, MAX_SESSION_BYTES, MAX_OPEN_HANDLES, raise, text, normalize_path, session_bytes, check_room, store, dispatch, fopen, handle_of, put, get_line, format_putf
 
 use crate::builtins::BuiltinResult;
 use crate::session::FormSession;
 use crate::value::OracleValue;
+
+/// Largest accepted `NEW_LINE` count.
+pub const MAX_NEW_LINES: i64 = 10_000;
+/// Largest size of one virtual file.
+pub const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
+/// Largest total size of all virtual files of one session.
+pub const MAX_SESSION_BYTES: usize = 32 * 1024 * 1024;
+/// Largest number of simultaneously open `TEXT_IO` handles.
+pub const MAX_OPEN_HANDLES: usize = 64;
 
 /// An open `TEXT_IO` file handle.
 #[derive(Debug, Clone)]
@@ -33,6 +48,10 @@ pub struct OpenFile {
 
 fn raise(name: &str, code: i64, msg: impl Into<String>) -> BuiltinResult {
     BuiltinResult::Raise { name: name.into(), code, message: msg.into() }
+}
+
+fn write_error(msg: String) -> BuiltinResult {
+    raise("WRITE_ERROR", -29285, format!("ORA-29285: file write error: {msg}"))
 }
 
 fn text(args: &[OracleValue], idx: usize) -> String {
@@ -58,6 +77,35 @@ pub fn normalize_path(raw: &str) -> Option<String> {
     } else {
         Some(parts.join("/"))
     }
+}
+
+/// Total bytes held by the session's virtual files.
+pub fn session_bytes(session: &FormSession) -> usize {
+    session.objects.files.values().map(Vec::len).sum()
+}
+
+/// Checks that a file going from `old` to `new_len` bytes stays inside the per-file and
+/// per-session caps; the error text says which limit was hit. Nothing is allocated.
+pub fn check_room(session: &FormSession, old: usize, new_len: usize) -> Result<(), String> {
+    if new_len > MAX_FILE_BYTES {
+        return Err(format!("file size limit of {MAX_FILE_BYTES} bytes exceeded"));
+    }
+    if session_bytes(session).saturating_sub(old).saturating_add(new_len) > MAX_SESSION_BYTES {
+        return Err(format!("session file storage limit of {MAX_SESSION_BYTES} bytes exceeded"));
+    }
+    Ok(())
+}
+
+/// Writes (or appends) `data` to a sandbox file inside the limits; nothing is changed on error.
+pub fn store(session: &mut FormSession, path: &str, data: &[u8], append: bool) -> Result<(), String> {
+    let old = session.objects.files.get(path).map_or(0, Vec::len);
+    check_room(session, old, if append { old.saturating_add(data.len()) } else { data.len() })?;
+    let entry = session.objects.files.entry(path.to_string()).or_default();
+    if !append {
+        entry.clear();
+    }
+    entry.extend_from_slice(data);
+    Ok(())
 }
 
 pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> Option<BuiltinResult> {
@@ -97,6 +145,9 @@ fn fopen(args: &[OracleValue], session: &mut FormSession) -> BuiltinResult {
         "a" => (false, true, true, false),
         _ => return raise("INVALID_MODE", -29281, "ORA-29281: invalid mode"),
     };
+    if session.objects.open_files.len() >= MAX_OPEN_HANDLES {
+        return raise("INVALID_OPERATION", -29283, format!("ORA-29283: invalid file operation: more than {MAX_OPEN_HANDLES} files are open"));
+    }
     let exists = session.objects.files.contains_key(&path);
     if !exists && !create {
         return raise("INVALID_OPERATION", -29283, format!("ORA-29283: invalid file operation: {path} does not exist"));
@@ -131,11 +182,19 @@ fn put(op: &str, args: &[OracleValue], session: &mut FormSession) -> BuiltinResu
     let out = match op {
         "PUT" => text(args, 1),
         "PUT_LINE" => format!("{}\n", text(args, 1)),
-        "NEW_LINE" => "\n".repeat(args.get(1).and_then(|v| v.as_i64()).filter(|n| *n > 0).unwrap_or(1) as usize),
+        "NEW_LINE" => {
+            let n = args.get(1).and_then(|v| v.as_i64()).filter(|n| *n > 0).unwrap_or(1);
+            if n > MAX_NEW_LINES {
+                return write_error(format!("NEW_LINE count {n} exceeds the limit of {MAX_NEW_LINES}"));
+            }
+            "\n".repeat(n as usize)
+        }
         _ => format_putf(&text(args, 1), &args[2.min(args.len())..]),
     };
-    session.objects.files.entry(file.path).or_default().extend_from_slice(out.as_bytes());
-    BuiltinResult::Void
+    match store(session, &file.path, out.as_bytes(), true) {
+        Ok(()) => BuiltinResult::Void,
+        Err(e) => write_error(e),
+    }
 }
 
 /// `PUTF`: each `%s` takes the next argument (up to five), `\n` is a newline, `\\` a backslash.

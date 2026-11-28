@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_21_NAV_PEER" Title="Navigation conformance: opened form">
+    <Block Name="E">
+      <Item Name="INFO" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_EXIT" ItemType="Push Button" Label="BTN_EXIT">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN EXIT_FORM(NO_COMMIT); END;"/>
+      </Item>
+    </Block>
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="BEGIN :GLOBAL.TRAIL := :GLOBAL.TRAIL || &#x27;&gt;E&#x27;; :E.INFO := GET_APPLICATION_PROPERTY(CURRENT_FORM); END;"/>
+  </FormModule>
+</Module>

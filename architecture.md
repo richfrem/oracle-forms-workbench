@@ -273,7 +273,7 @@ AI-assisted authoring uses XML, PL/SQL, CLI JSON inspection, extracted source, a
 | Open/inspect | `/api/samples`, `/api/files/browse`, `/api/open-sample/{name}`, `/api/open-file`, `/api/module/{module_name}/source`, `/api/module/{module_name}/xml` |
 | Author/save/export | `/api/forms/new`, `/api/forms/module/{module_name}/item`, `/sync`, `/attach-menu`, `/api/forms/export-xml`, `/api/forms/export-binary`, `/api/artifacts/convert-to-xml`, `/api/forms/save` (short suffixes share the module prefix) |
 | Database | `/api/db/test`, `/api/db/describe`, `/api/forms/query-block` |
-| Native sessions | `/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/events`, `/api/sessions/{id}/alert`, `/api/sessions/{id}/lov` (answer a list of values), `/api/sessions/{id}/tick` (run due timers) |
+| Native sessions | `/api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/events`, `/api/sessions/{id}/alert`, `/api/sessions/{id}/lov` (answer a list of values), `/api/sessions/{id}/tick` (run due timers); events/answers may carry `formId`, start accepts `parameters` (multi-form stack: `form_app.rs`) |
 | Oracle preview | `/api/forms/oracle-preview`, `/api/forms/oracle-preview/compiled`, `/api/forms/oracle-preview/{id}`, `/api/forms/oracle-preview/readiness` |
 | Diff/reports | `/api/forms/diff`, `/api/reports`, `/api/reports/run`, `/api/reports/{name}/definition`, `/api/reports/{name}/html` |
 

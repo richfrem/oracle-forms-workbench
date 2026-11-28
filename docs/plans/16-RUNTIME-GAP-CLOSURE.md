@@ -128,24 +128,48 @@ Queries accept `:BLOCK.ITEM` / `:GLOBAL.X` binds. Remaining: selection built-ins
 `UNSET_GROUP_SELECTION`, `ADD_GROUP_ROW` into groups with unpopulated query columns,
 and PL/SQL-local variables inside group queries (only form binds are resolved).
 
-## 5. Multi-form navigation (design note, not implemented)
+## 5. Multi-form navigation (done)
 
-Goal: `CALL_FORM`, `OPEN_FORM`, `NEW_FORM` inside one session.
-- `FormStack`: the session becomes a stack/set of `FormSession`s owned by one server session
-  thread. `CALL_FORM` pushes a child and blocks the caller (modal; the parent is disabled
-  until `EXIT_FORM`), `OPEN_FORM` adds a peer that can be activated (session mode
-  `ACTIVATE`/`NO_ACTIVATE`), `NEW_FORM` replaces the current form (root of the stack).
-- Module resolution: reuse the server's form lookup (`samples/`, `OFW_FORMS_PATH_EXTRA`) via a
-  `ModuleLoader` callback on the session, so the runtime crate keeps no file-system knowledge.
-- Shared state: `:GLOBAL.*` and the database connection/transaction are shared across the
-  stack (as in Forms); item values, `:SYSTEM`, triggers, timers and parameter lists
-  (except the list passed in) are per form. The parameter list argument is copied into the
-  child's `:PARAMETER.*`; `DEFAULT` list means the one named `DEFAULT`.
-- Protocol: state gets `forms: [{id, name, active}]` and `activeForm`; events carry an
-  optional `formId`; `EXIT_FORM` in a child pops it and resumes the caller after `CALL_FORM`
-  with `FORM_SUCCESS`; `EXIT_FORM` in the root ends the session; `QUIT_ON_ERROR`/`SYSTEM`
-  semantics follow Forms.
-- UI: a tab strip for opened forms, the active form is rendered by the existing preview.
-- Tests: synthetic parent/child pair; `CALL_FORM` with parameter list, global passing, exit
-  and return; `OPEN_FORM` peer switching; `NEW_FORM` replacement; error when the module is
-  not found.
+Implemented as designed in [17](17-UNSUPPORTED-BUILTINS-AND-FORM-LAUNCH-ANALYSIS.md) A.3 option 1:
+one session thread owns the application's form stack (`crates/oracle-forms-server/src/form_app.rs`);
+the runtime crate (`nav.rs`) only parses the built-ins and calls host callbacks, so it has no
+file-system or thread code.
+
+- `CALL_FORM(form [, HIDE|NO_HIDE] [, DO_REPLACE|NO_REPLACE] [, QUERY_ONLY|NO_QUERY_ONLY] [, paramlist])`
+  is a real nested call: the caller's trigger blocks in the navigation handler, which loads the
+  module (host `FormLoader` callback), starts it with the parameter list consumed into
+  `:PARAMETER.*`, serves browser commands for the called form, and returns when it exits, so the
+  caller continues after `CALL_FORM`. Calls nest. A suspended caller (and any form behind a
+  modal called form) refuses events with a clear error. `QUERY_ONLY` starts the form read-only.
+  `HIDE` and `DO_REPLACE` are reported per form in the state (`hidden`, `replaceMenu`); the menu
+  runtime that would act on `DO_REPLACE` is not built yet.
+- `OPEN_FORM(form [, ACTIVATE|NO_ACTIVATE] [, SESSION|NO_SESSION] [, paramlist])` queues the
+  open; it is applied when the opening trigger ends (the opener keeps running). `SESSION` gives
+  the form its own database connection (shared for in-memory SQLite, where a second connection
+  would be an unrelated empty database, and for Mock). Opening an already open form is refused
+  with a message.
+- `NEW_FORM(form [, TO_SAVEPOINT|NO_ROLLBACK|FULL_ROLLBACK] [, QUERY_ONLY] [, paramlist])` replaces
+  the issuing form in place (keeps its place in a call chain and its `calling form`);
+  `FULL_ROLLBACK` discards the form's buffered changes first. Savepoint semantics beyond that
+  are not modelled (changes are written only by commit).
+- `GO_FORM`, `CLOSE_FORM` (peers; called forms end with `EXIT_FORM`), `FIND_FORM`, `EXIT_FORM`
+  with `ASK_COMMIT` (asks "save changes?" Yes/No/Cancel through the alert channel when a
+  database block has changes), `DO_COMMIT`, `NO_COMMIT`, `NO_VALIDATE`. Exit of a called form
+  returns to the caller, of an opened form closes it, of the root ends the application.
+- `:GLOBAL` values are shared across the application (copied in before and out after a form
+  runs; `:PARAMETER.*` stay per form). Introspection: `GET_APPLICATION_PROPERTY(CALLING_FORM)`,
+  `:SYSTEM.CURRENT_FORM`, `GET_FORM_PROPERTY(FORM_NAME|FIRST_BLOCK|LAST_BLOCK|CURRENT_BLOCK|CALLING_FORM)`.
+- API: `POST /api/sessions` accepts `parameters: {NAME: value}`; every event may carry `formId`
+  (default: the active form), alert/LOV answers may carry `formId` (409 if it is not the form
+  that asked), the new event `activateForm {formId}` is the tab click, and every state carries
+  `formId`, `activeForm`, `sourceFile` and `forms: [{id, name, kind, active, modal, suspended,
+  hidden, replaceMenu}]`.
+- UI: a tab strip appears when more than one form is open; the preview switches to the
+  module of the active form (`/api/open-sample/<sourceFile>`) without ending the session.
+- Tests: `crates/oracle-forms-server/src/runtime_sessions.rs` (call/return, parameters, globals,
+  nesting, missing form, QUERY_ONLY/HIDE, open/activate/go/close/find, NO_ACTIVATE/SESSION,
+  NEW_FORM, exit modes and prompt, wrong `formId`), runtime unit tests, `tests/ui_runtime.test.cjs`,
+  and the synthetic forms `samples/conformance/conf_21_nav_*_fmb.xml`.
+Remaining: `RUN_PRODUCT(FORMS...)`, savepoint rollback semantics, menu replacement,
+per-form timers continue to run only for the forms that are not suspended, and the
+exact `FORM_SUCCESS`/message texts for failed loads are unverified against 14c.

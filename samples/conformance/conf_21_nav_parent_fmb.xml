@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_21_NAV_PARENT" Title="Navigation conformance: parent">
+    <Block Name="MAIN">
+      <Item Name="RESULT" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_CALL" ItemType="Push Button" Label="BTN_CALL">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE pl ParamList; BEGIN pl := CREATE_PARAMETER_LIST(&#x27;PL&#x27;); ADD_PARAMETER(pl, &#x27;MSG&#x27;, TEXT_PARAMETER, &#x27;hello&#x27;); CALL_FORM(&#x27;conf_21_nav_child&#x27;, NO_HIDE, NO_REPLACE, NO_QUERY_ONLY, pl); DESTROY_PARAMETER_LIST(pl); :GLOBAL.TRAIL := :GLOBAL.TRAIL || &#x27;&gt;back&#x27;; :MAIN.RESULT := :GLOBAL.TRAIL || &#x27;|&#x27; || :GLOBAL.CHILD_SAW; END;"/>
+      </Item>
+      <Item Name="BTN_CALL_QO" ItemType="Push Button" Label="BTN_CALL_QO">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CALL_FORM(&#x27;conf_21_nav_child&#x27;, HIDE, DO_REPLACE, QUERY_ONLY); END;"/>
+      </Item>
+      <Item Name="BTN_CALL_MISSING" ItemType="Push Button" Label="BTN_CALL_MISSING">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CALL_FORM(&#x27;no_such_form&#x27;); IF FORM_FAILURE THEN :MAIN.RESULT := &#x27;load failed&#x27;; END IF; END;"/>
+      </Item>
+      <Item Name="BTN_OPEN" ItemType="Push Button" Label="BTN_OPEN">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN OPEN_FORM(&#x27;conf_21_nav_peer&#x27;, ACTIVATE, NO_SESSION); :GLOBAL.TRAIL := :GLOBAL.TRAIL || &#x27;&gt;opened&#x27;; :MAIN.RESULT := :GLOBAL.TRAIL; END;"/>
+      </Item>
+      <Item Name="BTN_OPEN_BG" ItemType="Push Button" Label="BTN_OPEN_BG">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN OPEN_FORM(&#x27;conf_21_nav_peer&#x27;, NO_ACTIVATE, SESSION); END;"/>
+      </Item>
+      <Item Name="BTN_GO" ItemType="Push Button" Label="BTN_GO">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN GO_FORM(&#x27;conf_21_nav_peer&#x27;); END;"/>
+      </Item>
+      <Item Name="BTN_CLOSE" ItemType="Push Button" Label="BTN_CLOSE">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CLOSE_FORM(&#x27;conf_21_nav_peer&#x27;); END;"/>
+      </Item>
+      <Item Name="BTN_FIND" ItemType="Push Button" Label="BTN_FIND">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN IF ID_NULL(FIND_FORM(&#x27;conf_21_nav_peer&#x27;)) THEN :MAIN.RESULT := &#x27;peer closed&#x27;; ELSE :MAIN.RESULT := &#x27;peer open&#x27;; END IF; END;"/>
+      </Item>
+      <Item Name="BTN_NEW" ItemType="Push Button" Label="BTN_NEW">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN NEW_FORM(&#x27;conf_21_nav_repl&#x27;, NO_ROLLBACK); END;"/>
+      </Item>
+      <Item Name="BTN_EXIT" ItemType="Push Button" Label="BTN_EXIT">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN EXIT_FORM(NO_COMMIT); END;"/>
+      </Item>
+    </Block>
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="BEGIN :GLOBAL.TRAIL := NVL(:GLOBAL.TRAIL, &#x27;&#x27;) || &#x27;P&#x27;; :MAIN.RESULT := NVL(:PARAMETER.GREETING, &#x27;none&#x27;) || &#x27;/&#x27; || :SYSTEM.CURRENT_FORM; END;"/>
+  </FormModule>
+</Module>

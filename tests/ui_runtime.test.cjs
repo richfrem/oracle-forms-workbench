@@ -49,3 +49,36 @@ test('timer polling is scheduled only while a timer is pending and nothing is wa
   assert.equal(Runtime.timerPollDelay({ nextTimerMs: 10, lov: {} }), null);
   assert.equal(Runtime.timerPollDelay({ nextTimerMs: 10, alert: {} }), null);
 });
+
+test('form tabs: suspended callers and forms behind a modal called form are disabled', () => {
+  const state = {
+    activeForm: 2,
+    forms: [
+      { id: 1, name: 'MAIN', kind: 'root', suspended: true, modal: false },
+      { id: 2, name: 'DETAIL', kind: 'called', suspended: false, modal: true },
+    ],
+  };
+  const tabs = Array.from(Runtime.formTabs(state));
+  assert.equal(tabs.length, 2);
+  assert.equal(tabs[0].enabled, false);
+  assert.equal(tabs[1].enabled, true);
+  assert.equal(tabs[1].active, true);
+  assert.match(tabs[1].label, /called/);
+  const peers = Array.from(Runtime.formTabs({ activeForm: 1, forms: [{ id: 1, name: 'A', kind: 'root' }, { id: 2, name: 'B', kind: 'opened' }] }));
+  assert.ok(peers.every(t => t.enabled), 'opened peers can be switched freely');
+  assert.equal(Runtime.formTabs(undefined).length, 0);
+});
+
+test('events and answers are addressed to the form the browser shows', async () => {
+  const sent = [];
+  context.fetch = async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return { ok: true, status: 200, json: async () => ({ sessionId: 's1', formId: 2 }) }; };
+  const rt = new Runtime();
+  rt.sessionId = 's1';
+  rt.formId = 2;
+  await rt.send({ kind: 'nextRecord' });
+  await rt.answerAlert(1);
+  await rt.answerLov(0);
+  assert.deepEqual(sent.map(s => s.body.formId), [2, 2, 2]);
+  assert.match(sent[1].url, /\/alert$/);
+  assert.match(sent[2].url, /\/lov$/);
+});

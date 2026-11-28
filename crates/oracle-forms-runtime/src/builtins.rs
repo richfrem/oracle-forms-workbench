@@ -36,7 +36,8 @@ pub const FORMS_CONSTANTS: &[&str] = &[
     "NO_VALIDATE", "DO_COMMIT", "NO_COMMIT", "FULL_ROLLBACK", "ASK_COMMIT", "NO_SCREEN",
     "PRIMARY_KEY", "LOCKING_MODE", "ITEM_IS_VALID", "STATUS", "RECORD_STATUS", "CURRENT_FORM",
     "USERNAME", "PASSWORD", "CONNECT_STRING", "OPERATING_SYSTEM", "USER_INTERFACE", "CALLING_FORM",
-    "NO_ACKNOWLEDGE", "ACKNOWLEDGE", "CHAR_COLUMN", "NUMBER_COLUMN", "DATE_COLUMN", "LONG_COLUMN",
+    "NO_ACKNOWLEDGE", "ACKNOWLEDGE", "QUERY_ONLY", "NO_QUERY_ONLY", "ACTIVATE", "NO_ACTIVATE", "SESSION",
+    "NO_SESSION", "TO_SAVEPOINT", "NO_ROLLBACK", "FORM_NAME", "FIRST_BLOCK", "LAST_BLOCK", "CURRENT_BLOCK", "CHAR_COLUMN", "NUMBER_COLUMN", "DATE_COLUMN", "LONG_COLUMN",
     "END_OF_GROUP", "ALL_ROWS", "NO_CHANGE", "REPEAT", "NO_REPEAT", "RESTRICT", "NO_RESTRICT", "TIMER_NAME", "GROUP_NAME",
     "AUTO_REFRESH", "FILTER_BEFORE_DISPLAY", "TEXT_PARAMETER", "DATA_PARAMETER", "ALERT_MESSAGE_TEXT",
     "BUTTON1", "BUTTON2", "BUTTON3", "ALL_RECORDS", "FIRST_RECORD", "NEXT_RECORD", "LAST_RECORD",
@@ -75,9 +76,6 @@ const UNSUPPORTED: &[(&str, &str)] = &[
     ("RUN_PRODUCT", "launches Oracle Reports/Graphics"),
     ("RUN_REPORT_OBJECT", "runs an Oracle Report"),
     ("WEB.SHOW_DOCUMENT", "opens a browser window"),
-    ("CALL_FORM", "multi-form navigation is not supported yet"),
-    ("OPEN_FORM", "multi-form navigation is not supported yet"),
-    ("NEW_FORM", "multi-form navigation is not supported yet"),
     ("EXEC_SQL", "dynamic SQL via EXEC_SQL is not supported"),
     ("FORMS_DDL", "dynamic SQL via FORMS_DDL is not supported"),
 ];
@@ -157,10 +155,6 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
         }
         "COMMIT_FORM" => nav(session.commit()),
         "POST" => BuiltinResult::Unsupported("POST (posting without commit is not supported yet)".into()),
-        "EXIT_FORM" => {
-            session.exit_requested = true;
-            BuiltinResult::Void
-        }
         "DO_KEY" => match arg_text(args, 0) {
             Some(key) => nav(session.do_key(&key)),
             None => BuiltinResult::Failure("DO_KEY requires a built-in name".into()),
@@ -286,6 +280,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
                 "CURRENT_FORM" | "CURRENT_FORM_NAME" => OracleValue::varchar2(session.module.key.name.clone()),
                 "OPERATING_SYSTEM" => OracleValue::varchar2(std::env::consts::OS.to_ascii_uppercase()),
                 "USER_INTERFACE" => OracleValue::varchar2("WEB"),
+                "CALLING_FORM" => session.calling_form.clone().map(OracleValue::varchar2).unwrap_or(OracleValue::Null),
                 "TIMER_NAME" => session.objects.expired_timer.clone().map(OracleValue::varchar2).unwrap_or(OracleValue::Null),
                 _ => OracleValue::Null,
             })
@@ -297,13 +292,13 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             session.trace_log.push(format!("UI_PROPERTY_NOT_RENDERED: {}", name_upper));
             BuiltinResult::Void
         }
-        "GET_WINDOW_PROPERTY" | "GET_CANVAS_PROPERTY" | "GET_VIEW_PROPERTY" | "GET_FORM_PROPERTY" => {
+        "GET_WINDOW_PROPERTY" | "GET_CANVAS_PROPERTY" | "GET_VIEW_PROPERTY" => {
             BuiltinResult::Value(OracleValue::Null)
         }
 
         // Object lookup: ids are represented by the object name.
         "FIND_ITEM" | "FIND_BLOCK" | "FIND_ALERT" | "FIND_WINDOW" | "FIND_CANVAS" | "FIND_VIEW"
-        | "FIND_FORM" | "FIND_TAB_PAGE" | "FIND_RELATION" => {
+        | "FIND_TAB_PAGE" | "FIND_RELATION" => {
             BuiltinResult::Value(args.first().cloned().unwrap_or(OracleValue::Null))
         }
         "ID_NULL" => BuiltinResult::Value(OracleValue::boolean(args.first().map(|v| v.is_null()).unwrap_or(true))),
@@ -314,6 +309,7 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
                 .or_else(|| crate::record_groups::dispatch(name, args, session))
                 .or_else(|| crate::timers::dispatch(name, args, session))
                 .or_else(|| crate::lov::dispatch(name, args, session))
+                .or_else(|| crate::nav::dispatch(name, args, session))
             {
                 Some(r) => r,
                 None => return None,

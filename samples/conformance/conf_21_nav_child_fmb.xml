@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_21_NAV_CHILD" Title="Navigation conformance: called form">
+    <Block Name="C">
+      <Item Name="SEEN" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_EXIT" ItemType="Push Button" Label="BTN_EXIT">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN EXIT_FORM(NO_COMMIT); END;"/>
+      </Item>
+      <Item Name="BTN_NEST" ItemType="Push Button" Label="BTN_NEST">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CALL_FORM(&#x27;conf_21_nav_peer&#x27;); :C.SEEN := &#x27;nest-returned&#x27;; END;"/>
+      </Item>
+    </Block>
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="BEGIN :C.SEEN := :PARAMETER.MSG; :GLOBAL.CHILD_SAW := :PARAMETER.MSG || &#x27;:&#x27; || GET_APPLICATION_PROPERTY(CALLING_FORM); :GLOBAL.TRAIL := :GLOBAL.TRAIL || &#x27;&gt;C&#x27;; END;"/>
+  </FormModule>
+</Module>

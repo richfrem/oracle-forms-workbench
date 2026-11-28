@@ -351,6 +351,9 @@ struct StartSessionRequest {
     /// Off by default: the session refuses DML, locks and commits.
     #[serde(default)]
     allow_writes: bool,
+    /// Startup parameters, readable by the form as `:PARAMETER.NAME`.
+    #[serde(default)]
+    parameters: std::collections::HashMap<String, String>,
 }
 
 fn session_error(code: u16, message: String) -> Response {
@@ -398,6 +401,8 @@ async fn start_session(State(service): State<FormsService>, Json(req): Json<Star
         missing_libraries: missing,
         db,
         allow_writes: req.allow_writes,
+        parameters: req.parameters.into_iter().collect(),
+        loader: Some(form_loader(service.clone())),
     };
     match service.sessions.start(opts).await {
         Ok(state) => Json(state).into_response(),
@@ -405,12 +410,50 @@ async fn start_session(State(service): State<FormsService>, Json(req): Json<Star
     }
 }
 
+/// Finds the forms that `CALL_FORM` / `OPEN_FORM` / `NEW_FORM` name, with their libraries.
+/// Names are tried as given and in lower case, with the usual `_fmb.xml` file suffix.
+fn form_loader(service: FormsService) -> oracle_forms_runtime::FormLoader {
+    std::sync::Arc::new(move |name: &str| {
+        let plain = name.trim();
+        if plain.is_empty() || plain.contains(['/', '\\']) {
+            return Err(format!("{name} is not a plain form name"));
+        }
+        let mut last = format!("form {name} was not found");
+        for cand in [plain.to_string(), plain.to_ascii_lowercase(), plain.to_ascii_uppercase()] {
+            match service.get_or_load_module(&cand) {
+                Ok(module) => {
+                    let mut libraries = Vec::new();
+                    let mut missing = Vec::new();
+                    for lib in &module.attached_libraries {
+                        match service.resolve_library(&cand, &lib.name) {
+                            Some(idx) => libraries.push(idx),
+                            None => missing.push(lib.name.clone()),
+                        }
+                    }
+                    return Ok(oracle_forms_runtime::LoadedForm { module, libraries, missing_libraries: missing });
+                }
+                Err(e) => last = format!("cannot open form {name}: {e}"),
+            }
+        }
+        Err(last)
+    })
+}
+
+/// A browser event, optionally addressed to one form of the application.
+#[derive(Deserialize)]
+struct EventEnvelope {
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
+    #[serde(flatten)]
+    event: crate::runtime_sessions::SessionEvent,
+}
+
 async fn session_event(
     State(service): State<FormsService>,
     AxumPath(id): AxumPath<String>,
-    Json(event): Json<crate::runtime_sessions::SessionEvent>,
+    Json(envelope): Json<EventEnvelope>,
 ) -> Response {
-    match service.sessions.send_event(&id, event).await {
+    match service.sessions.send_event_to(&id, envelope.event, envelope.form_id).await {
         Ok(state) => Json(state).into_response(),
         Err((code, msg)) => session_error(code, msg),
     }
@@ -420,6 +463,9 @@ async fn session_event(
 struct AlertAnswer {
     /// 1, 2 or 3.
     button: u8,
+    /// The form that asked (must match when given).
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
 }
 
 async fn session_alert(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Json(answer): Json<AlertAnswer>) -> Response {
@@ -429,7 +475,7 @@ async fn session_alert(State(service): State<FormsService>, AxumPath(id): AxumPa
         3 => oracle_forms_runtime::ALERT_BUTTON3,
         _ => return session_error(400, "button must be 1, 2 or 3".to_string()),
     };
-    match service.sessions.answer_alert(&id, code).await {
+    match service.sessions.answer_alert_for(&id, code, answer.form_id).await {
         Ok(state) => Json(state).into_response(),
         Err((c, msg)) => session_error(c, msg),
     }
@@ -440,11 +486,14 @@ struct LovAnswer {
     /// Index of the picked row in the list that was sent; absent or null cancels.
     #[serde(default)]
     selected: Option<usize>,
+    /// The form that asked (must match when given).
+    #[serde(default, rename = "formId")]
+    form_id: Option<u32>,
 }
 
 /// Answers a pending list of values (`SHOW_LOV` / `LIST_VALUES`).
 async fn session_lov(State(service): State<FormsService>, AxumPath(id): AxumPath<String>, Json(answer): Json<LovAnswer>) -> Response {
-    match service.sessions.answer_lov(&id, answer.selected).await {
+    match service.sessions.answer_lov_for(&id, answer.selected, answer.form_id).await {
         Ok(state) => Json(state).into_response(),
         Err((c, msg)) => session_error(c, msg),
     }

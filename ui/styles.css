@@ -1917,6 +1917,27 @@ input[type="range"] {
   white-space: pre-wrap;
 }
 
+.runtime-form-tabs {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.runtime-form-tab {
+  border: 1px solid var(--border, #c8ccd0);
+  background: var(--panel-bg, #f4f5f7);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px 3px 0 0;
+}
+.runtime-form-tab.active {
+  background: var(--accent-soft, #cfe3ff);
+  font-weight: 600;
+}
+.runtime-form-tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .runtime-lov-scroll {
   max-height: 320px;
   overflow: auto;

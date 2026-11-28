@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -465,4 +465,91 @@ fn lov_overrides_change_the_group() {
     s.set_interaction_handler(lov_handler(Arc::new(Mutex::new(Vec::new())), Some(0)));
     exec(&mut s, "BEGIN SET_LOV_PROPERTY('LOV_CUST', GROUP_NAME, 'RG_STATIC'); :GLOBAL.G := GET_LOV_PROPERTY('LOV_CUST', GROUP_NAME); END;");
     assert_eq!(global(&s, "G"), "RG_STATIC");
+}
+
+// ---------------------------------------------------------------------------
+// Navigation built-ins (the stack itself is exercised through the server)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_names_lose_paths_and_extensions() {
+    use oracle_forms_runtime::nav::form_module_name;
+    assert_eq!(form_module_name("orders.fmx"), "orders");
+    assert_eq!(form_module_name("/apps/forms/ORDERS.FMB"), "ORDERS");
+    assert_eq!(form_module_name("C:\\apps\\orders"), "orders");
+    assert_eq!(form_module_name("a.b"), "a.b", "unknown extensions stay");
+}
+
+#[test]
+fn open_new_go_close_queue_requests_with_parsed_modes_and_parameters() {
+    use oracle_forms_runtime::nav::NavRequest;
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "DECLARE pl ParamList; BEGIN pl := CREATE_PARAMETER_LIST('NAVPL'); ADD_PARAMETER(pl, 'k', TEXT_PARAMETER, 'v'); \
+           OPEN_FORM('dir/other.fmx', NO_ACTIVATE, SESSION, pl); NEW_FORM('third', FULL_ROLLBACK, QUERY_ONLY); \
+           GO_FORM('other'); CLOSE_FORM('other'); END;",
+    );
+    let q = std::mem::take(&mut s.nav_queue);
+    assert_eq!(q.len(), 4, "{q:?} {:?}", s.messages);
+    match &q[0] {
+        NavRequest::Open(o) => {
+            assert_eq!(o.form, "other");
+            assert!(!o.activate && o.new_session);
+            assert_eq!(o.params, vec![("K".to_string(), "v".to_string())]);
+        }
+        other => panic!("{other:?}"),
+    }
+    match &q[1] {
+        NavRequest::New(n) => assert!(n.query_only && n.rollback == oracle_forms_runtime::Rollback::FullRollback),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(q[2], NavRequest::GoForm("other".into()));
+    assert_eq!(q[3], NavRequest::CloseForm("other".into()));
+}
+
+#[test]
+fn call_form_without_a_host_is_reported_and_data_parameters_are_refused() {
+    let mut s = objects_session();
+    let unit = oracle_forms_plsql::Parser::new("BEGIN CALL_FORM('x'); :GLOBAL.AFTER := 'ran'; END;").parse_unit().unwrap();
+    let err = Interpreter::for_trigger(&s, "T").execute_unit(&unit, &mut s).unwrap_err();
+    assert!(err.to_string().contains("CALL_FORM"), "no host: CALL_FORM is reported, not ignored: {err}");
+
+    let mut s = objects_session();
+    exec(&mut s, "DECLARE pl ParamList; BEGIN pl := CREATE_PARAMETER_LIST('P'); ADD_PARAMETER(pl, 'd', DATA_PARAMETER, 'RG_STATIC'); OPEN_FORM('x', ACTIVATE, NO_SESSION, pl); IF FORM_FAILURE THEN :GLOBAL.R := 'refused'; END IF; END;");
+    assert_eq!(global(&s, "R"), "refused");
+    assert!(s.nav_queue.is_empty());
+}
+
+#[test]
+fn form_introspection_reports_the_stack() {
+    let mut s = objects_session();
+    s.calling_form = Some("CALLER".into());
+    s.open_forms = vec!["CONF20".into(), "OTHER".into()];
+    exec(
+        &mut s,
+        "BEGIN :GLOBAL.CALLING := GET_APPLICATION_PROPERTY(CALLING_FORM); :GLOBAL.CUR := :SYSTEM.CURRENT_FORM; \
+           :GLOBAL.FN := GET_FORM_PROPERTY(CURRENT_FORM, FORM_NAME); :GLOBAL.FB := GET_FORM_PROPERTY(CURRENT_FORM, FIRST_BLOCK); \
+           IF NOT ID_NULL(FIND_FORM('other')) THEN :GLOBAL.F1 := 'found'; END IF; IF ID_NULL(FIND_FORM('nope')) THEN :GLOBAL.F2 := 'null'; END IF; END;",
+    );
+    assert_eq!(global(&s, "CALLING"), "CALLER");
+    assert_eq!(global(&s, "CUR"), "CONF20");
+    assert_eq!(global(&s, "FN"), "CONF20");
+    assert_eq!(global(&s, "FB"), "CUSTOMERS");
+    assert_eq!(global(&s, "F1"), "found");
+    assert_eq!(global(&s, "F2"), "null");
+}
+
+#[test]
+fn exit_form_modes_control_the_commit_and_the_prompt() {
+    let mut s = objects_session();
+    // A control-only change never prompts; NO_COMMIT / NO_VALIDATE exit immediately.
+    exec(&mut s, "BEGIN EXIT_FORM(NO_COMMIT); END;");
+    assert!(s.exit_requested);
+    let mut s = objects_session();
+    exec(&mut s, "BEGIN EXIT_FORM(NO_VALIDATE); END;");
+    assert!(s.exit_requested);
+    let mut s = objects_session();
+    exec(&mut s, "BEGIN EXIT_FORM; END;");
+    assert!(s.exit_requested, "nothing to save: ASK_COMMIT exits without asking");
 }

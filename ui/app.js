@@ -179,6 +179,8 @@
   const runtimeAlertDialog = document.getElementById('runtimeAlertDialog');
   const runtimeLovDialog = document.getElementById('runtimeLovDialog');
   const runtimeLovBtn = document.getElementById('runtimeLovBtn');
+  const runtimeFormTabs = document.getElementById('runtimeFormTabs');
+  let switchingForm = false;
   let pendingLov = null;
   let selectedLovIndex = null;
   let timerPollHandle = null;
@@ -2168,8 +2170,8 @@
   }
 
   // Set active module
-  function setModulePayload(payload) {
-    if (runtime.active) {
+  function setModulePayload(payload, { keepRuntime = false } = {}) {
+    if (runtime.active && !keepRuntime) {
       runtime.stop();
       queryRecordsByBlock.clear();
       activeRecordIndexByBlock.clear();
@@ -2920,6 +2922,7 @@
     stopFormBtn?.classList.toggle('hidden', !running);
     runtimeCommitBtn?.classList.toggle('hidden', !running);
     runtimeLovBtn?.classList.toggle('hidden', !running);
+    if (!running) runtimeFormTabs?.classList.add('hidden');
     sessionBadge?.classList.toggle('hidden', !running);
     sessionTracePanel?.classList.toggle('hidden', !running);
     if (dbBackendSelect) dbBackendSelect.disabled = running;
@@ -3095,9 +3098,53 @@
     }, delay);
   }
 
+  /** Tab strip over the application's forms (CALL_FORM / OPEN_FORM / NEW_FORM). */
+  function renderFormTabs(state) {
+    if (!runtimeFormTabs) return;
+    const tabs = FormsRuntime.formTabs(state);
+    runtimeFormTabs.classList.toggle('hidden', tabs.length < 2);
+    runtimeFormTabs.textContent = '';
+    for (const t of tabs) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `runtime-form-tab${t.active ? ' active' : ''}`;
+      b.textContent = t.label;
+      b.disabled = !t.enabled;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', t.active ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        if (!t.active) runtimeSend({ kind: 'activateForm', formId: t.id });
+      });
+      runtimeFormTabs.appendChild(b);
+    }
+  }
+
+  /** Shows the module of another form of the running application, keeping the session. */
+  async function showFormModule(state) {
+    if (switchingForm) return;
+    switchingForm = true;
+    try {
+      const res = await fetch(`/api/open-sample/${encodeURIComponent(state.sourceFile || state.moduleName)}`, { method: 'POST' });
+      if (res.ok) setModulePayload(await res.json(), { keepRuntime: true });
+      else showBanner(`Could not display form ${state.moduleName}.`);
+    } catch (err) {
+      showBanner(`Could not display form ${state.moduleName}: ${err.message}`);
+    } finally {
+      switchingForm = false;
+    }
+    applySessionState(state);
+  }
+
   let lastSessionState = null;
   function applySessionState(state) {
     if (!state) return;
+    if (state.formId != null && !state.alert && !state.lov) runtime.formId = state.formId;
+    if (state.forms) renderFormTabs(state);
+    const shown = currentPayload?.summary?.moduleName;
+    if (!state.alert && !state.lov && state.moduleName && shown && shown.toUpperCase() !== state.moduleName.toUpperCase() && !switchingForm) {
+      showFormModule(state);
+      return;
+    }
     if (!state.alert && !state.lov) lastSessionState = state;
     if (state.lov) {
       showLovDialog(state.lov);

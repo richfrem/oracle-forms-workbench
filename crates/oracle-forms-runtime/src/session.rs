@@ -73,7 +73,7 @@ pub type ValidationHook =
 
 /// Answers `SHOW_ALERT` (and future interactive requests) synchronously. The server runs
 /// each session on its own thread, so a handler may block until the browser responds.
-pub type InteractionHandler = Box<dyn FnMut(&InteractionRequest) -> InteractionResponse + Send>;
+pub type InteractionHandler = Box<dyn FnMut(&InteractionRequest) -> InteractionResponse>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlertDefinition {
@@ -157,6 +157,16 @@ pub struct FormSession {
     settling: bool,
     /// Set by the host to abort whatever PL/SQL is running (checked every few steps).
     pub objects: crate::objects::RuntimeObjects,
+    /// Id of this form within its application (host assigned).
+    pub form_id: u32,
+    /// Form that called this one with `CALL_FORM`.
+    pub calling_form: Option<String>,
+    /// Names of the forms currently open in the application (host maintained).
+    pub open_forms: Vec<String>,
+    /// Navigation to apply after the running trigger finishes.
+    pub nav_queue: Vec<crate::nav::NavRequest>,
+    /// Host callback that runs a called form to completion.
+    pub nav_handler: Option<crate::nav::NavHandler>,
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
     /// Wall-clock limit for the command currently being processed (set by the host).
     pub command_deadline: Option<std::time::Instant>,
@@ -234,6 +244,11 @@ impl FormSession {
             focus_dirty: false,
             settling: false,
             objects,
+            form_id: 1,
+            calling_form: None,
+            open_forms: Vec::new(),
+            nav_queue: Vec::new(),
+            nav_handler: None,
             cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             command_deadline: None,
         }
@@ -287,6 +302,9 @@ impl FormSession {
         let clean = bind.trim().trim_start_matches(':').to_ascii_uppercase();
 
         if let Some(var_name) = clean.strip_prefix("SYSTEM.") {
+            if var_name == "CURRENT_FORM" {
+                return OracleValue::varchar2(self.module.key.name.clone());
+            }
             return self.system.get_var(var_name).map(OracleValue::varchar2).unwrap_or(OracleValue::Null);
         }
 
@@ -443,6 +461,16 @@ impl FormSession {
     }
 
     /// Clears all blocks in the form.
+    /// True when a database block holds changes that have not been committed. Control
+    /// blocks (no base table) never count: assigning their items does not make the form
+    /// "changed" in Forms.
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.blocks.iter().any(|(name, b)| {
+            matches!(b.status(), FormsRecordStatus::Changed | FormsRecordStatus::Insert)
+                && self.block_info(name).map(|i| i.query_data_source_name.is_some()).unwrap_or(false)
+        })
+    }
+
     pub fn clear_form(&mut self) {
         for buf in self.blocks.values_mut() {
             buf.clear_block();
@@ -712,8 +740,11 @@ impl FormSession {
             "CREATE_RECORD" => self.create_record(),
             "DELETE_RECORD" => self.delete_record(),
             "EXIT_FORM" => {
-                self.exit_requested = true;
-                Ok(())
+                // Same commit-mode handling as the built-in (asks to save unsaved changes).
+                match crate::builtins::dispatch("EXIT_FORM", &[], self) {
+                    Some(crate::builtins::BuiltinResult::Failure(m)) => Err(RuntimeError::NavigationFailed(m)),
+                    _ => Ok(()),
+                }
             }
             "CLEAR_FORM" => {
                 self.clear_form();

@@ -14,24 +14,24 @@
 //! Index: lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use oracle_forms_core::model::ModuleIndex;
 use oracle_forms_db::DbConfig;
-use oracle_forms_runtime::{FormSession, InteractionRequest, InteractionResponse, TriggerResult, ALERT_BUTTON1};
+use oracle_forms_runtime::{FormSession, TriggerResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 const MAX_SESSIONS: usize = 32;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const ALERT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+pub(crate) const ALERT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_TRACE_LINES: usize = 400;
 /// Timers due within this many milliseconds of startup completing fire with the startup response.
-const STARTUP_TIMER_LOOKAHEAD_MS: i64 = 100;
+pub(crate) const STARTUP_TIMER_LOOKAHEAD_MS: i64 = 100;
 /// How long one HTTP request waits for its session thread (startup parses the form and
 /// libraries, so it gets longer). A session that overruns is cancelled and dropped; it can
 /// never hold up other sessions or requests because every session runs on its own thread
@@ -58,42 +58,48 @@ pub enum SessionEvent {
     ClearForm,
     /// Open the list of values of the current item (`LIST_VALUES`, the default `KEY-LISTVAL`).
     PickLov,
+    /// Make a form of the application the active one (tab click).
+    #[serde(rename_all = "camelCase")]
+    ActivateForm { form_id: u32 },
     /// `DO_KEY(name)`: runs the KEY- trigger if defined, else the default action.
     Key { name: String },
 }
 
-type Reply = oneshot::Sender<Value>;
+pub(crate) type Reply = oneshot::Sender<Value>;
 
-enum Command {
-    Event(SessionEvent, Reply),
+pub(crate) enum Command {
+    /// A browser event for a form (`None`: the active form).
+    Event(SessionEvent, Option<u32>, Reply),
     State(Reply),
     /// Run due timers (`WHEN-TIMER-EXPIRED`), then return the state.
     Tick(Reply),
 }
 
 /// The user's answer to a pending interaction.
-enum Answer {
+pub(crate) enum Answer {
     Button(i64),
     Lov(Option<usize>),
 }
 
 /// Which interaction the session thread is waiting on.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Awaiting {
+pub(crate) enum Awaiting {
     Alert,
     Lov,
 }
 
-struct Shared {
+pub(crate) struct Shared {
     /// Where the response for the request currently being processed should go.
-    reply_slot: Mutex<Option<Reply>>,
+    pub(crate) reply_slot: Mutex<Option<Reply>>,
     /// Answers to a pending alert or LOV, with the reply slot for the follow-up request.
-    answer_tx: Mutex<mpsc::Sender<(Answer, Reply)>>,
-    awaiting_alert: AtomicBool,
+    pub(crate) answer_tx: Mutex<mpsc::Sender<(Answer, Reply)>>,
+    pub(crate) awaiting_alert: AtomicBool,
+    /// The form whose question (alert / LOV) is waiting.
+    pub(crate) awaiting_form: AtomicU32,
     /// What `awaiting_alert` is waiting for (valid while it is set).
-    awaiting_kind: Mutex<Awaiting>,
+    pub(crate) awaiting_kind: Mutex<Awaiting>,
     /// Set to abort the PL/SQL the session thread is running (shared with `FormSession`).
-    cancel: Arc<AtomicBool>,
+    pub(crate) cancel: Arc<AtomicBool>,
 }
 
 pub struct SessionHandle {
@@ -130,6 +136,10 @@ pub struct StartOptions {
     pub missing_libraries: Vec<String>,
     pub db: Option<DbConfig>,
     pub allow_writes: bool,
+    /// Startup parameters, available to the form as `:PARAMETER.NAME`.
+    pub parameters: Vec<(String, String)>,
+    /// Finds other forms by name (`CALL_FORM`, `OPEN_FORM`, `NEW_FORM`); `None` disables them.
+    pub loader: Option<oracle_forms_runtime::FormLoader>,
 }
 
 impl SessionManager {
@@ -183,6 +193,7 @@ impl SessionManager {
             reply_slot: Mutex::new(None),
             answer_tx: Mutex::new(answer_tx),
             awaiting_alert: AtomicBool::new(false),
+            awaiting_form: AtomicU32::new(0),
             awaiting_kind: Mutex::new(Awaiting::Alert),
             cancel: Arc::new(AtomicBool::new(false)),
         });
@@ -191,127 +202,25 @@ impl SessionManager {
         let thread_shared = shared.clone();
         let startup_delay = self.startup_delay;
         let session_id = id.clone();
-        let db_user = opts.db.as_ref().and_then(|c| c.username.clone());
         let backend = opts.db.as_ref().map(|c| format!("{:?}", c.backend)).unwrap_or_else(|| "none".into());
+        let init = crate::form_app::AppInit {
+            shared: thread_shared,
+            session_id,
+            backend,
+            driver,
+            db: opts.db.clone(),
+            allow_writes: opts.allow_writes,
+            loader: opts.loader.clone(),
+            rx,
+            answer_rx,
+        };
+        let root = oracle_forms_runtime::LoadedForm { module: opts.module, libraries: opts.libraries, missing_libraries: opts.missing_libraries };
+        let params = opts.parameters;
         std::thread::Builder::new()
             .name(format!("form-session-{}", id))
             .spawn(move || {
                 std::thread::sleep(startup_delay);
-                let mut session = FormSession::new(opts.module);
-                session.cancel = thread_shared.cancel.clone();
-                for lib in &opts.libraries {
-                    session.attach_library(lib);
-                }
-                if let Some(d) = driver {
-                    session.set_database_driver(d);
-                }
-                session.db_username = db_user;
-                session.read_only = !opts.allow_writes;
-
-                // SHOW_ALERT: hand the alert to the waiting HTTP request, then block until
-                // the browser answers.
-                let handler_shared = thread_shared.clone();
-                let handler_session_id = session_id.clone();
-                let answer_rx = Mutex::new(answer_rx);
-                session.set_interaction_handler(Box::new(move |req: &InteractionRequest| {
-                    let (kind, payload) = match req {
-                        InteractionRequest::ShowAlert { alert_name, message, button1, button2, button3, default_button } => (
-                            Awaiting::Alert,
-                            json!({
-                                "sessionId": handler_session_id,
-                                "alert": {
-                                    "alertName": alert_name, "message": message,
-                                    "button1": button1, "button2": button2, "button3": button3,
-                                    "defaultButton": default_button,
-                                }
-                            }),
-                        ),
-                        InteractionRequest::ShowLov { lov_name, title, columns, rows, filter } => (
-                            Awaiting::Lov,
-                            json!({
-                                "sessionId": handler_session_id,
-                                "lov": { "lovName": lov_name, "title": title, "columns": columns, "rows": rows, "filter": filter }
-                            }),
-                        ),
-                    };
-                    let alert = payload;
-                    *handler_shared.awaiting_kind.lock().unwrap() = kind;
-                    handler_shared.awaiting_alert.store(true, Ordering::SeqCst);
-                    if let Some(reply) = handler_shared.reply_slot.lock().unwrap().take() {
-                        let _ = reply.send(alert);
-                    }
-                    let answer = answer_rx.lock().unwrap().recv_timeout(ALERT_TIMEOUT);
-                    handler_shared.awaiting_alert.store(false, Ordering::SeqCst);
-                    match (answer, kind) {
-                        (Ok((Answer::Button(button), reply)), Awaiting::Alert) => {
-                            *handler_shared.reply_slot.lock().unwrap() = Some(reply);
-                            InteractionResponse::AlertButton(button)
-                        }
-                        (Ok((Answer::Lov(sel), reply)), Awaiting::Lov) => {
-                            *handler_shared.reply_slot.lock().unwrap() = Some(reply);
-                            InteractionResponse::LovSelection(sel)
-                        }
-                        (Ok((_, reply)), _) => {
-                            // Answer of the wrong kind: take the default.
-                            *handler_shared.reply_slot.lock().unwrap() = Some(reply);
-                            match req {
-                                InteractionRequest::ShowAlert { default_button, .. } => InteractionResponse::AlertButton(ALERT_BUTTON1 + (*default_button as i64).saturating_sub(1)),
-                                InteractionRequest::ShowLov { .. } => InteractionResponse::LovSelection(None),
-                            }
-                        }
-                        // Abandoned (timeout / session closed): alert default button, LOV cancelled.
-                        (Err(_), _) => match req {
-                            InteractionRequest::ShowAlert { default_button, .. } => InteractionResponse::AlertButton(ALERT_BUTTON1 + (*default_button as i64).saturating_sub(1)),
-                            InteractionRequest::ShowLov { .. } => InteractionResponse::LovSelection(None),
-                        },
-                    }
-                }));
-
-                let mut cursor = Cursors::default();
-                *thread_shared.reply_slot.lock().unwrap() = Some(ready_tx);
-                let startup_error = session.start().err().map(|e| e.to_string());
-                // Timers of a few milliseconds created at startup ("run after the form
-                // opens") fire as part of the startup response.
-                if startup_error.is_none() {
-                    session.fire_due_timers(STARTUP_TIMER_LOOKAHEAD_MS);
-                }
-                let mut state = snapshot(&session, &session_id, &backend, &mut cursor, &opts.missing_libraries);
-                if let Some(e) = startup_error {
-                    state["error"] = json!(e);
-                }
-                if let Some(reply) = thread_shared.reply_slot.lock().unwrap().take() {
-                    let _ = reply.send(state);
-                }
-
-                while let Ok(cmd) = rx.recv() {
-                    let (reply, error) = match cmd {
-                        Command::State(reply) => (reply, None),
-                        Command::Tick(reply) => {
-                            *thread_shared.reply_slot.lock().unwrap() = Some(reply);
-                            session.fire_due_timers(0);
-                            match thread_shared.reply_slot.lock().unwrap().take() {
-                                Some(r) => (r, None),
-                                None => continue,
-                            }
-                        }
-                        Command::Event(ev, reply) => {
-                            thread_shared.cancel.store(false, Ordering::SeqCst);
-                            *thread_shared.reply_slot.lock().unwrap() = Some(reply);
-                            let error = run_event(&mut session, ev);
-                            session.fire_due_timers(0);
-                            let reply = thread_shared.reply_slot.lock().unwrap().take();
-                            match reply {
-                                Some(r) => (r, error),
-                                None => continue,
-                            }
-                        }
-                    };
-                    let mut state = snapshot(&session, &session_id, &backend, &mut cursor, &opts.missing_libraries);
-                    if let Some(e) = error {
-                        state["error"] = json!(e);
-                    }
-                    let _ = reply.send(state);
-                }
+                crate::form_app::run(init, root, params, ready_tx);
             })
             .map_err(|e| format!("Failed to start session thread: {}", e))?;
 
@@ -334,7 +243,13 @@ impl SessionManager {
         Ok(state)
     }
 
+    #[cfg(test)]
     pub async fn send_event(&self, id: &str, event: SessionEvent) -> Result<Value, (u16, String)> {
+        self.send_event_to(id, event, None).await
+    }
+
+    /// Sends an event to a specific form of the application (`None`: the active form).
+    pub async fn send_event_to(&self, id: &str, event: SessionEvent, form_id: Option<u32>) -> Result<Value, (u16, String)> {
         let handle = self.get(id).ok_or((404, "Session not found or expired".to_string()))?;
         if handle.shared.awaiting_alert.load(Ordering::SeqCst) {
             return Err((409, "An alert is waiting for an answer".to_string()));
@@ -342,7 +257,7 @@ impl SessionManager {
         let (reply_tx, reply_rx) = oneshot::channel();
         handle
             .tx
-            .send(Command::Event(event, reply_tx))
+            .send(Command::Event(event, form_id, reply_tx))
             .map_err(|_| (410, "Session has ended".to_string()))?;
         self.await_reply(id, &handle, reply_rx).await
     }
@@ -360,13 +275,23 @@ impl SessionManager {
         }
     }
 
+    #[cfg(test)]
     pub async fn answer_alert(&self, id: &str, button: i64) -> Result<Value, (u16, String)> {
-        self.answer(id, Answer::Button(button), Awaiting::Alert, "No alert is waiting for an answer").await
+        self.answer(id, Answer::Button(button), Awaiting::Alert, "No alert is waiting for an answer", None).await
+    }
+
+    pub async fn answer_alert_for(&self, id: &str, button: i64, form_id: Option<u32>) -> Result<Value, (u16, String)> {
+        self.answer(id, Answer::Button(button), Awaiting::Alert, "No alert is waiting for an answer", form_id).await
     }
 
     /// Answers a pending list of values: the index of the picked row, or `None` to cancel.
+    #[cfg(test)]
     pub async fn answer_lov(&self, id: &str, selection: Option<usize>) -> Result<Value, (u16, String)> {
-        self.answer(id, Answer::Lov(selection), Awaiting::Lov, "No list of values is waiting for an answer").await
+        self.answer(id, Answer::Lov(selection), Awaiting::Lov, "No list of values is waiting for an answer", None).await
+    }
+
+    pub async fn answer_lov_for(&self, id: &str, selection: Option<usize>, form_id: Option<u32>) -> Result<Value, (u16, String)> {
+        self.answer(id, Answer::Lov(selection), Awaiting::Lov, "No list of values is waiting for an answer", form_id).await
     }
 
     /// Runs due timers and returns the state (the web UI polls this while timers are pending).
@@ -380,10 +305,15 @@ impl SessionManager {
         self.await_reply(id, &handle, reply_rx).await
     }
 
-    async fn answer(&self, id: &str, answer: Answer, expected: Awaiting, none_waiting: &str) -> Result<Value, (u16, String)> {
+    async fn answer(&self, id: &str, answer: Answer, expected: Awaiting, none_waiting: &str, form_id: Option<u32>) -> Result<Value, (u16, String)> {
         let handle = self.get(id).ok_or((404, "Session not found or expired".to_string()))?;
         if !handle.shared.awaiting_alert.load(Ordering::SeqCst) || *handle.shared.awaiting_kind.lock().unwrap() != expected {
             return Err((409, none_waiting.to_string()));
+        }
+        if let Some(f) = form_id {
+            if f != handle.shared.awaiting_form.load(Ordering::SeqCst) {
+                return Err((409, format!("The pending question belongs to form {}, not form {}", handle.shared.awaiting_form.load(Ordering::SeqCst), f)));
+            }
         }
         let (reply_tx, reply_rx) = oneshot::channel();
         handle
@@ -408,7 +338,7 @@ impl SessionManager {
 }
 
 /// Runs one browser event against the session. Returns an error message for the UI.
-fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
+pub(crate) fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
     let trig = |r: TriggerResult| match r {
         TriggerResult::Success => None,
         TriggerResult::Failure(m) => Some(format!("Trigger failed: {}", m)),
@@ -465,6 +395,8 @@ fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
         }
         SessionEvent::Navigate { block, item, record } => goto(session, &block, &item, record),
         SessionEvent::PickLov => rt(session.do_key("LIST_VALUES")),
+        // Handled by the application (no form code runs).
+        SessionEvent::ActivateForm { .. } => None,
         SessionEvent::ExecuteQuery { block } => {
             let b = block.or_else(|| session.active_block().map(str::to_string)).unwrap_or_default();
             if let Err(e) = session.go_block(&b) {
@@ -484,12 +416,12 @@ fn run_event(session: &mut FormSession, event: SessionEvent) -> Option<String> {
 
 /// Tracks how much of the message / trace log the browser has already seen.
 #[derive(Default)]
-struct Cursors {
+pub(crate) struct Cursors {
     messages: usize,
     trace: usize,
 }
 
-fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &mut Cursors, missing_libraries: &[String]) -> Value {
+pub(crate) fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &mut Cursors, missing_libraries: &[String]) -> Value {
     let blocks: Vec<Value> = session
         .module
         .blocks
@@ -553,13 +485,14 @@ fn snapshot(session: &FormSession, id: &str, backend: &str, cursor: &mut Cursors
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oracle_forms_runtime::ALERT_BUTTON1;
     use oracle_forms_core::model::{ModuleKey, ModuleType};
     use std::path::PathBuf;
 
     fn conformance(name: &str) -> ModuleIndex {
         let path = PathBuf::from("../../samples/conformance").join(name);
         let cache = std::env::temp_dir().join(format!("ofw-sess-{}", std::process::id()));
-        oracle_forms_xml::FormsXmlParser::parse(&ModuleKey::new("CONF", ModuleType::Form), &path, &cache).unwrap()
+        oracle_forms_xml::FormsXmlParser::parse(&ModuleKey::new(name.trim_end_matches("_fmb.xml").to_ascii_uppercase(), ModuleType::Form), &path, &cache).unwrap()
     }
 
     fn sqlite() -> Option<DbConfig> {
@@ -574,20 +507,20 @@ mod tests {
         slow.start_timeout = Duration::from_millis(50);
         slow.startup_delay = Duration::from_millis(500);
         let err = slow
-            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
             .await
             .unwrap_err();
         assert!(err.contains("did not finish"), "{err}");
 
         let ok = SessionManager::default()
-            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
             .await
             .unwrap();
         assert!(ok["sessionId"].is_string());
     }
 
     fn lov_options() -> StartOptions {
-        StartOptions { module: conformance("conf_20_lov_timers_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false }
+        StartOptions { module: conformance("conf_20_lov_timers_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None }
     }
 
     #[tokio::test]
@@ -655,11 +588,189 @@ mod tests {
         assert!(ticked["nextTimerMs"].is_null());
     }
 
+    fn sample_loader() -> oracle_forms_runtime::FormLoader {
+        std::sync::Arc::new(|name: &str| {
+            let file = format!("{}_fmb.xml", name.to_ascii_lowercase());
+            let path = PathBuf::from("../../samples/conformance").join(&file);
+            if !path.is_file() {
+                return Err(format!("{name} not found"));
+            }
+            let cache = std::env::temp_dir().join(format!("ofw-nav-{}", std::process::id()));
+            let module = oracle_forms_xml::FormsXmlParser::parse(&ModuleKey::new(name.to_ascii_uppercase(), ModuleType::Form), &path, &cache).map_err(|e| e.to_string())?;
+            Ok(oracle_forms_runtime::LoadedForm { module, libraries: vec![], missing_libraries: vec![] })
+        })
+    }
+
+    async fn nav_session(allow_writes: bool, params: Vec<(String, String)>) -> (SessionManager, String, Value) {
+        let mgr = SessionManager::default();
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_21_nav_parent_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes, parameters: params, loader: Some(sample_loader()) })
+            .await
+            .unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        (mgr, id, state)
+    }
+
+    fn press(block: &str, item: &str) -> SessionEvent {
+        SessionEvent::Button { block: block.into(), item: item.into(), record: None }
+    }
+
+    fn value(state: &Value, block: &str, item: &str) -> String {
+        state["blocks"].as_array().unwrap().iter().find(|b| b["name"] == block).and_then(|b| b["records"][0]["values"][item].as_str()).unwrap_or("").to_string()
+    }
+
+    fn form_names(state: &Value) -> Vec<String> {
+        state["forms"].as_array().unwrap().iter().map(|f| f["name"].as_str().unwrap().to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn startup_parameters_and_system_current_form() {
+        let (_m, _id, state) = nav_session(false, vec![("GREETING".into(), "hi".into())]).await;
+        assert_eq!(value(&state, "MAIN", "RESULT"), "hi/CONF_21_NAV_PARENT", "{state}");
+        assert_eq!(state["formId"], 1);
+        assert_eq!(form_names(&state), vec!["CONF_21_NAV_PARENT"]);
+    }
+
+    #[tokio::test]
+    async fn call_form_is_modal_passes_parameters_and_globals_and_returns_to_the_caller() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        let called = mgr.send_event(&id, press("MAIN", "BTN_CALL")).await.unwrap();
+        assert_eq!(called["formId"], 2, "{called}");
+        assert_eq!(value(&called, "C", "SEEN"), "hello", "the parameter list became :PARAMETER.MSG");
+        let forms = called["forms"].as_array().unwrap();
+        assert_eq!(forms.len(), 2);
+        assert_eq!(forms[0]["suspended"], true);
+        assert_eq!(forms[1]["modal"], true);
+
+        // The suspended caller cannot be driven; the error names the reason.
+        let refused = mgr.send_event_to(&id, press("MAIN", "BTN_OPEN"), Some(1)).await.unwrap();
+        assert!(refused["error"].as_str().unwrap().contains("suspended"), "{refused}");
+
+        let back = mgr.send_event_to(&id, press("C", "BTN_EXIT"), Some(2)).await.unwrap();
+        assert_eq!(back["formId"], 1, "{back}");
+        assert_eq!(form_names(&back), vec!["CONF_21_NAV_PARENT"]);
+        assert_eq!(
+            value(&back, "MAIN", "RESULT"),
+            "P>C>back|hello:CONF_21_NAV_PARENT",
+            "the caller's trigger resumed after CALL_FORM and saw the child's :GLOBAL"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_form_can_nest_and_a_missing_form_fails_visibly() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        mgr.send_event(&id, press("MAIN", "BTN_CALL")).await.unwrap();
+        let nested = mgr.send_event(&id, press("C", "BTN_NEST")).await.unwrap();
+        assert_eq!(nested["formId"], 3, "{nested}");
+        assert_eq!(form_names(&nested).len(), 3);
+        let c = mgr.send_event(&id, press("E", "BTN_EXIT")).await.unwrap();
+        assert_eq!(c["formId"], 2);
+        assert_eq!(value(&c, "C", "SEEN"), "nest-returned");
+        mgr.send_event(&id, press("C", "BTN_EXIT")).await.unwrap();
+
+        let missing = mgr.send_event(&id, press("MAIN", "BTN_CALL_MISSING")).await.unwrap();
+        assert_eq!(value(&missing, "MAIN", "RESULT"), "load failed", "{missing}");
+        assert!(missing["messages"].to_string().contains("no_such_form") || missing["messages"].to_string().contains("not found"), "{missing}");
+    }
+
+    #[tokio::test]
+    async fn query_only_call_starts_the_form_read_only() {
+        let (mgr, id, state) = nav_session(true, vec![]).await;
+        assert_eq!(state["readOnly"], false);
+        let called = mgr.send_event(&id, press("MAIN", "BTN_CALL_QO")).await.unwrap();
+        assert_eq!(called["readOnly"], true, "{called}");
+        assert_eq!(called["forms"][0]["hidden"], true, "HIDE hides the caller");
+        assert_eq!(called["forms"][1]["replaceMenu"], true);
+        let back = mgr.send_event(&id, press("C", "BTN_EXIT")).await.unwrap();
+        assert_eq!(back["readOnly"], false);
+    }
+
+    #[tokio::test]
+    async fn open_form_creates_a_peer_that_can_be_activated_found_and_closed() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        let opened = mgr.send_event(&id, press("MAIN", "BTN_OPEN")).await.unwrap();
+        assert_eq!(opened["formId"], 2, "ACTIVATE makes the new form active: {opened}");
+        assert_eq!(opened["forms"].as_array().unwrap().len(), 2);
+        assert_eq!(opened["forms"][0]["suspended"], false, "OPEN_FORM does not suspend the opener");
+        assert_eq!(value(&opened, "E", "INFO"), "CONF_21_NAV_PEER");
+
+        // Back to the parent (tab click), whose trigger text shows the trail.
+        let parent = mgr.send_event(&id, SessionEvent::ActivateForm { form_id: 1 }).await.unwrap();
+        assert_eq!(parent["formId"], 1);
+        assert_eq!(value(&parent, "MAIN", "RESULT"), "P>opened");
+        let found = mgr.send_event(&id, press("MAIN", "BTN_FIND")).await.unwrap();
+        assert_eq!(value(&found, "MAIN", "RESULT"), "peer open");
+
+        // A second OPEN of the same form is refused with a message.
+        let again = mgr.send_event(&id, press("MAIN", "BTN_OPEN")).await.unwrap();
+        assert!(again["messages"].to_string().contains("already open"), "{again}");
+
+        let closed = mgr.send_event(&id, press("MAIN", "BTN_CLOSE")).await.unwrap();
+        assert_eq!(form_names(&closed), vec!["CONF_21_NAV_PARENT"]);
+        let found = mgr.send_event(&id, press("MAIN", "BTN_FIND")).await.unwrap();
+        assert_eq!(value(&found, "MAIN", "RESULT"), "peer closed");
+    }
+
+    #[tokio::test]
+    async fn open_form_no_activate_and_session_mode_and_go_form_and_exit_of_a_peer() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        let bg = mgr.send_event(&id, press("MAIN", "BTN_OPEN_BG")).await.unwrap();
+        assert_eq!(bg["formId"], 1, "NO_ACTIVATE keeps the opener active: {bg}");
+        assert_eq!(bg["forms"].as_array().unwrap().len(), 2);
+        let gone = mgr.send_event(&id, press("MAIN", "BTN_GO")).await.unwrap();
+        assert_eq!(gone["activeForm"], 2, "GO_FORM moves focus to the peer: {gone}");
+        let exited = mgr.send_event_to(&id, press("E", "BTN_EXIT"), Some(2)).await.unwrap();
+        assert_eq!(form_names(&exited), vec!["CONF_21_NAV_PARENT"], "EXIT_FORM in an opened form closes just that form");
+        assert_eq!(exited["activeForm"], 1);
+    }
+
+    #[tokio::test]
+    async fn new_form_replaces_the_current_form_and_keeps_globals() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        let replaced = mgr.send_event(&id, press("MAIN", "BTN_NEW")).await.unwrap();
+        assert_eq!(form_names(&replaced), vec!["CONF_21_NAV_REPL"], "{replaced}");
+        assert_eq!(value(&replaced, "R", "MARK"), "P>R", ":GLOBAL carried over to the replacement");
+        assert_eq!(replaced["formId"], 1);
+    }
+
+    #[tokio::test]
+    async fn exit_form_asks_to_save_database_changes_and_honours_the_answer() {
+        // CONF_08 has a database block; changing it makes the form "changed".
+        let mgr = SessionManager::default();
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_08_commit_pipeline_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
+            .await
+            .unwrap();
+        let id = state["sessionId"].as_str().unwrap().to_string();
+        mgr.send_event(&id, SessionEvent::ExecuteQuery { block: Some("ITEMS".into()) }).await.unwrap();
+        mgr.send_event(&id, SessionEvent::SetItem { block: "ITEMS".into(), item: "ITEM_NAME".into(), value: json!("edited"), record: Some(0) }).await.unwrap();
+        let asked = mgr.send_event(&id, SessionEvent::Key { name: "EXIT_FORM".into() }).await.unwrap();
+        assert_eq!(asked["alert"]["alertName"], "EXIT_FORM_SAVE_CHANGES", "{asked}");
+        assert_eq!(asked["formId"], 1);
+        // Cancel keeps the form open.
+        let kept = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON3, Some(1)).await.unwrap();
+        assert_eq!(kept["exitRequested"], false, "{kept}");
+        // Asking again and answering No ends the session without writing.
+        mgr.send_event(&id, SessionEvent::Key { name: "EXIT_FORM".into() }).await.unwrap();
+        assert_eq!(mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON2, Some(9)).await.unwrap_err().0, 409, "wrong form id");
+        let ended = mgr.answer_alert_for(&id, oracle_forms_runtime::ALERT_BUTTON2, Some(1)).await.unwrap();
+        assert_eq!(ended["exitRequested"], true, "{ended}");
+    }
+
+    #[tokio::test]
+    async fn exit_form_in_the_root_ends_the_application() {
+        let (mgr, id, _s) = nav_session(false, vec![]).await;
+        let ended = mgr.send_event(&id, press("MAIN", "BTN_EXIT")).await.unwrap();
+        assert_eq!(ended["exitRequested"], true, "{ended}");
+        let after = mgr.send_event(&id, press("MAIN", "BTN_CALL")).await.unwrap();
+        assert!(after["error"].as_str().unwrap().contains("ended"), "{after}");
+    }
+
     #[tokio::test]
     async fn alert_pauses_trigger_and_answer_resumes_it() {
         let mgr = SessionManager::default();
         let state = mgr
-            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .start(StartOptions { module: conformance("conf_03_query_cascade_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
             .await
             .unwrap();
         let id = state["sessionId"].as_str().unwrap().to_string();
@@ -687,7 +798,7 @@ mod tests {
     async fn read_only_session_refuses_commit_but_queries_run() {
         let mgr = SessionManager::default();
         let state = mgr
-            .start(StartOptions { module: conformance("conf_08_commit_pipeline_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false })
+            .start(StartOptions { module: conformance("conf_08_commit_pipeline_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
             .await
             .unwrap();
         let id = state["sessionId"].as_str().unwrap().to_string();

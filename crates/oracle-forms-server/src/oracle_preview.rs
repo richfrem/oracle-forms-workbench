@@ -112,6 +112,61 @@ pub(crate) async fn check_build_mount() -> Result<(), String> {
     Err(format!("Forms container mount mismatch: /oracle_home_14c is mounted from {}, but OFW_ORACLE_HOME is {}. Recreate {container} with the configured Oracle Home before building.", source.trim(), home.display()))
 }
 
+/// Values of `attr="..."` in `xml`, optionally only inside elements that start with `element` (e.g. `<AttachedLibrary`).
+fn attribute_values(xml: &str, element: Option<&str>, attr: &str) -> Vec<String> {
+    let needle = format!("{attr}=\"");
+    let mut values = Vec::new();
+    let mut rest = xml;
+    while let Some(found) = rest.find(&needle) {
+        let before = &rest[..found];
+        let start = found + needle.len();
+        let Some(len) = rest[start..].find('"') else { break };
+        let in_element = element.is_none_or(|tag| before.rfind('<').is_some_and(|open| before[open..].starts_with(tag)));
+        if in_element && before.ends_with(|c: char| c.is_whitespace()) {
+            values.push(rest[start..start + len].to_string());
+        }
+        rest = &rest[start + len..];
+    }
+    values
+}
+
+/// Lower-case module names a form XML declares it depends on: attached libraries, parent files and objects
+/// (object libraries and parent forms) and a menu other than the built-in DEFAULT menus.
+pub(crate) fn declared_dependencies(xml: &str) -> Vec<String> {
+    let stem = |value: &str| {
+        let file = value.replace('\\', "/");
+        let name = file.rsplit('/').next().unwrap_or("");
+        name.split('.').next().unwrap_or("").to_ascii_lowercase()
+    };
+    let mut names: Vec<String> = attribute_values(xml, Some("<AttachedLibrary"), "Name").iter().map(|v| stem(v)).collect();
+    names.extend(attribute_values(xml, None, "ParentFilename").iter().map(|v| stem(v)));
+    names.extend(attribute_values(xml, Some("<FormModule"), "MenuModule").iter()
+        .filter(|v| !matches!(v.to_ascii_uppercase().as_str(), "DEFAULT" | "DEFAULT&AMP;SMARTBAR" | "DEFAULT&SMARTBAR"))
+        .map(|v| stem(v)));
+    names.retain(|n| !n.is_empty());
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The folder that holds a saved form, when it also holds at least one module the form declares it depends on.
+/// Such a form is built together with its dependencies (`run_form.py --source-dir`); otherwise the form is built
+/// alone and its dependencies come from the Forms path, as before.
+pub(crate) fn dependency_source_dir(saved_xml: &std::path::Path) -> Option<PathBuf> {
+    let declared = declared_dependencies(&fs::read_to_string(saved_xml).ok()?);
+    if declared.is_empty() { return None; }
+    let dir = saved_xml.parent()?;
+    let own = saved_xml.file_name()?.to_string_lossy().to_ascii_lowercase();
+    let present = fs::read_dir(dir).ok()?.flatten().any(|entry| {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if name == own { return false; }
+        ["_fmb.xml", "_mmb.xml", "_olb.xml", ".pld", ".pll", ".olb", ".mmb", ".fmb"].iter()
+            .find_map(|suffix| name.strip_suffix(suffix))
+            .is_some_and(|stem| declared.iter().any(|d| d == stem))
+    });
+    present.then(|| dir.to_path_buf())
+}
+
 pub fn start(
     saved_xml: &std::path::Path,
     filename: &str,
@@ -165,6 +220,10 @@ pub fn start(
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     command.arg("-u").arg(script).arg(staged_xml).args([if compile_only { "--no-launch" } else { "--interactive" }, "--userid", "none"]);
+    if let Some(source_dir) = dependency_source_dir(saved_xml) {
+        // Build the form with every module it depends on, in waves (Stages 1-3), from the folder that holds them.
+        command.arg("--source-dir").arg(source_dir);
+    }
     if let Some(app_name) = setting(&root, "OFW_APP_NAME") {
         command.args(["--app-name", &app_name]);
     }
@@ -490,7 +549,32 @@ pub async fn convert_to_xml(source_path: &std::path::Path) -> Result<(PathBuf, S
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_fmx_name, validate_compile_target};
+    use super::{declared_dependencies, dependency_source_dir, normalize_fmx_name, validate_compile_target};
+
+    #[test]
+    fn declared_dependencies_reads_libraries_parents_and_menus() {
+        let xml = r#"<Module><FormModule Name="ORDERS" MenuModule="MAINMENU">
+            <AttachedLibrary Name="UTIL" LibraryLocation="util" LibrarySource="File"/>
+            <Block Name="B" ParentFilename="C:\objects\Shared.OLB" ParentModule="SHARED"/>
+            <Item Name="I" ParentFilename="base.fmb"/></FormModule></Module>"#;
+        assert_eq!(declared_dependencies(xml), vec!["base", "mainmenu", "shared", "util"]);
+        assert!(declared_dependencies(r#"<FormModule Name="A" MenuModule="DEFAULT&amp;SMARTBAR"/>"#).is_empty());
+        assert!(declared_dependencies(r#"<FormModule Name="A" MyParentFilename="x.olb"/>"#).is_empty());
+    }
+
+    #[test]
+    fn dependency_folder_is_used_only_when_it_holds_a_declared_module() {
+        let dir = std::env::temp_dir().join(format!("ofw-dep-dir-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let form = dir.join("orders_fmb.xml");
+        std::fs::write(&form, r#"<FormModule Name="ORDERS"><AttachedLibrary Name="UTIL"/></FormModule>"#).unwrap();
+        assert_eq!(dependency_source_dir(&form), None);
+        std::fs::write(dir.join("util.pld"), "PROCEDURE A IS BEGIN null; END;").unwrap();
+        assert_eq!(dependency_source_dir(&form), Some(dir.clone()));
+        std::fs::write(&form, r#"<FormModule Name="ORDERS"/>"#).unwrap();
+        assert_eq!(dependency_source_dir(&form), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn compile_target_defaults_and_accepts_tns_or_easy_connect() {

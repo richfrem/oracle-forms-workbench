@@ -230,3 +230,12 @@ All items use synthetic fixtures; behaviours not checked against Forms 14c are m
 - `HostPolicy::Execute`: only the program name is traced; arguments and output are never logged
   (they can hold credentials). `Emulate` still traces the full command because it only touches the
   virtual file system.
+
+### R3.2 Signature-aware navigation arguments (done)
+`CALL_FORM(form, display, switch_menu, query_mode, paramlist)`, `OPEN_FORM(form, activate_mode,
+session_mode, paramlist)`, `NEW_FORM(form, rollback_mode, query_mode, paramlist)`: every slot accepts
+only its own constants (or NULL / omitted for the default). Unknown constants, a mode placed in
+another mode's slot (including duplicates), a parameter list in a mode slot or an extra
+argument raise `FORM_FAILURE` with a message naming the slot, and nothing is queued or started.
+Leniency kept: `F(form, paramlist)` when the lone argument is not a mode constant and an existing
+parameter list.

@@ -15,12 +15,17 @@
 //!
 //! Parameter lists passed to a started form are consumed into the new form's
 //! `:PARAMETER.*` values (text parameters only; a `DATA_PARAMETER` is refused for forms).
+//! Arguments are parsed against each built-in's own signature (`CALL_FORM(form, display,
+//! switch_menu, query_mode, paramlist)`, `OPEN_FORM(form, activate_mode, session_mode, paramlist)`,
+//! `NEW_FORM(form, rollback_mode, query_mode, paramlist)`); a wrong constant, a mode in another
+//! mode's slot, a misplaced parameter list or an extra argument fails with `FORM_FAILURE`
+//! and starts nothing.
 //! `QUERY_ONLY` starts the form read-only. `HIDE` and `DO_REPLACE` are carried to the host as
 //! flags (tab/menu presentation).
 //!
 //! Purpose: Module implementation (nav.rs).
 //! Key Input Dependencies: crate::objects (parameter lists), crate::builtins
-//! Index: LoadedForm, FormLoader, CallSpec, OpenSpec, NewSpec, NavRequest, NavHandler, ExitMode, dispatch, collect_params, mode_words, form_module_name, exit_form, ask_to_save
+//! Index: LoadedForm, FormLoader, CallSpec, OpenSpec, NewSpec, NavRequest, NavHandler, ExitMode, dispatch, collect_params, Signature, is_mode_constant, parse_signature, form_module_name, exit_form, ask_to_save
 
 use crate::builtins::BuiltinResult;
 use crate::interpreter::{InteractionRequest, InteractionResponse};
@@ -107,24 +112,66 @@ pub fn form_module_name(raw: &str) -> String {
     }
 }
 
-const MODE_WORDS: &[&str] = &[
-    "HIDE", "NO_HIDE", "DO_REPLACE", "NO_REPLACE", "QUERY_ONLY", "NO_QUERY_ONLY", "ACTIVATE", "NO_ACTIVATE",
-    "SESSION", "NO_SESSION", "TO_SAVEPOINT", "NO_ROLLBACK", "FULL_ROLLBACK",
-];
+/// Positional signature of a navigation built-in after the form name: the constants each
+/// slot accepts; the parameter list is the slot right after them.
+struct Signature {
+    who: &'static str,
+    slots: &'static [(&'static str, &'static [&'static str])],
+}
 
-/// The mode constants among `args[1..]` (upper case) and the first other non-null argument
-/// (the parameter list), regardless of position.
-fn mode_words(args: &[OracleValue]) -> (Vec<String>, Option<String>) {
-    let mut modes = Vec::new();
-    let mut list = None;
-    for a in args.iter().skip(1) {
-        match a.as_text() {
-            Some(t) if MODE_WORDS.contains(&t.to_ascii_uppercase().as_str()) => modes.push(t.to_ascii_uppercase()),
-            Some(t) if list.is_none() => list = Some(t),
-            _ => {}
+const CALL_FORM_SIG: Signature = Signature {
+    who: "CALL_FORM",
+    slots: &[("display", &["HIDE", "NO_HIDE"]), ("switch_menu", &["DO_REPLACE", "NO_REPLACE"]), ("query_mode", &["QUERY_ONLY", "NO_QUERY_ONLY"])],
+};
+const OPEN_FORM_SIG: Signature = Signature {
+    who: "OPEN_FORM",
+    slots: &[("activate_mode", &["ACTIVATE", "NO_ACTIVATE"]), ("session_mode", &["SESSION", "NO_SESSION"])],
+};
+const NEW_FORM_SIG: Signature = Signature {
+    who: "NEW_FORM",
+    slots: &[("rollback_mode", &["TO_SAVEPOINT", "NO_ROLLBACK", "FULL_ROLLBACK"]), ("query_mode", &["QUERY_ONLY", "NO_QUERY_ONLY"])],
+};
+
+fn is_mode_constant(t: &str) -> bool {
+    let u = t.to_ascii_uppercase();
+    [&CALL_FORM_SIG, &OPEN_FORM_SIG, &NEW_FORM_SIG].iter().any(|s| s.slots.iter().any(|(_, c)| c.contains(&u.as_str())))
+}
+
+/// Parses `args[1..]` against the signature: each slot takes only its own constants (or NULL /
+/// omitted for the default), the next slot is the parameter list, anything beyond is an error.
+/// Short form: `F(form, paramlist)` is accepted when the lone argument is not a mode constant
+/// and names an existing parameter list. Returns the upper-cased modes and the list name.
+fn parse_signature(sig: &Signature, args: &[OracleValue], session: &FormSession) -> Result<(Vec<String>, Option<String>), String> {
+    let who = sig.who;
+    if args.len() == 2 {
+        if let Some(t) = args[1].as_text() {
+            if !is_mode_constant(&t) && session.objects.parameter_lists.contains_key(&t.to_ascii_uppercase()) {
+                return Ok((Vec::new(), Some(t)));
+            }
         }
     }
-    (modes, list)
+    let mut modes = Vec::new();
+    let mut list = None;
+    for (i, a) in args.iter().enumerate().skip(1) {
+        let Some(t) = a.as_text() else { continue };
+        let slot = i - 1;
+        if let Some((label, allowed)) = sig.slots.get(slot) {
+            let up = t.to_ascii_uppercase();
+            if !allowed.contains(&up.as_str()) {
+                let hint = if is_mode_constant(&up) { "a mode for another argument" } else { "not a valid constant" };
+                return Err(format!("{who}: '{t}' is {hint}; the {label} argument accepts {}", allowed.join(" or ")));
+            }
+            modes.push(up);
+        } else if slot == sig.slots.len() {
+            if is_mode_constant(&t) {
+                return Err(format!("{who}: '{t}' is a mode constant, but argument {} must be a parameter list", i + 1));
+            }
+            list = Some(t);
+        } else {
+            return Err(format!("{who}: too many arguments (argument {} is not part of the signature)", i + 1));
+        }
+    }
+    Ok((modes, list))
 }
 
 /// Text parameters of the named list (`None` name: no parameters).
@@ -177,7 +224,15 @@ fn start_form(name: &str, args: &[OracleValue], session: &mut FormSession) -> Bu
     let Some(form) = text(args, 0).map(|t| form_module_name(&t)).filter(|t| !t.is_empty()) else {
         return BuiltinResult::Failure(format!("{name} requires a form name"));
     };
-    let (modes, list) = mode_words(args);
+    let sig = match name {
+        "CALL_FORM" => &CALL_FORM_SIG,
+        "OPEN_FORM" => &OPEN_FORM_SIG,
+        _ => &NEW_FORM_SIG,
+    };
+    let (modes, list) = match parse_signature(sig, args, session) {
+        Ok(p) => p,
+        Err(e) => return BuiltinResult::Failure(e),
+    };
     let params = match collect_params(session, list.as_deref(), name) {
         Ok(p) => p,
         Err(e) => return BuiltinResult::Failure(e),

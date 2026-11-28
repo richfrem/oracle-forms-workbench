@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database, execute_policy_never_logs_command_arguments_or_output, new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer, file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte, open_handle_count_is_capped
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, navigation_arguments_follow_each_built_ins_signature, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database, execute_policy_never_logs_command_arguments_or_output, new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer, file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte, open_handle_count_is_capped
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -506,6 +506,53 @@ fn open_new_go_close_queue_requests_with_parsed_modes_and_parameters() {
     }
     assert_eq!(q[2], NavRequest::GoForm("other".into()));
     assert_eq!(q[3], NavRequest::CloseForm("other".into()));
+}
+
+#[test]
+fn navigation_arguments_follow_each_built_ins_signature() {
+    use oracle_forms_runtime::nav::NavRequest;
+    // (call, expected message fragment)
+    let bad = [
+        ("CALL_FORM('c', 'BOGUS')", "BOGUS"),
+        ("CALL_FORM('c', HIDE, HIDE)", "another argument"),
+        ("CALL_FORM('c', DO_REPLACE)", "display argument accepts HIDE or NO_HIDE"),
+        ("CALL_FORM('c', HIDE, DO_REPLACE, QUERY_ONLY, NO_HIDE)", "mode constant"),
+        ("CALL_FORM('c', HIDE, DO_REPLACE, QUERY_ONLY, 'PL', 'extra')", "too many arguments"),
+        ("CALL_FORM('c', HIDE, 'PL')", "switch_menu"),
+        ("OPEN_FORM('o', 'BOGUS')", "activate_mode"),
+        ("OPEN_FORM('o', ACTIVATE, ACTIVATE)", "another argument"),
+        ("OPEN_FORM('o', SESSION, ACTIVATE)", "activate_mode"),
+        ("OPEN_FORM('o', ACTIVATE, SESSION, 'PL', 1)", "too many arguments"),
+        ("OPEN_FORM('o', 'PL')", "activate_mode"),
+        ("NEW_FORM('n', 'BOGUS')", "rollback_mode"),
+        ("NEW_FORM('n', QUERY_ONLY)", "rollback_mode argument accepts TO_SAVEPOINT or NO_ROLLBACK or FULL_ROLLBACK"),
+        ("NEW_FORM('n', NO_ROLLBACK, NO_ROLLBACK)", "another argument"),
+        ("NEW_FORM('n', NO_ROLLBACK, QUERY_ONLY, 'PL', 'x')", "too many arguments"),
+    ];
+    for (call, fragment) in bad {
+        let mut s = objects_session();
+        exec(&mut s, &format!("BEGIN {call}; IF FORM_FAILURE THEN :GLOBAL.F := 'failed'; END IF; END;"));
+        assert_eq!(global(&s, "F"), "failed", "{call}: {:?}", s.messages);
+        assert!(s.messages.iter().any(|m| m.contains(fragment)), "{call}: expected '{fragment}' in {:?}", s.messages);
+        assert!(s.nav_queue.is_empty(), "{call}: nothing queued");
+    }
+    // Accepted forms: NULL/omitted defaults, a short list form and the full signature.
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "DECLARE pl ParamList; BEGIN pl := CREATE_PARAMETER_LIST('PL'); ADD_PARAMETER(pl, 'k', TEXT_PARAMETER, 'v'); \
+           OPEN_FORM('a'); OPEN_FORM('b', NULL, SESSION); OPEN_FORM('c', pl); OPEN_FORM('d', NO_ACTIVATE, NO_SESSION, 'PL'); \
+           NEW_FORM('e', NULL, QUERY_ONLY, pl); NEW_FORM('f', pl); END;",
+    );
+    let q = std::mem::take(&mut s.nav_queue);
+    assert_eq!(q.len(), 6, "{q:?} {:?}", s.messages);
+    let open = |i: usize| match &q[i] { NavRequest::Open(o) => o.clone(), o => panic!("{o:?}") };
+    assert!(open(0).activate && !open(0).new_session);
+    assert!(open(1).activate && open(1).new_session);
+    assert_eq!(open(2).params.len(), 1, "short form: parameter list right after the form name");
+    assert!(!open(3).activate && open(3).params.len() == 1);
+    match &q[4] { NavRequest::New(n) => assert!(n.query_only && n.params.len() == 1), o => panic!("{o:?}") }
+    match &q[5] { NavRequest::New(n) => assert!(!n.query_only && n.params.len() == 1), o => panic!("{o:?}") }
 }
 
 #[test]

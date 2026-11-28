@@ -270,3 +270,11 @@ parameter list.
   default-menu item names only (`FormsRuntime.menuCommandFor`). Custom menu modules have no
   per-item DOM to attach to, so their state is kept and sent but not rendered. Roles, submenus
   and `CALL_FORM(.., DO_REPLACE)` menu replacement remain open. Not exercised in a real browser.
+
+### R3.6 Record group selection built-ins (done, 14c details unverified)
+`SET/RESET/UNSET_GROUP_SELECTION`, `GET_GROUP_SELECTION`, `GET_GROUP_SELECTION_COUNT`,
+`GET_GROUP_RECORD_NUMBER`: a selection is a list of 1-based row numbers in selection order.
+`GET_GROUP_SELECTION(group, n)` and `GET_GROUP_RECORD_NUMBER(group, n)` return the row number of the
+nth selection (NULL when there is none; both identical here, unverified against 14c).
+`RESET_GROUP_SELECTION(group)` clears all, with a row it deselects that row. Deleting a row drops
+and renumbers selections, inserting shifts them, populating or `ALL_ROWS` deletion clears them.

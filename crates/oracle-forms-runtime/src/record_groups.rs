@@ -1,7 +1,15 @@
 //! Record group built-ins: `CREATE_GROUP`, `CREATE_GROUP_FROM_QUERY`, `POPULATE_GROUP`,
 //! `POPULATE_GROUP_WITH_QUERY`, `FIND_GROUP`, `FIND_COLUMN`, `ADD_GROUP_COLUMN`,
 //! `ADD_GROUP_ROW`, `GET_GROUP_CHAR/NUMBER/DATE_CELL`, `SET_GROUP_CHAR/NUMBER/DATE_CELL`,
-//! `GET_GROUP_ROW_COUNT`, `DELETE_GROUP`, `DELETE_GROUP_ROW`.
+//! `GET_GROUP_ROW_COUNT`, `DELETE_GROUP`, `DELETE_GROUP_ROW`, and the selection built-ins
+//! `SET_GROUP_SELECTION(group, row)`, `RESET_GROUP_SELECTION(group[, row])`,
+//! `UNSET_GROUP_SELECTION(group, row)`, `GET_GROUP_SELECTION(group, n)`,
+//! `GET_GROUP_SELECTION_COUNT(group)`, `GET_GROUP_RECORD_NUMBER(group, n)`.
+//! Selections are row numbers kept in selection order; `GET_GROUP_SELECTION` and
+//! `GET_GROUP_RECORD_NUMBER` return the row number of the Nth selection (NULL when there is
+//! none; in this model both give the same number, whether they differ in 14c is unverified).
+//! `RESET_GROUP_SELECTION` with a row deselects it, without one clears all selections.
+//! Deleting rows renumbers the selection, populating a group clears it.
 //!
 //! Semantics follow Forms: the `POPULATE_GROUP*` functions return `0` on success, `1403`
 //! when the query returns no rows, or the Oracle error number; rows are numbered from 1;
@@ -12,7 +20,7 @@
 //!
 //! Purpose: Module implementation (record_groups.rs).
 //! Key Input Dependencies: crate::objects, oracle_forms_db
-//! Index: run_query, populate_rows, populate, cell_target, dispatch, create_group, add_column, add_row, get_cell, set_cell, delete_row
+//! Index: selection_builtin, run_query, populate_rows, populate, cell_target, dispatch, create_group, add_column, add_row, get_cell, set_cell, delete_row
 
 use crate::builtins::BuiltinResult;
 use crate::objects::{GroupColumn, GroupColumnType, RecordGroup};
@@ -94,6 +102,7 @@ fn populate_rows(group: &mut RecordGroup, result: &QueryResult) {
         })
         .collect();
     group.populated = true;
+    group.selection.clear();
 }
 
 /// Populates the group named `name` from `sql`; returns the Forms status number.
@@ -180,6 +189,9 @@ pub fn dispatch(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
             Err(e) => BuiltinResult::Failure(e),
         },
         "DELETE_GROUP_ROW" => delete_row(args, session),
+        "SET_GROUP_SELECTION" | "RESET_GROUP_SELECTION" | "UNSET_GROUP_SELECTION" | "GET_GROUP_SELECTION" | "GET_GROUP_SELECTION_COUNT" | "GET_GROUP_RECORD_NUMBER" => {
+            selection_builtin(name, args, session)
+        }
         _ => return None,
     })
 }
@@ -241,6 +253,7 @@ fn add_row(args: &[OracleValue], session: &mut FormSession) -> BuiltinResult {
         },
     };
     group.rows.insert(at, blank);
+    group.selection_after_row_inserted(at + 1);
     group.populated = true;
     BuiltinResult::Void
 }
@@ -317,13 +330,46 @@ fn delete_row(args: &[OracleValue], session: &mut FormSession) -> BuiltinResult 
     let group = session.objects.record_groups.get_mut(&g).expect("checked");
     if text(args, 1).map(|t| t.eq_ignore_ascii_case("ALL_ROWS")).unwrap_or(false) {
         group.rows.clear();
+        group.selection.clear();
         return BuiltinResult::Void;
     }
     match row_index(group, args, 1, "DELETE_GROUP_ROW") {
         Ok(r) => {
             group.rows.remove(r);
+            group.selection_after_row_removed(r + 1);
             BuiltinResult::Void
         }
         Err(e) => BuiltinResult::Failure(e),
+    }
+}
+
+/// The selection built-ins (see the module docs for the semantics).
+fn selection_builtin(name: &str, args: &[OracleValue], session: &mut FormSession) -> BuiltinResult {
+    let g = match group_arg(session, args, name) {
+        Ok(g) => g,
+        Err(e) => return BuiltinResult::Failure(e),
+    };
+    let group = session.objects.record_groups.get_mut(&g).expect("checked");
+    match name {
+        "GET_GROUP_SELECTION_COUNT" => status(group.selection.len() as i64),
+        "RESET_GROUP_SELECTION" if args.get(1).map(|v| v.is_null()).unwrap_or(true) => {
+            group.selection.clear();
+            BuiltinResult::Void
+        }
+        "SET_GROUP_SELECTION" | "RESET_GROUP_SELECTION" | "UNSET_GROUP_SELECTION" => match row_index(group, args, 1, name) {
+            Ok(r) => {
+                if name == "SET_GROUP_SELECTION" {
+                    group.select(r + 1);
+                } else {
+                    group.deselect(r + 1);
+                }
+                BuiltinResult::Void
+            }
+            Err(e) => BuiltinResult::Failure(e),
+        },
+        _ => match args.get(1).and_then(|v| v.as_i64()) {
+            Some(n) if n >= 1 => BuiltinResult::Value(group.selection.get(n as usize - 1).map(|r| OracleValue::int(*r as i64)).unwrap_or(OracleValue::Null)),
+            _ => BuiltinResult::Failure(format!("{name}: the selection number must be 1 or more")),
+        },
     }
 }

@@ -7,7 +7,7 @@
 //!
 //! Purpose: Module implementation (objects.rs).
 //! Key Input Dependencies: oracle_forms_core, std
-//! Index: ParamKind, ParamEntry, ParameterList, GroupColumnType, GroupColumn, RecordGroup, Timer, RuntimeObjects, from_module, now_ms, advance_clock, next_anonymous_name
+//! Index: RecordGroup::select, deselect, selection_after_row_removed, selection_after_row_inserted, ParamKind, ParamEntry, ParameterList, GroupColumnType, GroupColumn, RecordGroup, Timer, RuntimeObjects, from_module, now_ms, advance_clock, next_anonymous_name
 
 use crate::value::OracleValue;
 use oracle_forms_core::model::{ModuleIndex, RecordGroupInfo};
@@ -107,9 +107,44 @@ pub struct RecordGroup {
     pub populated: bool,
     /// Created by `CREATE_GROUP*` (only these can be deleted, as in Forms).
     pub runtime_created: bool,
+    /// Selected row numbers (1-based) in selection order (`SET_GROUP_SELECTION`).
+    pub selection: Vec<usize>,
 }
 
 impl RecordGroup {
+    /// Marks `row` (1-based) as selected; a row that is already selected keeps its place.
+    pub fn select(&mut self, row: usize) {
+        if !self.selection.contains(&row) {
+            self.selection.push(row);
+        }
+    }
+
+    /// Unmarks `row`; true when it was selected.
+    pub fn deselect(&mut self, row: usize) -> bool {
+        let before = self.selection.len();
+        self.selection.retain(|r| *r != row);
+        self.selection.len() != before
+    }
+
+    /// Keeps the selection consistent after row `row` (1-based) was removed.
+    pub fn selection_after_row_removed(&mut self, row: usize) {
+        self.selection.retain(|r| *r != row);
+        for r in &mut self.selection {
+            if *r > row {
+                *r -= 1;
+            }
+        }
+    }
+
+    /// Keeps the selection consistent after a row was inserted at `row` (1-based).
+    pub fn selection_after_row_inserted(&mut self, row: usize) {
+        for r in &mut self.selection {
+            if *r >= row {
+                *r += 1;
+            }
+        }
+    }
+
     pub fn column_index(&self, name: &str) -> Option<usize> {
         self.columns.iter().position(|c| c.name.eq_ignore_ascii_case(name))
     }
@@ -152,7 +187,7 @@ impl RecordGroup {
                 );
             }
         }
-        RecordGroup { name: def.name.clone(), columns, rows, query: def.query_text.clone(), populated: is_static, runtime_created: false }
+        RecordGroup { name: def.name.clone(), columns, rows, query: def.query_text.clone(), populated: is_static, runtime_created: false, selection: Vec::new() }
     }
 }
 

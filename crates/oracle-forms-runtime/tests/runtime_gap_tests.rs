@@ -3,7 +3,7 @@
 //!
 //! Purpose: Integration/conformance tests (runtime_gap_tests.rs).
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, oracle_forms_xml, samples/conformance/conf_03_query_cascade_fmb.xml
-//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, navigation_arguments_follow_each_built_ins_signature, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, menu_paths_are_validated_in_full_and_same_named_items_stay_distinct, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database, execute_policy_never_logs_command_arguments_or_output, new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer, file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte, open_handle_count_is_capped
+//! Index: sample, unit, trigger, session_with, button, press, infinite_loop_in_package_routine_is_stopped_and_named, cancelled_session_stops_running_plsql, stray_end_in_program_unit_text_does_not_hang_session_creation, record_field_assignment_and_read_work, objects_session, exec, global, parameter_list_lifecycle_and_out_parameters, parameter_list_errors_set_form_failure_and_continue, record_group_programmatic_cells_rows_and_types, record_group_selection_keeps_order_and_follows_row_changes, populating_a_group_clears_its_selection, record_group_queries_populate_and_report_status, design_time_record_groups_exist_at_startup, timers_create_find_set_delete_and_fire, startup_timer_with_short_delay_runs_after_startup, timers_do_not_fire_inside_a_running_trigger, lov_handler, show_lov_runs_query_applies_column_mappings_and_returns_true, show_lov_cancel_returns_false_and_leaves_items_alone, show_lov_without_a_user_is_cancelled_and_missing_lov_fails, list_values_uses_the_current_items_lov_and_restricts_by_typed_text, list_values_on_an_item_without_a_lov_fails_visibly, key_listval_trigger_overrides_the_default, validate_from_list_accepts_exact_completes_unique_prefix_and_rejects_unknown, validate_from_list_with_several_matches_shows_the_lov, button_trigger_can_use_show_lov_result, lov_overrides_change_the_group, form_names_lose_paths_and_extensions, open_new_go_close_queue_requests_with_parsed_modes_and_parameters, navigation_arguments_follow_each_built_ins_signature, call_form_without_a_host_is_reported_and_data_parameters_are_refused, form_introspection_reports_the_stack, exit_form_modes_control_the_commit_and_the_prompt, post_writes_without_committing_and_commit_form_then_only_commits, post_with_nothing_to_write_reports_and_a_read_only_session_refuses, text_io_writes_reads_appends_and_reports_end_of_file, text_io_errors_raise_named_exceptions_and_stay_in_the_sandbox, host_is_denied_by_default_and_emulated_on_the_virtual_files_when_enabled, host_can_use_a_host_supplied_executor, show_document_queues_an_open_url_action_and_refuses_unsafe_schemes, list_items_start_from_design_elements_and_can_be_edited_and_populated, menu_items_keep_enabled_checked_displayed_and_label, menu_item_lookup_is_strict_once_a_custom_menu_is_loaded, menu_paths_are_validated_in_full_and_same_named_items_stay_distinct, record_properties_read_and_set_status, queried_sqlite_records_carry_a_rowid_so_updates_and_deletes_reach_the_database, execute_policy_never_logs_command_arguments_or_output, new_line_count_has_a_hard_limit_without_allocating_the_oversized_buffer, file_and_session_size_caps_accept_the_boundary_and_reject_the_next_byte, open_handle_count_is_capped
 
 use oracle_forms_core::model::{ModuleKey, ModuleType, ProgramUnitInfo, ProgramUnitType, TriggerInfo, TriggerLevel};
 use oracle_forms_db::SqliteDriver;
@@ -233,6 +233,59 @@ fn record_group_programmatic_cells_rows_and_types() {
     assert_eq!(global(&s, "CNT2"), "2");
     assert_eq!(global(&s, "CNT3"), "0");
     assert_eq!(global(&s, "DEL"), "deleted");
+}
+
+#[test]
+fn record_group_selection_keeps_order_and_follows_row_changes() {
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "DECLARE g RecordGroup; x NUMBER; BEGIN g := CREATE_GROUP('RG_SEL'); ADD_GROUP_COLUMN(g, 'N', CHAR_COLUMN); \
+           FOR i IN 1..5 LOOP ADD_GROUP_ROW(g, END_OF_GROUP); SET_GROUP_CHAR_CELL('RG_SEL.N', i, 'r' || i); END LOOP; \
+           :GLOBAL.C0 := GET_GROUP_SELECTION_COUNT(g); \
+           SET_GROUP_SELECTION(g, 4); SET_GROUP_SELECTION(g, 2); SET_GROUP_SELECTION(g, 5); SET_GROUP_SELECTION(g, 2); \
+           :GLOBAL.C1 := GET_GROUP_SELECTION_COUNT(g); \
+           :GLOBAL.S1 := GET_GROUP_SELECTION(g, 1) || ',' || GET_GROUP_SELECTION(g, 2) || ',' || GET_GROUP_SELECTION(g, 3); \
+           :GLOBAL.R2 := GET_GROUP_RECORD_NUMBER(g, 2); \
+           IF GET_GROUP_SELECTION(g, 4) IS NULL THEN :GLOBAL.NONE := 'null'; END IF; \
+           UNSET_GROUP_SELECTION(g, 4); :GLOBAL.S2 := GET_GROUP_SELECTION(g, 1) || ',' || GET_GROUP_SELECTION(g, 2); \
+           RESET_GROUP_SELECTION(g, 5); :GLOBAL.C2 := GET_GROUP_SELECTION_COUNT(g); \
+           SET_GROUP_SELECTION(g, 3); SET_GROUP_SELECTION(g, 5); \
+           DELETE_GROUP_ROW(g, 1); :GLOBAL.S3 := GET_GROUP_SELECTION(g, 1) || ',' || GET_GROUP_SELECTION(g, 2) || ',' || GET_GROUP_SELECTION(g, 3); \
+           DELETE_GROUP_ROW(g, 1); :GLOBAL.C3 := GET_GROUP_SELECTION_COUNT(g); \
+           ADD_GROUP_ROW(g, 1); :GLOBAL.S4 := GET_GROUP_SELECTION(g, 1) || ',' || GET_GROUP_SELECTION(g, 2); \
+           SET_GROUP_SELECTION(g, 99); IF FORM_FAILURE THEN :GLOBAL.BAD := 'range'; END IF; \
+           x := GET_GROUP_SELECTION(g, 0); IF FORM_FAILURE THEN :GLOBAL.BADN := 'n'; END IF; \
+           RESET_GROUP_SELECTION(g); :GLOBAL.C4 := GET_GROUP_SELECTION_COUNT(g); \
+           SET_GROUP_SELECTION(g, 1); DELETE_GROUP_ROW(g, ALL_ROWS); :GLOBAL.C5 := GET_GROUP_SELECTION_COUNT(g); \
+         END;",
+    );
+    assert_eq!(global(&s, "C0"), "0", "{:?}", s.messages);
+    assert_eq!(global(&s, "C1"), "3", "a row already selected is not added twice");
+    assert_eq!(global(&s, "S1"), "4,2,5", "selection order, not row order");
+    assert_eq!(global(&s, "R2"), "2");
+    assert_eq!(global(&s, "NONE"), "null");
+    assert_eq!(global(&s, "S2"), "2,5");
+    assert_eq!(global(&s, "C2"), "1");
+    assert_eq!(global(&s, "S3"), "1,2,4", "rows 2,3,5 renumbered to 1,2,4 after row 1 was deleted");
+    assert_eq!(global(&s, "C3"), "2", "deleting a selected row drops its selection");
+    assert_eq!(global(&s, "S4"), "2,4", "inserting a row shifts the selections after it");
+    assert_eq!(global(&s, "BAD"), "range");
+    assert_eq!(global(&s, "BADN"), "n");
+    assert_eq!(global(&s, "C4"), "0");
+    assert_eq!(global(&s, "C5"), "0");
+}
+
+#[test]
+fn populating_a_group_clears_its_selection() {
+    let mut s = objects_session();
+    exec(
+        &mut s,
+        "DECLARE g RecordGroup; st NUMBER; BEGIN g := CREATE_GROUP_FROM_QUERY('RG_Q', 'SELECT CUST_NAME FROM CUSTOMERS'); \
+           st := POPULATE_GROUP(g); SET_GROUP_SELECTION(g, 1); :GLOBAL.A := GET_GROUP_SELECTION_COUNT(g); \
+           st := POPULATE_GROUP(g); :GLOBAL.B := GET_GROUP_SELECTION_COUNT(g); END;",
+    );
+    assert_eq!((global(&s, "A"), global(&s, "B")), ("1".into(), "0".into()), "{:?} {:?}", s.trace_log, s.messages);
 }
 
 #[test]

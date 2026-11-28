@@ -278,3 +278,12 @@ parameter list.
 nth selection (NULL when there is none; both identical here, unverified against 14c).
 `RESET_GROUP_SELECTION(group)` clears all, with a row it deselects that row. Deleting a row drops
 and renumbers selections, inserting shifts them, populating or `ALL_ROWS` deletion clears them.
+
+### R3.7 Bounded virtual file transfer API (done server side, no UI)
+- `GET /api/sessions/{id}/files[?formId=n]` lists the sandbox files of a form (default: the active
+  form) with the limits; `GET .../files/{path}` downloads (attachment, `nosniff`);
+  `PUT .../files/{path}` uploads the request body (replace). Paths are sandbox-relative
+  (`textio::normalize_path`, `..` is 400, never a host path). Limits are those of `TEXT_IO`:
+  8 MiB per file and 32 MiB per session (413), plus the HTTP body limit; an open `TEXT_IO` handle
+  blocks replacing its file (409); a pending alert or LOV gives 409.
+- Not built: a sandbox file list in the web UI (the state already carries `sandboxFiles`).

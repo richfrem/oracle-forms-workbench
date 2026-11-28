@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: new_form_on_a_clean_form_replaces_it_without_asking, new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps, new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form, new_form_full_rollback_discards_without_asking, close_form_of_a_clean_opened_form_closes_without_asking, close_form_with_changes_asks_and_honours_each_answer, dirty_root, host_with_dirty_peer, a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: FileOp, FileReply, file_op, sandbox_file_round_trip_goes_through_text_io_and_back, sandbox_file_api_rejects_traversal_oversize_and_unknown_files, new_form_on_a_clean_form_replaces_it_without_asking, new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps, new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form, new_form_full_rollback_discards_without_asking, close_form_of_a_clean_opened_form_closes_without_asking, close_form_with_changes_asks_and_honours_each_answer, dirty_root, host_with_dirty_peer, a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -73,6 +73,27 @@ pub(crate) enum Command {
     State(Reply),
     /// Run due timers (`WHEN-TIMER-EXPIRED`), then return the state.
     Tick(Reply),
+    /// Virtual-file transfer on a form's sandbox (the files live in the form session).
+    Files(FileOp, Option<u32>, oneshot::Sender<Result<FileReply, (u16, String)>>),
+}
+
+/// A virtual-file operation on the sandbox of a form (`None`: the active form).
+#[derive(Debug)]
+pub(crate) enum FileOp {
+    List,
+    Get(String),
+    Put(String, Vec<u8>),
+}
+
+/// Result of a [`FileOp`].
+#[derive(Debug)]
+pub(crate) enum FileReply {
+    /// `(path, size)` of every sandbox file.
+    List(Vec<(String, usize)>),
+    /// `(path, bytes)` of a downloaded file.
+    Bytes(String, Vec<u8>),
+    /// `(path, size)` of an uploaded file.
+    Stored(String, usize),
 }
 
 /// The user's answer to a pending interaction.
@@ -307,6 +328,27 @@ impl SessionManager {
         let (reply_tx, reply_rx) = oneshot::channel();
         handle.tx.send(Command::Tick(reply_tx)).map_err(|_| (410, "Session has ended".to_string()))?;
         self.await_reply(id, &handle, reply_rx).await
+    }
+
+    /// Lists, downloads or uploads sandbox files of a form of the session (through the session
+    /// thread, because the files live in the form session). Paths follow `textio::normalize_path`;
+    /// uploads obey the `TEXT_IO` size caps. Errors: 400 bad path, 404 no such file/form, 409 busy,
+    /// 413 over a limit.
+    pub(crate) async fn file_op(&self, id: &str, op: FileOp, form_id: Option<u32>) -> Result<FileReply, (u16, String)> {
+        let handle = self.get(id).ok_or((404, "Session not found or expired".to_string()))?;
+        if handle.shared.awaiting_alert.load(Ordering::SeqCst) {
+            return Err((409, "An alert or list of values is waiting for an answer".to_string()));
+        }
+        let (tx, rx) = oneshot::channel();
+        handle.tx.send(Command::Files(op, form_id, tx)).map_err(|_| (410, "Session has ended".to_string()))?;
+        match tokio::time::timeout(self.command_timeout, rx).await {
+            Ok(r) => r.map_err(|_| (500, "Session thread stopped".to_string()))?,
+            Err(_) => {
+                handle.shared.cancel.store(true, Ordering::SeqCst);
+                self.remove(id);
+                Err((504, format!("The session did not answer within {} s; it was cancelled and closed", self.command_timeout.as_secs_f32())))
+            }
+        }
     }
 
     async fn answer(&self, id: &str, answer: Answer, expected: Awaiting, none_waiting: &str, form_id: Option<u32>) -> Result<Value, (u16, String)> {
@@ -929,6 +971,85 @@ mod tests {
         let st = mgr.answer_alert_for(&id, ALERT_BUTTON1, Some(2)).await.unwrap();
         assert_eq!(form_names(&st).len(), 2, "{st}");
         assert!(messages(&st).contains("could not be saved"), "reported to the opener: {st}");
+    }
+
+    async fn files_session() -> (SessionManager, String) {
+        let mgr = SessionManager::default();
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_22_files_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
+            .await
+            .unwrap();
+        (mgr, state["sessionId"].as_str().unwrap().to_string())
+    }
+
+    #[tokio::test]
+    async fn sandbox_file_round_trip_goes_through_text_io_and_back() {
+        let (mgr, id) = files_session().await;
+        // Upload (client-style path maps into the sandbox), then the form reads it with TEXT_IO.
+        let up = mgr.file_op(&id, FileOp::Put("temp\\in.txt".into(), b"first line\nsecond line\n".to_vec()), None).await.unwrap();
+        assert!(matches!(up, FileReply::Stored(ref p, 23) if p == "temp/in.txt"), "{up:?}");
+        let st = mgr.send_event(&id, press("F", "BTN_READ")).await.unwrap();
+        assert_eq!(value(&st, "F", "LINE1"), "first line", "{st}");
+        assert_eq!(value(&st, "F", "LINE2"), "second line");
+        // The form writes, the host downloads the bytes.
+        mgr.send_event(&id, press("F", "BTN_WRITE")).await.unwrap();
+        match mgr.file_op(&id, FileOp::Get("out/result.txt".into()), None).await.unwrap() {
+            FileReply::Bytes(p, b) => assert_eq!((p.as_str(), b), ("out/result.txt", b"written by first line\n".to_vec())),
+            other => panic!("{other:?}"),
+        }
+        match mgr.file_op(&id, FileOp::List, None).await.unwrap() {
+            FileReply::List(files) => assert_eq!(files.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), vec!["out/result.txt", "temp/in.txt"]),
+            other => panic!("{other:?}"),
+        }
+        // The state lists the same files.
+        let state = mgr.state(&id).await.unwrap();
+        assert_eq!(state["sandboxFiles"].as_array().unwrap().len(), 2);
+        // Binary bytes survive unchanged.
+        let bytes: Vec<u8> = (0..=255u8).collect();
+        mgr.file_op(&id, FileOp::Put("bin.dat".into(), bytes.clone()), None).await.unwrap();
+        match mgr.file_op(&id, FileOp::Get("bin.dat".into()), None).await.unwrap() {
+            FileReply::Bytes(_, b) => assert_eq!(b, bytes),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sandbox_file_api_rejects_traversal_oversize_and_unknown_files() {
+        use oracle_forms_runtime::textio::{MAX_FILE_BYTES, MAX_SESSION_BYTES};
+        let (mgr, id) = files_session().await;
+        for bad in ["../etc/passwd", "a/../../b", "..", "", "   "] {
+            assert_eq!(mgr.file_op(&id, FileOp::Put(bad.into(), b"x".to_vec()), None).await.unwrap_err().0, 400, "put {bad:?}");
+            assert_eq!(mgr.file_op(&id, FileOp::Get(bad.into()), None).await.unwrap_err().0, 400, "get {bad:?}");
+        }
+        assert_eq!(mgr.file_op(&id, FileOp::Get("missing.txt".into()), None).await.unwrap_err().0, 404);
+        assert_eq!(mgr.file_op(&id, FileOp::List, Some(99)).await.unwrap_err().0, 404, "unknown form");
+        // Largest accepted file, then the first rejected size.
+        let ok = mgr.file_op(&id, FileOp::Put("big.bin".into(), vec![0; MAX_FILE_BYTES]), None).await.unwrap();
+        assert!(matches!(ok, FileReply::Stored(_, n) if n == MAX_FILE_BYTES));
+        let over = mgr.file_op(&id, FileOp::Put("big2.bin".into(), vec![0; MAX_FILE_BYTES + 1]), None).await.unwrap_err();
+        assert_eq!(over.0, 413, "{over:?}");
+        // Per-session total (shared with TEXT_IO): fill up to the cap, the next file is refused,
+        // replacing an existing file still works.
+        let full = MAX_SESSION_BYTES / MAX_FILE_BYTES;
+        for i in 1..full {
+            mgr.file_op(&id, FileOp::Put(format!("f{i}.bin"), vec![0; MAX_FILE_BYTES]), None).await.unwrap();
+        }
+        let refused = mgr.file_op(&id, FileOp::Put("one-more.txt".into(), b"x".to_vec()), None).await.unwrap_err();
+        assert_eq!(refused.0, 413, "{refused:?}");
+        assert!(refused.1.contains("session file storage limit"), "{refused:?}");
+        mgr.file_op(&id, FileOp::Put("big.bin".into(), vec![1; 10]), None).await.unwrap();
+        mgr.file_op(&id, FileOp::Put("one-more.txt".into(), b"x".to_vec()), None).await.unwrap();
+        // A file the form holds open cannot be replaced.
+        mgr.send_event(&id, press("F", "BTN_OPEN_KEEP")).await.unwrap();
+        let busy = mgr.file_op(&id, FileOp::Put("keep.txt".into(), b"x".to_vec()), None).await.unwrap_err();
+        assert_eq!(busy.0, 409, "{busy:?}");
+        // Another session has its own sandbox.
+        let other = mgr
+            .start(StartOptions { module: conformance("conf_22_files_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: None })
+            .await
+            .unwrap();
+        let id2 = other["sessionId"].as_str().unwrap().to_string();
+        assert_eq!(mgr.file_op(&id2, FileOp::Get("big.bin".into()), None).await.unwrap_err().0, 404, "files are isolated per session");
     }
 
     #[tokio::test]

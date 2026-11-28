@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_22_FILES" Title="Virtual file transfer conformance">
+    <Block Name="F">
+      <Item Name="LINE1" ItemType="Text Item" DataType="Char"/>
+      <Item Name="LINE2" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_READ" ItemType="Push Button" Label="BTN_READ">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE fh TEXT_IO.FILE_TYPE; l VARCHAR2(200); BEGIN fh := TEXT_IO.FOPEN('c:\temp\in.txt', 'r'); TEXT_IO.GET_LINE(fh, l); :F.LINE1 := l; TEXT_IO.GET_LINE(fh, l); :F.LINE2 := l; TEXT_IO.FCLOSE(fh); END;"/>
+      </Item>
+      <Item Name="BTN_WRITE" ItemType="Push Button" Label="BTN_WRITE">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE fh TEXT_IO.FILE_TYPE; BEGIN fh := TEXT_IO.FOPEN('out/result.txt', 'w'); TEXT_IO.PUT_LINE(fh, 'written by ' || :F.LINE1); TEXT_IO.FCLOSE(fh); END;"/>
+      </Item>
+      <Item Name="BTN_OPEN_KEEP" ItemType="Push Button" Label="BTN_OPEN_KEEP">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE fh TEXT_IO.FILE_TYPE; BEGIN fh := TEXT_IO.FOPEN('keep.txt', 'w'); END;"/>
+      </Item>
+    </Block>
+  </FormModule>
+</Module>

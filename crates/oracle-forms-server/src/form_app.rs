@@ -30,7 +30,7 @@
 //!
 //! Purpose: Module implementation (form_app.rs).
 //! Key Input Dependencies: crate::runtime_sessions, oracle_forms_runtime, oracle_forms_db
-//! Index: ConnFactory, AppInit, Kind, Slot, App, run, fail, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, settle_changes, open_form, new_form, abort_child, close_form, call_form, new_connection
+//! Index: ConnFactory, AppInit, Kind, Slot, App, run, fail, build_session, start_session, sync_in, sync_out, forms_meta, aggregate, serve, handle_command, handle_event, after_run, apply_nav, settle_changes, file_op, open_form, new_form, abort_child, close_form, call_form, new_connection
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -41,10 +41,11 @@ use std::sync::{Arc, Mutex};
 
 use oracle_forms_db::{DatabaseDriver, DbBackend, DbConfig};
 use oracle_forms_runtime::nav::{ask_to_save, form_module_name, CallSpec, FormLoader, LoadedForm, NavRequest, NewSpec, OpenSpec, Rollback};
+use oracle_forms_runtime::textio::{self, normalize_path};
 use oracle_forms_runtime::{FormSession, InteractionRequest, InteractionResponse, OracleValue, ALERT_BUTTON1};
 use serde_json::{json, Value};
 
-use crate::runtime_sessions::{run_event, snapshot, Answer, Awaiting, Command, Cursors, Reply, SessionEvent, Shared, ALERT_TIMEOUT, STARTUP_TIMER_LOOKAHEAD_MS};
+use crate::runtime_sessions::{run_event, FileOp, FileReply, snapshot, Answer, Awaiting, Command, Cursors, Reply, SessionEvent, Shared, ALERT_TIMEOUT, STARTUP_TIMER_LOOKAHEAD_MS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -396,6 +397,38 @@ fn handle_command(app: &AppRef, cmd: Command, until: Option<u32>) -> bool {
             false
         }
         Command::Event(ev, form_id, reply) => handle_event(app, ev, form_id, reply, until),
+        Command::Files(op, form_id, reply) => {
+            let _ = reply.send(file_op(app, op, form_id));
+            false
+        }
+    }
+}
+
+/// Sandbox file transfer for a form (list / download / upload) inside the `TEXT_IO` limits.
+fn file_op(app: &AppRef, op: FileOp, form_id: Option<u32>) -> Result<FileReply, (u16, String)> {
+    let mut a = app.borrow_mut();
+    let target = form_id.unwrap_or(a.active);
+    let session = a
+        .slots
+        .iter_mut()
+        .find(|s| s.id == target)
+        .and_then(|s| s.session.as_mut())
+        .ok_or((404, "That form is not open".to_string()))?;
+    match op {
+        FileOp::List => Ok(FileReply::List(session.objects.files.iter().map(|(p, b)| (p.clone(), b.len())).collect())),
+        FileOp::Get(raw) => {
+            let key = normalize_path(&raw).ok_or((400, format!("'{raw}' is not a valid sandbox path")))?;
+            session.objects.files.get(&key).map(|b| FileReply::Bytes(key.clone(), b.clone())).ok_or((404, format!("No sandbox file {key}")))
+        }
+        FileOp::Put(raw, data) => {
+            let key = normalize_path(&raw).ok_or((400, format!("'{raw}' is not a valid sandbox path")))?;
+            if session.objects.open_files.values().any(|f| f.path == key) {
+                return Err((409, format!("{key} is open in the form (TEXT_IO); close it first")));
+            }
+            let size = data.len();
+            textio::store(session, &key, &data, false).map_err(|e| (413, e))?;
+            Ok(FileReply::Stored(key, size))
+        }
     }
 }
 

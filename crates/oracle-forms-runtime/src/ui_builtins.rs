@@ -6,7 +6,8 @@
 //! List elements start from the design-time elements of the item and are then kept per
 //! session (`RuntimeObjects::list_elements`); the state sends changed lists to the UI.
 //! Menu items accept any `MENU.ITEM` name when the form has no custom menu loaded (the default
-//! Forms menu has standard items such as `FILE.EXIT`); with a menu loaded, unknown items fail.
+//! Forms menu has standard items such as `FILE.EXIT`); with a menu loaded the full `MENU.ITEM` path must resolve inside the named menu (same item
+//! name in two menus stays distinct; an unknown menu fails; a bare item name must be unique).
 //! Menu state (`ENABLED`, `DISPLAYED`, `CHECKED`, `LABEL`) is kept and sent to the UI; the web
 //! menu bar does not apply it yet. Record numbers are 1-based; `STATUS` values are
 //! `NEW_STATUS`, `INSERT_STATUS`, `QUERY_STATUS`, `CHANGED_STATUS`.
@@ -195,12 +196,26 @@ fn menu_key(session: &FormSession, raw: &str) -> Result<String, String> {
     if session.module.menus.is_empty() {
         return Ok(clean);
     }
-    let item = clean.rsplit('.').next().unwrap_or(&clean);
-    let found = session.module.menus.iter().any(|m| m.items.iter().any(|i| i.name.eq_ignore_ascii_case(item)));
-    if found {
-        Ok(clean)
-    } else {
-        Err(format!("menu item {raw} does not exist"))
+    match clean.split_once('.') {
+        Some((menu, item)) => {
+            let Some(m) = session.module.menus.iter().find(|m| m.name.eq_ignore_ascii_case(menu)) else {
+                return Err(format!("menu {menu} does not exist"));
+            };
+            if m.items.iter().any(|i| i.name.eq_ignore_ascii_case(item)) {
+                Ok(clean)
+            } else {
+                Err(format!("menu item {item} does not exist in menu {menu}"))
+            }
+        }
+        None => {
+            // A bare item name must identify exactly one menu.
+            let owners: Vec<&str> = session.module.menus.iter().filter(|m| m.items.iter().any(|i| i.name.eq_ignore_ascii_case(&clean))).map(|m| m.name.as_str()).collect();
+            match owners.as_slice() {
+                [one] => Ok(format!("{}.{}", one.to_ascii_uppercase(), clean)),
+                [] => Err(format!("menu item {raw} does not exist")),
+                _ => Err(format!("menu item {raw} is ambiguous (it exists in menus {}); qualify it as MENU.ITEM", owners.join(", "))),
+            }
+        }
     }
 }
 
@@ -225,13 +240,14 @@ fn menu_builtin(name: &str, args: &[OracleValue], session: &mut FormSession) -> 
         "ENABLED" | "DISPLAYED" => bool_text(true),
         "CHECKED" => bool_text(false),
         "LABEL" => {
-            let item = key.rsplit('.').next().unwrap_or(&key).to_string();
+            let (menu, item) = key.split_once('.').unwrap_or(("", &key));
             session
                 .module
                 .menus
                 .iter()
+                .filter(|m| m.name.eq_ignore_ascii_case(menu))
                 .flat_map(|m| m.items.iter())
-                .find(|i| i.name.eq_ignore_ascii_case(&item))
+                .find(|i| i.name.eq_ignore_ascii_case(item))
                 .and_then(|i| i.label.clone())
                 .map(OracleValue::varchar2)
                 .unwrap_or(OracleValue::Null)

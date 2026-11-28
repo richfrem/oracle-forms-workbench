@@ -724,6 +724,10 @@
     oracleWindowShell?.addEventListener('click', (e) => {
       const cmdEl = e.target.closest('[data-ora-cmd]');
       if (!cmdEl) return;
+      if (cmdEl.classList.contains('menu-disabled')) {
+        e.stopPropagation();
+        return;
+      }
       const cmd = cmdEl.getAttribute('data-ora-cmd');
       if (!cmd) return;
       e.stopPropagation();
@@ -2916,6 +2920,34 @@
     return topRecordIndex(blockName) + (row || 0);
   }
 
+  /**
+   * Applies `state.menuItems` (SET_MENU_ITEM_PROPERTY) to the web menu bar: enabled, displayed,
+   * checked and label per item. Only the standard default-menu names map to the bar's fixed
+   * commands (see FormsRuntime.menuCommandFor); custom menu modules have no per-item DOM.
+   */
+  function applyMenuState(state) {
+    const touched = applyMenuState.touched || (applyMenuState.touched = new Map());
+    for (const [el, original] of touched) {
+      el.classList.remove('menu-disabled', 'menu-checked');
+      el.hidden = false;
+      el.removeAttribute('aria-disabled');
+      const span = el.querySelector('span');
+      if (span && original != null) span.textContent = original;
+    }
+    touched.clear();
+    for (const u of window.FormsRuntime.menuUiUpdates(state?.menuItems)) {
+      document.querySelectorAll(`.oracle-menu-bar .dropdown-item[data-ora-cmd="${u.cmd}"]`).forEach(el => {
+        const span = el.querySelector('span');
+        touched.set(el, span ? span.textContent : null);
+        el.hidden = !u.displayed;
+        el.classList.toggle('menu-disabled', !u.enabled);
+        el.classList.toggle('menu-checked', u.checked);
+        if (!u.enabled) el.setAttribute('aria-disabled', 'true');
+        if (span && u.label) span.textContent = u.label;
+      });
+    }
+  }
+
   function setRuntimeUi(state) {
     const running = runtime.active;
     runFormBtn?.classList.toggle('hidden', running);
@@ -3194,6 +3226,7 @@
     }
     if (state.error) showBanner(state.error);
     setRuntimeUi(state);
+    applyMenuState(state);
     renderCanvasSvg();
     if (state.exitRequested) {
       showBanner('The form called EXIT_FORM. Session ended.');

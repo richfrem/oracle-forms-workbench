@@ -262,3 +262,11 @@ parameter list.
 - Called forms still end only through `EXIT_FORM` (`CLOSE_FORM` on one reports and does nothing).
 - Limitation: the Yes test checks that the navigation completes without error; the commit
   itself is covered by the existing commit tests (no cross-session read-back of the row).
+
+### R3.5 Menu runtime basics (done for validation and the pure mapping; rendering partial)
+- `MENU.ITEM` is resolved against the named menu when custom menus are loaded; unknown menu or
+  item fails visibly; same item name in two menus is two separate states.
+- Web menu: `state.menuItems` is applied to the fixed workbench menu bar for the standard
+  default-menu item names only (`FormsRuntime.menuCommandFor`). Custom menu modules have no
+  per-item DOM to attach to, so their state is kept and sent but not rendered. Roles, submenus
+  and `CALL_FORM(.., DO_REPLACE)` menu replacement remain open. Not exercised in a real browser.

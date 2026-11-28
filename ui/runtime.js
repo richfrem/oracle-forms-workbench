@@ -1,4 +1,11 @@
-/* Client for live form sessions: the form's triggers and PL/SQL run on the server. */
+/* Client for live form sessions: the form's triggers and PL/SQL run on the server.
+ *
+ * Purpose: browser client for /api/sessions plus pure helpers the UI and its tests share.
+ * Key Input Dependencies: the server session API (state objects incl. forms, menuItems, lov, alert).
+ * Index: FormsRuntime, formTabs, menuItemStyle, menuCommandFor, menuUiUpdates, credentialError,
+ *   requiresCredentials, active, request, start, send, answerAlert, answerLov, tick, lovRows,
+ *   safeActionUrl, timerPollDelay, stop
+ */
 window.FormsRuntime = class FormsRuntime {
   constructor() {
     this.sessionId = null;
@@ -16,6 +23,41 @@ window.FormsRuntime = class FormsRuntime {
       enabled: !f.suspended && (f.modal || !(state.forms || []).some(o => o.modal)),
       hidden: !!f.hidden,
     }));
+  }
+
+  /**
+   * Presentation of a menu item from `state.menuItems` (keys are upper-case MENU.ITEM names set by
+   * SET_MENU_ITEM_PROPERTY). Unset properties take the Forms defaults: enabled, displayed,
+   * not checked, label unchanged (null).
+   */
+  static menuItemStyle(menuItems, name) {
+    const props = (menuItems || {})[String(name || '').toUpperCase()] || {};
+    const flag = (v, dflt) => (v == null ? dflt : (v === true || String(v).toUpperCase() === 'TRUE'));
+    const label = props.LABEL == null || props.LABEL === '' ? null : String(props.LABEL);
+    return { enabled: flag(props.ENABLED, true), displayed: flag(props.DISPLAYED, true), checked: flag(props.CHECKED, false), label };
+  }
+
+  /** The workbench command (data-ora-cmd) behind a standard Forms default-menu item name (names not verified against 14c). */
+  static menuCommandFor(name) {
+    const map = {
+      'FILE.SAVE': 'commit', 'FILE.EXIT': 'exit', 'FILE.PRINT': 'print', 'FILE.CLEAR': 'clearForm',
+      'QUERY.ENTER': 'enterQuery', 'QUERY.EXECUTE': 'executeQuery', 'QUERY.CANCEL': 'cancelQuery',
+      'BLOCK.PREVIOUS': 'prevBlock', 'BLOCK.NEXT': 'nextBlock', 'BLOCK.CLEAR': 'clearBlock',
+      'RECORD.FIRST': 'firstRecord', 'RECORD.PREVIOUS': 'prevRecord', 'RECORD.NEXT': 'nextRecord', 'RECORD.LAST': 'lastRecord',
+      'RECORD.INSERT': 'createRecord', 'RECORD.REMOVE': 'deleteRecord', 'RECORD.CLEAR': 'clearRecord',
+      'FIELD.PREVIOUS': 'prevItem', 'FIELD.NEXT': 'nextItem',
+    };
+    return map[String(name || '').toUpperCase()] || null;
+  }
+
+  /** `[{cmd, name, enabled, displayed, checked, label}]` for every menu item of the state that has a web menu entry. */
+  static menuUiUpdates(menuItems) {
+    const out = [];
+    for (const name of Object.keys(menuItems || {})) {
+      const cmd = FormsRuntime.menuCommandFor(name);
+      if (cmd) out.push({ cmd, name, ...FormsRuntime.menuItemStyle(menuItems, name) });
+    }
+    return out;
   }
 
   static credentialError({ backend, username, password, useServerCredentials = false }) {

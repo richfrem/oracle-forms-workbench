@@ -2964,3 +2964,8 @@ input[type="range"] {
 .oracle-compile-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .oracle-compile-fields[hidden], .oracle-preview-steps[hidden], #oracleCompileHelp[hidden], #oracleCompileNotes[hidden], #oraclePrecompiledNote[hidden], #convertArtifactXmlBtn[hidden] { display: none; }
 @media(max-width: 560px) { .oracle-compile-fields { grid-template-columns: 1fr; } }
+
+/* Menu items disabled / checked by SET_MENU_ITEM_PROPERTY in a running form */
+.dropdown-item.menu-disabled { opacity: 0.45; pointer-events: auto; cursor: not-allowed; }
+.dropdown-item.menu-checked > span::before { content: "\2713  "; }
+.dropdown-item[hidden] { display: none !important; }

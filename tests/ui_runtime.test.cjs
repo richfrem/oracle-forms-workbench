@@ -93,3 +93,24 @@ test('only http, https and same-origin URLs from form code are opened', () => {
   assert.equal(ok('data:text/html,hi'), null);
   assert.equal(Runtime.safeActionUrl({ kind: 'other', url: 'https://example.org' }), null);
 });
+
+test('menu item style reads enabled, displayed, checked and label by full MENU.ITEM name', () => {
+  const items = {
+    'FILE.SAVE': { ENABLED: 'FALSE', LABEL: 'Save now' },
+    'VIEW.GRID': { CHECKED: 'TRUE', DISPLAYED: 'FALSE' },
+    'OTHER.SAVE': { ENABLED: true },
+  };
+  assert.deepEqual({ ...Runtime.menuItemStyle(items, 'file.save') }, { enabled: false, displayed: true, checked: false, label: 'Save now' });
+  assert.deepEqual({ ...Runtime.menuItemStyle(items, 'VIEW.GRID') }, { enabled: true, displayed: false, checked: true, label: null });
+  assert.equal(Runtime.menuItemStyle(items, 'OTHER.SAVE').enabled, true, 'same item name in another menu is separate');
+  assert.deepEqual({ ...Runtime.menuItemStyle(undefined, 'X.Y') }, { enabled: true, displayed: true, checked: false, label: null }, 'defaults');
+});
+
+test('menu updates map standard default-menu items to the web menu commands only', () => {
+  const ups = Array.from(Runtime.menuUiUpdates({ 'FILE.SAVE': { ENABLED: 'FALSE' }, 'MYMENU.CUSTOM': { ENABLED: 'FALSE' }, 'RECORD.INSERT': { DISPLAYED: 'FALSE' } }));
+  assert.deepEqual(ups.map(u => u.cmd).sort(), ['commit', 'createRecord']);
+  assert.equal(ups.find(u => u.cmd === 'commit').enabled, false);
+  assert.equal(ups.find(u => u.cmd === 'createRecord').displayed, false);
+  assert.equal(Runtime.menuCommandFor('nope.nope'), null);
+  assert.equal(Array.from(Runtime.menuUiUpdates(null)).length, 0);
+});

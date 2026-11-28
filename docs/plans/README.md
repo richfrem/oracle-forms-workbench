@@ -13,6 +13,7 @@ documents below are 100% complete yet, so none were moved to `completed/`.
 - [Next-phase session prompt](10-NEXT-PHASE-SESSION-PROMPT.md) — current session continuation status and prompt.
 - [16: Runtime gap closure](16-RUNTIME-GAP-CLOSURE.md) — execution budgets/runaway protection (done), parameter lists, timers, LOV dialogs, record groups, multi-form design note.
 - [17: Unsupported built-ins and form launch paths](17-UNSUPPORTED-BUILTINS-AND-FORM-LAUNCH-ANALYSIS.md) — per-built-in analysis (POST, HOST, RUN_PRODUCT, RUN_REPORT_OBJECT, WEB.SHOW_DOCUMENT, EXEC_SQL, FORMS_DDL, TEXT_IO, WebUtil, OLE) and multi-form launch architecture options.
+- [18: Round 2 review and round 3 plan](18-ROUND2-REVIEW-AND-ROUND3-PLAN.md) — independent reviewer findings and the prioritised round-3 task list with status.
 - [UI review backlog](UI-REVIEW-BACKLOG.md) — source-inspected UI gaps and parity follow-ups.
 
 ## Proposed post-G design

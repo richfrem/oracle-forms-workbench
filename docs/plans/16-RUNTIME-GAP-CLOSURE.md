@@ -287,3 +287,10 @@ and renumbers selections, inserting shifts them, populating or `ALL_ROWS` deleti
   8 MiB per file and 32 MiB per session (413), plus the HTTP body limit; an open `TEXT_IO` handle
   blocks replacing its file (409); a pending alert or LOV gives 409.
 - Not built: a sandbox file list in the web UI (the state already carries `sandboxFiles`).
+
+### R3.8 Timer lifecycle across navigation (pinned, UNVERIFIED against 14c, behaviour unchanged)
+Tests now pin the current behaviour so a later change is deliberate: a one-shot timer fires once,
+stays defined (`FIND_TIMER` finds it) but inactive and `SET_TIMER` restarts it; timers of a
+`CALL_FORM` caller do not fire while the called form is active and fire when control returns.
+Whether Forms 14c deletes a one-shot timer after it fires, and whether suspended callers' timers
+run during a call, still needs a check against a real 14c form.

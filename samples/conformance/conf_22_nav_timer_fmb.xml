@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="12.2.1.19.0" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CONF_22_NAV_TIMER" Title="Timer lifecycle across navigation (made up)">
+    <Block Name="T">
+      <Item Name="FIRED" ItemType="Text Item" DataType="Char"/>
+      <Item Name="STATE" ItemType="Text Item" DataType="Char"/>
+      <Item Name="BTN_START" ItemType="Push Button" Label="BTN_START">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="DECLARE t TIMER; BEGIN t := CREATE_TIMER('T_ONE', 30, NO_REPEAT); END;"/>
+      </Item>
+      <Item Name="BTN_RESTART" ItemType="Push Button" Label="BTN_RESTART">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN SET_TIMER('T_ONE', 30, NO_REPEAT); END;"/>
+      </Item>
+      <Item Name="BTN_FIND" ItemType="Push Button" Label="BTN_FIND">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN IF ID_NULL(FIND_TIMER('T_ONE')) THEN :T.STATE := 'gone'; ELSE :T.STATE := 'defined'; END IF; END;"/>
+      </Item>
+      <Item Name="BTN_CALL" ItemType="Push Button" Label="BTN_CALL">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="BEGIN CALL_FORM('conf_21_nav_peer'); END;"/>
+      </Item>
+    </Block>
+    <Trigger Name="WHEN-TIMER-EXPIRED" TriggerText="BEGIN :T.FIRED := :T.FIRED || 'x'; END;"/>
+  </FormModule>
+</Module>

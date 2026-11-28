@@ -11,7 +11,7 @@
 //!
 //! Purpose: Live stateful form runtime session manager.
 //! Key Input Dependencies: oracle_forms_core, oracle_forms_db, oracle_forms_runtime, serde, serde_json, tokio
-//! Index: FileOp, FileReply, file_op, sandbox_file_round_trip_goes_through_text_io_and_back, sandbox_file_api_rejects_traversal_oversize_and_unknown_files, new_form_on_a_clean_form_replaces_it_without_asking, new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps, new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form, new_form_full_rollback_discards_without_asking, close_form_of_a_clean_opened_form_closes_without_asking, close_form_with_changes_asks_and_honours_each_answer, dirty_root, host_with_dirty_peer, a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
+//! Index: timer_session, trace_has, one_shot_timer_fires_once_stays_defined_and_can_be_restarted, timers_of_a_suspended_caller_wait_for_the_called_form_to_exit, FileOp, FileReply, file_op, sandbox_file_round_trip_goes_through_text_io_and_back, sandbox_file_api_rejects_traversal_oversize_and_unknown_files, new_form_on_a_clean_form_replaces_it_without_asking, new_form_with_changes_asks_and_yes_saves_no_discards_cancel_keeps, new_form_yes_without_write_opt_in_fails_visibly_and_keeps_the_form, new_form_full_rollback_discards_without_asking, close_form_of_a_clean_opened_form_closes_without_asking, close_form_with_changes_asks_and_honours_each_answer, dirty_root, host_with_dirty_peer, a_called_form_whose_startup_fails_is_not_left_open_and_the_caller_sees_failure, an_opened_form_whose_startup_fails_is_removed_and_reported_to_the_opener, new_form_whose_startup_fails_keeps_the_issuing_form, session_mode_with_a_failing_connection_does_not_open_or_silently_share, session_mode_uses_the_second_connection_or_says_it_shares, host_session, lov_pauses_the_event_and_the_answer_fills_the_return_items, lov_cancel_leaves_values_and_other_answers_are_refused, timers_fire_after_startup_and_through_tick, startup_overrun_returns_error_and_other_sessions_still_start, await_reply, SessionEvent, Command, Shared, SessionHandle, SessionManager, StartOptions, Cursors, new_id, reap_idle, remove, get, start, send_event, answer_alert, state, run_event, snapshot, conformance, sqlite, alert_pauses_trigger_and_answer_resumes_it, read_only_session_refuses_commit_but_queries_run
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -1050,6 +1050,56 @@ mod tests {
             .unwrap();
         let id2 = other["sessionId"].as_str().unwrap().to_string();
         assert_eq!(mgr.file_op(&id2, FileOp::Get("big.bin".into()), None).await.unwrap_err().0, 404, "files are isolated per session");
+    }
+
+    async fn timer_session() -> (SessionManager, String) {
+        let mgr = SessionManager::default();
+        let state = mgr
+            .start(StartOptions { module: conformance("conf_22_nav_timer_fmb.xml"), libraries: vec![], missing_libraries: vec![], db: sqlite(), allow_writes: false, parameters: vec![], loader: Some(sample_loader()) })
+            .await
+            .unwrap();
+        (mgr, state["sessionId"].as_str().unwrap().to_string())
+    }
+
+    fn trace_has(state: &Value, needle: &str) -> bool {
+        state["trace"].as_array().map(|t| t.iter().any(|l| l.as_str() == Some(needle))).unwrap_or(false)
+    }
+
+    /// PINS CURRENT BEHAVIOUR (not verified against Forms 14c): a one-shot timer fires once, stays
+    /// defined (`FIND_TIMER` finds it) but inactive, and `SET_TIMER` restarts it.
+    #[tokio::test]
+    async fn one_shot_timer_fires_once_stays_defined_and_can_be_restarted() {
+        let (mgr, id) = timer_session().await;
+        let started = mgr.send_event(&id, press("T", "BTN_START")).await.unwrap();
+        assert!(started["nextTimerMs"].as_i64().unwrap() <= 30, "{started}");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let fired = mgr.tick(&id).await.unwrap();
+        assert_eq!(value(&fired, "T", "FIRED"), "x", "{fired}");
+        assert!(fired["nextTimerMs"].is_null(), "no longer pending");
+        let found = mgr.send_event(&id, press("T", "BTN_FIND")).await.unwrap();
+        assert_eq!(value(&found, "T", "STATE"), "defined", "the one-shot timer stays defined");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(value(&mgr.tick(&id).await.unwrap(), "T", "FIRED"), "x", "does not fire a second time");
+        mgr.send_event(&id, press("T", "BTN_RESTART")).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(value(&mgr.tick(&id).await.unwrap(), "T", "FIRED"), "xx", "SET_TIMER restarts it");
+    }
+
+    /// PINS CURRENT BEHAVIOUR (not verified against Forms 14c): while a `CALL_FORM` is active the
+    /// suspended caller's timers do not fire; they fire when control returns to the caller.
+    #[tokio::test]
+    async fn timers_of_a_suspended_caller_wait_for_the_called_form_to_exit() {
+        let (mgr, id) = timer_session().await;
+        mgr.send_event(&id, press("T", "BTN_START")).await.unwrap();
+        let called = mgr.send_event(&id, press("T", "BTN_CALL")).await.unwrap();
+        assert_eq!(called["formId"], 2, "{called}");
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let during = mgr.tick(&id).await.unwrap();
+        assert!(!trace_has(&during, "TIMER_EXPIRED: T_ONE"), "the suspended caller's timer must not fire: {during}");
+        let back = mgr.send_event_to(&id, press("E", "BTN_EXIT"), Some(2)).await.unwrap();
+        assert_eq!(back["formId"], 1);
+        assert_eq!(value(&back, "T", "FIRED"), "x", "fires once control is back: {back}");
+        assert!(trace_has(&back, "TIMER_EXPIRED: T_ONE"));
     }
 
     #[tokio::test]
